@@ -16,7 +16,7 @@ import { CreateHabitModal } from '../components/CreateHabitModal';
 import { HABIT_CATEGORIES } from '../constants/categories';
 
 export const TodayScreen = () => {
-  const { habits, toggleHabit, addHabit, todayDateStr, stats } = useHabits();
+  const { habits, toggleHabit, addHabit, todayDateStr, stats, triggerCelebration } = useHabits();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -64,7 +64,21 @@ export const TodayScreen = () => {
         </View>
 
         {/* Swiss Progress Dashboard Card */}
-        <View style={[styles.heroCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <TouchableOpacity
+          style={[
+            styles.heroCard,
+            {
+              backgroundColor: colors.card,
+              borderColor: stats.completionRate === 100 ? colors.accent : colors.border,
+            },
+          ]}
+          activeOpacity={stats.completionRate === 100 ? 0.75 : 1}
+          onPress={() => {
+            if (stats.completionRate === 100) {
+              triggerCelebration();
+            }
+          }}
+        >
           <View style={styles.heroHeader}>
             <View>
               <Text style={[styles.heroCategory, { color: colors.secondaryText }]}>DAILY RITUALS</Text>
@@ -93,10 +107,10 @@ export const TodayScreen = () => {
               <Text style={[styles.streakText, { color: colors.primaryText }]}>{stats.bestStreak} Day Best Streak</Text>
             </View>
             <Text style={[styles.quoteSubtext, { color: colors.mutedText }]}>
-              {stats.completionRate === 100 ? 'All done for today! 🎉' : 'Keep momentum going'}
+              {stats.completionRate === 100 ? 'All done! 🎉 Tap to celebrate' : 'Keep momentum going'}
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         {/* Filter Pills with Categories */}
         <ScrollView

@@ -28,6 +28,9 @@ interface HabitContextType {
   restartOnboarding: () => void;
   isLoadingData: boolean;
   exportDataJson: () => string;
+  isCelebrationVisible: boolean;
+  triggerCelebration: () => void;
+  dismissCelebration: () => void;
   stats: {
     completedToday: number;
     totalToday: number;
@@ -135,9 +138,13 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
   const [habits, setHabits] = useState<Habit[]>(INITIAL_HABITS);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean>(true);
   const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
+  const [isCelebrationVisible, setIsCelebrationVisible] = useState<boolean>(false);
   const isLoadedRef = useRef(false);
 
   const todayStr = getTodayString();
+
+  const triggerCelebration = () => setIsCelebrationVisible(true);
+  const dismissCelebration = () => setIsCelebrationVisible(false);
 
   // Load recorded data from persistent storage (and Supabase if configured)
   useEffect(() => {
@@ -278,6 +285,15 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       targetUpdatedHabit = updatedHabit;
       return updatedHabit;
     });
+
+    // Check if this action completed all habits scheduled for today
+    if (dateStr === todayStr && updated.length > 0) {
+      const wasAllDoneBefore = habits.every(h => h.completedDates.includes(todayStr));
+      const isAllDoneNow = updated.every(h => h.completedDates.includes(todayStr));
+      if (!wasAllDoneBefore && isAllDoneNow) {
+        setIsCelebrationVisible(true);
+      }
+    }
 
     saveHabits(updated);
 
@@ -432,6 +448,9 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
         restartOnboarding,
         isLoadingData,
         exportDataJson,
+        isCelebrationVisible,
+        triggerCelebration,
+        dismissCelebration,
         stats: {
           completedToday,
           totalToday,

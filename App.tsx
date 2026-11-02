@@ -11,12 +11,20 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import BottomTabNavigator from './src/navigation/BottomTabNavigator';
 import { OnboardingScreen } from './src/screens/onboarding/OnboardingScreen';
 import { AuthScreen } from './src/screens/AuthScreen';
+import { CelebrationOverlay } from './src/components/CelebrationOverlay';
 
 const queryClient = new QueryClient();
 
 function RootNavigator() {
   const { user, isGuest, isLoading: isAuthLoading } = useAuth();
-  const { hasCompletedOnboarding, completeOnboarding, isLoadingData } = useHabits();
+  const {
+    hasCompletedOnboarding,
+    completeOnboarding,
+    isLoadingData,
+    isCelebrationVisible,
+    dismissCelebration,
+    stats,
+  } = useHabits();
   const { isDark, colors } = useTheme();
 
   const baseTheme = isDark ? DarkTheme : DefaultTheme;
@@ -53,6 +61,11 @@ function RootNavigator() {
       ) : (
         <BottomTabNavigator />
       )}
+      <CelebrationOverlay
+        visible={isCelebrationVisible}
+        onDismiss={dismissCelebration}
+        totalHabits={stats.totalToday}
+      />
     </NavigationContainer>
   );
 }
