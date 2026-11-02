@@ -176,8 +176,23 @@ export const AuthScreen = () => {
           {/* Error Banner */}
           {errorMessage && (
             <View style={[styles.errorBanner, { backgroundColor: `${colors.error}15`, borderColor: `${colors.error}40` }]}>
-              <Ionicons name="alert-circle" size={18} color={colors.error} />
-              <Text style={[styles.errorText, { color: colors.error }]}>{errorMessage}</Text>
+              <Ionicons name="alert-circle" size={18} color={colors.error} style={{ marginTop: 2 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.errorText, { color: colors.error }]}>{errorMessage}</Text>
+                {authMode === 'signup' && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setAuthMode('signin');
+                      setErrorMessage(null);
+                    }}
+                    style={{ marginTop: 8 }}
+                  >
+                    <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 13, textDecorationLine: 'underline' }}>
+                      Switch to Sign In tab
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           )}
 

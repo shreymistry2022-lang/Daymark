@@ -142,6 +142,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         });
 
         if (error) {
+          const lower = error.message.toLowerCase();
+          if (lower.includes('email not confirmed')) {
+            return {
+              error:
+                'Email not confirmed yet! To log in instantly without email verification, turn OFF "Confirm email" in your Supabase Dashboard (Authentication -> Providers -> Email).',
+            };
+          }
           return { error: error.message };
         }
 
@@ -228,6 +235,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         });
 
         if (error) {
+          const lower = error.message.toLowerCase();
+          if (lower.includes('rate limit')) {
+            return {
+              error:
+                'Supabase email rate limit reached! To fix this immediately: Open your Supabase Dashboard -> Authentication -> Providers -> Email, and toggle OFF "Confirm email". If you already created an account, tap "Sign In" above!',
+            };
+          }
+          if (lower.includes('already registered')) {
+            return {
+              error:
+                'This email is already registered! Please switch to the "Sign In" tab above and enter your password.',
+            };
+          }
           return { error: error.message };
         }
 
