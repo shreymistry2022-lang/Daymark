@@ -144,6 +144,15 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     let isMounted = true;
 
     const loadData = async () => {
+      if (!user) {
+        if (isMounted) {
+          setHabits(INITIAL_HABITS);
+          setIsLoadingData(false);
+        }
+        await AsyncStorage.removeItem(STORAGE_KEYS.HABITS).catch(() => {});
+        return;
+      }
+
       try {
         // 1. First load local cache for instant UI
         const [savedHabitsJson, savedOnboarding] = await Promise.all([
@@ -184,9 +193,14 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
             setHabits(mapped);
             await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(mapped));
           } else if (!error && Array.isArray(cloudRows) && cloudRows.length === 0) {
-            // New cloud account: seed initial starter habits to Supabase
-            const starterPayload = INITIAL_HABITS.map(h => ({
-              id: `${h.id}_${Date.now()}`,
+            // New cloud account: seed initial starter habits with user-specific IDs to Supabase
+            const starterWithUserId: Habit[] = INITIAL_HABITS.map(h => ({
+              ...h,
+              id: `${user.id}_${h.id}`,
+            }));
+
+            const starterPayload = starterWithUserId.map(h => ({
+              id: h.id,
               user_id: user.id,
               name: h.name,
               category: h.category,
@@ -198,7 +212,14 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             }));
-            await supabase.from('habits').insert(starterPayload);
+
+            const { error: insertErr } = await supabase.from('habits').upsert(starterPayload);
+            if (!insertErr && isMounted) {
+              setHabits(starterWithUserId);
+              await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(starterWithUserId));
+            } else if (insertErr) {
+              console.warn('Failed to seed starter habits to Supabase:', insertErr.message);
+            }
           }
         }
       } catch (err) {
@@ -265,12 +286,18 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       const h: Habit = targetUpdatedHabit;
       supabase
         .from('habits')
-        .update({
-          completed_dates: h.completedDates,
+        .upsert({
+          id: h.id,
+          user_id: user.id,
+          name: h.name,
+          category: h.category,
+          color: h.color,
+          icon: h.icon,
           streak: h.streak,
+          completed_dates: h.completedDates,
+          target_frequency: h.targetFrequency,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', id)
         .then(({ error }) => {
           if (error) console.warn('Supabase toggleHabit sync warning:', error.message);
         });
@@ -278,9 +305,10 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addHabit = (newHabit: Omit<Habit, 'id' | 'streak' | 'completedDates'>) => {
+    const habitId = user && !user.isGuest ? `${user.id}_h_${Date.now()}` : `h_${Date.now()}`;
     const created: Habit = {
       ...newHabit,
-      id: `h_${Date.now()}`,
+      id: habitId,
       streak: 0,
       completedDates: [],
     };
@@ -291,7 +319,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     if (user && !user.isGuest && isSupabaseConfigured) {
       supabase
         .from('habits')
-        .insert({
+        .upsert({
           id: created.id,
           user_id: user.id,
           name: created.name,
@@ -311,9 +339,10 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addMultipleHabits = (newHabits: Omit<Habit, 'id' | 'streak' | 'completedDates'>[]) => {
+    const prefix = user && !user.isGuest ? `${user.id}_onboard_${Date.now()}` : `h_onboard_${Date.now()}`;
     const createdList: Habit[] = newHabits.map((h, i) => ({
       ...h,
-      id: `h_onboard_${Date.now()}_${i}`,
+      id: `${prefix}_${i}`,
       streak: 0,
       completedDates: [],
     }));
@@ -337,7 +366,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       }));
       supabase
         .from('habits')
-        .insert(payload)
+        .upsert(payload)
         .then(({ error }) => {
           if (error) console.warn('Supabase addMultipleHabits sync warning:', error.message);
         });
@@ -354,6 +383,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
         .from('habits')
         .delete()
         .eq('id', id)
+        .eq('user_id', user.id)
         .then(({ error }) => {
           if (error) console.warn('Supabase deleteHabit sync warning:', error.message);
         });

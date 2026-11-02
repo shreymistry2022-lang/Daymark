@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,7 +35,17 @@ export const ProfileScreen = () => {
     );
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' && window.confirm
+        ? window.confirm('Are you sure you want to sign out?')
+        : true;
+      if (confirmed) {
+        await signOut();
+      }
+      return;
+    }
+
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out? Your habits will remain safely stored on this device.',

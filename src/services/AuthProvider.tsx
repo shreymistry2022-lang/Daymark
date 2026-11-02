@@ -95,7 +95,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // Supabase auth subscription
     let subscription: { unsubscribe: () => void } | null = null;
     if (isSupabaseConfigured) {
-      const { data } = supabase.auth.onAuthStateChange((_event, sess) => {
+      const { data } = supabase.auth.onAuthStateChange((event, sess) => {
         if (!isMounted) return;
         setSession(sess);
         if (sess?.user) {
@@ -108,6 +108,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               'Daymark Member',
             isGuest: false,
           });
+          setIsGuest(false);
+        } else if (event === 'SIGNED_OUT' || !sess) {
+          setUser(null);
           setIsGuest(false);
         }
       });
@@ -228,7 +231,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           return { error: error.message };
         }
 
-        if (data.user) {
+        // If email confirmation is enabled in Supabase, data.session will be null
+        if (data.user && !data.session) {
+          return {
+            error:
+              'Account created! Please check your email to confirm your account (or in Supabase Dashboard -> Authentication -> Providers -> Email, turn OFF "Confirm email" to enable instant login).',
+          };
+        }
+
+        if (data.user && data.session) {
+          setSession(data.session);
           const appUser: AppUser = {
             id: data.user.id,
             email: data.user.email || trimmedEmail,
@@ -292,10 +304,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signOut = async () => {
     try {
       if (isSupabaseConfigured) {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut().catch(() => {});
       }
-      await AsyncStorage.removeItem(STORAGE_KEYS.LOCAL_USER);
-      await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.LOCAL_USER,
+        STORAGE_KEYS.GUEST_MODE,
+      ]);
     } catch (err) {
       console.error('Error during sign out:', err);
     } finally {
