@@ -17,16 +17,25 @@ import { useHabits, Habit } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
 import { CreateHabitModal } from '../components/CreateHabitModal';
 import { HABIT_CATEGORIES } from '../constants/categories';
+import { useSubscription } from '../services/SubscriptionProvider';
+import { canCreateHabit } from '../services/subscriptionEntitlements';
+import { PaywallModal } from '../components/PaywallModal';
 
 export const HabitsScreen = () => {
   const { habits, toggleHabit, addHabit, deleteHabit, todayDateStr } = useHabits();
   const { colors } = useTheme();
+  const { isPro } = useSubscription();
   const insets = useSafeAreaInsets();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedHabit, setSelectedHabit] = useState<Habit | null>(null);
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const requestCreateHabit = () => {
+    if (!canCreateHabit(habits.length, isPro)) setPaywallVisible(true);
+    else setCreateModalVisible(true);
+  };
 
   // Available categories: 'All' + all 14 standard categories
   const categoriesList = ['All', ...HABIT_CATEGORIES.map(c => c.name)];
@@ -69,7 +78,7 @@ export const HabitsScreen = () => {
           <TouchableOpacity
             style={[styles.newHabitBtn, { backgroundColor: colors.accent }]}
             activeOpacity={0.7}
-            onPress={() => setCreateModalVisible(true)}
+            onPress={requestCreateHabit}
           >
             <Ionicons name="add" size={20} color="#000" />
             <Text style={styles.newHabitBtnText}>New Habit</Text>
@@ -304,6 +313,7 @@ export const HabitsScreen = () => {
         onClose={() => setCreateModalVisible(false)}
         onAddHabit={addHabit}
       />
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </View>
   );
 };

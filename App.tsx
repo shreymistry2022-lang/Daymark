@@ -12,6 +12,7 @@ import BottomTabNavigator from './src/navigation/BottomTabNavigator';
 import { OnboardingScreen } from './src/screens/onboarding/OnboardingScreen';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { CelebrationOverlay } from './src/components/CelebrationOverlay';
+import { SubscriptionProvider } from './src/services/SubscriptionProvider';
 
 const queryClient = new QueryClient();
 
@@ -73,15 +74,17 @@ function RootNavigator() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <ThemeProvider>
-        <AuthProvider>
-          <HabitProvider>
-            <QueryClientProvider client={queryClient}>
-              <RootNavigator />
-            </QueryClientProvider>
-          </HabitProvider>
-        </AuthProvider>
-      </ThemeProvider>
+      <AuthProvider>
+        <SubscriptionProvider>
+          <ThemeProvider>
+            <HabitProvider>
+              <QueryClientProvider client={queryClient}>
+                <RootNavigator />
+              </QueryClientProvider>
+            </HabitProvider>
+          </ThemeProvider>
+        </SubscriptionProvider>
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }

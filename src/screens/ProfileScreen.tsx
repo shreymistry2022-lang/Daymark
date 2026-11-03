@@ -16,12 +16,17 @@ import { spacing, radii, THEME_OPTIONS } from '../theme/tokens';
 import { useHabits } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAuth } from '../services/AuthProvider';
+import { useSubscription } from '../services/SubscriptionProvider';
+import { canAccessFeature } from '../services/subscriptionEntitlements';
+import { PaywallModal } from '../components/PaywallModal';
 
 export const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const { habits, stats, restartOnboarding, exportDataJson } = useHabits();
   const { mode, setMode, colors } = useTheme();
   const { user, isGuest, signOut } = useAuth();
+  const { isPro } = useSubscription();
+  const [paywallVisible, setPaywallVisible] = useState(false);
 
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
@@ -146,7 +151,10 @@ export const ProfileScreen = () => {
                       backgroundColor: `${colors.accent}0D`,
                     },
                   ]}
-                  onPress={() => setMode(t.id)}
+                  onPress={() => {
+                    if (t.id === 'pure' && !canAccessFeature('premium_themes', isPro)) setPaywallVisible(true);
+                    else setMode(t.id);
+                  }}
                   activeOpacity={0.7}
                 >
                   <Ionicons
@@ -187,6 +195,12 @@ export const ProfileScreen = () => {
             })}
           </View>
         </View>
+
+        <TouchableOpacity style={[styles.actionButton, styles.proButton]} onPress={() => setPaywallVisible(true)} activeOpacity={0.75}>
+          <Ionicons name={isPro ? 'star' : 'sparkles'} size={20} color={isPro ? '#C8F169' : '#315CFF'} />
+          <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>{isPro ? 'Daymark Pro — Manage plan' : 'Explore Daymark Pro'}</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.secondaryText} />
+        </TouchableOpacity>
 
         {/* Notifications & Toggles */}
         <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -261,6 +275,7 @@ export const ProfileScreen = () => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </View>
   );
 };
@@ -439,6 +454,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing.lg,
     borderBottomWidth: 1,
+  },
+  proButton: {
+    backgroundColor: '#171920',
+    borderColor: '#363944',
+    borderWidth: 1,
+    borderRadius: radii.lg,
+    marginTop: spacing.md,
   },
   actionButtonText: {
     flex: 1,

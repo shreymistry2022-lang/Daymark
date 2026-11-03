@@ -12,13 +12,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii } from '../theme/tokens';
 import { useHabits } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
+import { useSubscription } from '../services/SubscriptionProvider';
+import { canAccessFeature } from '../services/subscriptionEntitlements';
+import { PaywallModal } from '../components/PaywallModal';
 
 export const InsightsScreen = () => {
   const insets = useSafeAreaInsets();
   const { habits, stats } = useHabits();
   const { colors, isDark } = useTheme();
+  const { isPro } = useSubscription();
 
   const [timeRange, setTimeRange] = useState<'7D' | '30D' | '90D' | 'ALL'>('7D');
+  const [paywallVisible, setPaywallVisible] = useState(false);
 
   const timeRanges: ('7D' | '30D' | '90D' | 'ALL')[] = ['7D', '30D', '90D', 'ALL'];
 
@@ -92,7 +97,10 @@ export const InsightsScreen = () => {
                   styles.tabButton,
                   isActive && { backgroundColor: isDark ? colors.elevatedCard : colors.secondaryBackground },
                 ]}
-                onPress={() => setTimeRange(tab)}
+                onPress={() => {
+                  if ((tab === '90D' || tab === 'ALL') && !canAccessFeature('advanced_analytics', isPro)) setPaywallVisible(true);
+                  else setTimeRange(tab);
+                }}
                 activeOpacity={0.7}
               >
                 <Text
@@ -227,6 +235,7 @@ export const InsightsScreen = () => {
           </View>
         </View>
       </ScrollView>
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </View>
   );
 };

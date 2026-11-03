@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ThemeMode, ThemePalette, THEME_PALETTES } from './tokens';
+import { useSubscription } from '../services/SubscriptionProvider';
 
 type ThemeContextType = {
   mode: ThemeMode;
@@ -22,31 +23,43 @@ export const useTheme = () => {
 };
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
+  const { isPro, isLoading: isSubscriptionLoading } = useSubscription();
   const [mode, setModeState] = useState<ThemeMode>('midnight');
 
   useEffect(() => {
+    if (isSubscriptionLoading) return;
     AsyncStorage.getItem(THEME_STORAGE_KEY)
       .then(savedMode => {
         if (savedMode && (savedMode === 'midnight' || savedMode === 'pure' || savedMode === 'light')) {
-          setModeState(savedMode as ThemeMode);
+          const allowedMode = savedMode === 'pure' && !isPro ? 'midnight' : savedMode as ThemeMode;
+          setModeState(allowedMode);
+          if (allowedMode !== savedMode) AsyncStorage.setItem(THEME_STORAGE_KEY, allowedMode).catch(() => {});
         }
       })
       .catch(err => {
         console.error('Failed to load theme preference:', err);
       });
-  }, []);
+  }, [isPro, isSubscriptionLoading]);
+
+  useEffect(() => {
+    if (!isSubscriptionLoading && !isPro && mode === 'pure') {
+      AsyncStorage.setItem(THEME_STORAGE_KEY, 'midnight').catch(() => {});
+    }
+  }, [isPro, isSubscriptionLoading, mode]);
 
   const setMode = (newMode: ThemeMode) => {
+    if (newMode === 'pure' && !isPro) return;
     setModeState(newMode);
     AsyncStorage.setItem(THEME_STORAGE_KEY, newMode).catch(() => {});
   };
 
-  const currentColors = THEME_PALETTES[mode] || THEME_PALETTES.midnight;
+  const effectiveMode = mode === 'pure' && !isPro ? 'midnight' : mode;
+  const currentColors = THEME_PALETTES[effectiveMode] || THEME_PALETTES.midnight;
 
   return (
     <ThemeContext.Provider
       value={{
-        mode,
+        mode: effectiveMode,
         setMode,
         colors: currentColors,
         isDark: currentColors.isDark,

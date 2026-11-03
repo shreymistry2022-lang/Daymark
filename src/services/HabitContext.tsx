@@ -4,6 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { useAuth } from './AuthProvider';
+import { canCreateHabit } from './subscriptionEntitlements';
+import { useSubscription } from './SubscriptionProvider';
 
 export interface Habit {
   id: string;
@@ -116,26 +118,6 @@ const INITIAL_HABITS: Habit[] = [
     completedDates: generatePastDates(12, false),
     targetFrequency: 'Daily',
   },
-  {
-    id: 'h6',
-    name: 'Evening Wind-down (No Screens)',
-    category: 'Night Routine',
-    color: '#6366F1',
-    icon: 'moon-outline',
-    streak: 9,
-    completedDates: generatePastDates(9, false),
-    targetFrequency: 'Daily',
-  },
-  {
-    id: 'h7',
-    name: 'Track Daily Expenses',
-    category: 'Finance & Wealth',
-    color: '#F59E0B',
-    icon: 'wallet-outline',
-    streak: 15,
-    completedDates: generatePastDates(15, true),
-    targetFrequency: 'Daily',
-  },
 ];
 
 const HabitContext = createContext<HabitContextType | undefined>(undefined);
@@ -150,6 +132,7 @@ export const useHabits = () => {
 
 export const HabitProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
+  const { isPro } = useSubscription();
   const [habits, setHabits] = useState<Habit[]>(INITIAL_HABITS);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean>(true);
   const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
@@ -379,6 +362,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addHabit = (newHabit: Omit<Habit, 'id' | 'streak' | 'completedDates'>) => {
+    if (!canCreateHabit(habits.length, isPro)) return;
     const habitId = user && !user.isGuest ? `${user.id}_h_${Date.now()}` : `h_${Date.now()}`;
     const created: Habit = {
       ...newHabit,
@@ -413,8 +397,11 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addMultipleHabits = (newHabits: Omit<Habit, 'id' | 'streak' | 'completedDates'>[]) => {
+    const allowedCount = isPro ? newHabits.length : Math.max(0, 5 - habits.length);
+    if (allowedCount === 0) return;
+    const habitsToCreate = newHabits.slice(0, allowedCount);
     const prefix = user && !user.isGuest ? `${user.id}_onboard_${Date.now()}` : `h_onboard_${Date.now()}`;
-    const createdList: Habit[] = newHabits.map((h, i) => ({
+    const createdList: Habit[] = habitsToCreate.map((h, i) => ({
       ...h,
       id: `${prefix}_${i}`,
       streak: 0,

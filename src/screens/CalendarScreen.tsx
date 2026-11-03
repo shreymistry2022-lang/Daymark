@@ -12,6 +12,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii } from '../theme/tokens';
 import { useHabits } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
+import { useSubscription } from '../services/SubscriptionProvider';
+import { canAccessFeature } from '../services/subscriptionEntitlements';
+import { PaywallModal } from '../components/PaywallModal';
 
 interface HeatmapTheme {
   name: string;
@@ -63,12 +66,15 @@ export const CalendarScreen = () => {
   const insets = useSafeAreaInsets();
   const { habits, toggleHabit } = useHabits();
   const { colors, isDark } = useTheme();
+  const { isPro } = useSubscription();
 
   const today = new Date();
   const [currentYear, setCurrentYear] = useState<number>(today.getFullYear());
   const [currentMonthIndex, setCurrentMonthIndex] = useState<number>(today.getMonth());
   const [selectedDay, setSelectedDay] = useState<number>(today.getDate());
   const [activeThemeKey, setActiveThemeKey] = useState<string>('tangerine');
+  const [showYearOverview, setShowYearOverview] = useState(false);
+  const [paywallVisible, setPaywallVisible] = useState(false);
 
   const activeTheme = HEATMAP_THEMES[activeThemeKey] || HEATMAP_THEMES.tangerine;
 
@@ -78,6 +84,14 @@ export const CalendarScreen = () => {
   // Days in selected month
   const daysInMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const yearDays = Array.from({ length: new Date(currentYear, 2, 0).getDate() === 29 ? 366 : 365 }, (_, index) => {
+    const date = new Date(currentYear, 0, index + 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  });
+  const yearStartOffset = (new Date(currentYear, 0, 1).getDay() + 6) % 7;
+  const paddedYearDays: (string | null)[] = [...Array(yearStartOffset).fill(null), ...yearDays];
+  while (paddedYearDays.length % 7 !== 0) paddedYearDays.push(null);
+  const yearWeeks = Array.from({ length: paddedYearDays.length / 7 }, (_, index) => paddedYearDays.slice(index * 7, index * 7 + 7));
   const firstDayOfWeek = (new Date(currentYear, currentMonthIndex, 1).getDay() + 6) % 7; // Monday = 0, Sunday = 6
 
   const safeSelectedDay = Math.min(selectedDay, daysInMonth);
@@ -141,6 +155,37 @@ export const CalendarScreen = () => {
           <Text style={[styles.title, { color: colors.primaryText }]}>Calendar</Text>
         </View>
 
+        <TouchableOpacity
+          style={[styles.yearToggle, { backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={() => {
+            if (!canAccessFeature('yearly_heatmap', isPro)) setPaywallVisible(true);
+            else setShowYearOverview(value => !value);
+          }}
+          activeOpacity={0.75}
+        >
+          <Ionicons name="grid-outline" size={18} color={colors.accent} />
+          <Text style={[styles.yearToggleText, { color: colors.primaryText }]}>{showYearOverview ? 'Hide' : 'View'} {currentYear} Pro overview</Text>
+          {!isPro ? <Ionicons name="lock-closed" size={15} color={colors.secondaryText} /> : null}
+        </TouchableOpacity>
+
+        {showYearOverview ? (
+          <View style={[styles.yearCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.yearTitle, { color: colors.primaryText }]}>{currentYear} activity</Text>
+            <Text style={[styles.yearCaption, { color: colors.secondaryText }]}>Every day of the year, based on completed habits.</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.yearGrid}>
+              {yearWeeks.map((week, weekIndex) => (
+                <View key={weekIndex} style={styles.yearWeek}>
+                  {week.map((date, dayIndex) => {
+                    const count = date ? habits.filter(habit => habit.completedDates.includes(date)).length : 0;
+                    const intensity = count === 0 ? 0 : count <= 2 ? 1 : count <= 4 ? 2 : 3;
+                    return <View key={`${weekIndex}-${dayIndex}`} style={[styles.yearSquare, { backgroundColor: date ? getIntensityColor(intensity) : 'transparent' }]} />;
+                  })}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
         {/* Month Navigation */}
         <View style={[styles.monthNav, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <TouchableOpacity
@@ -184,7 +229,10 @@ export const CalendarScreen = () => {
                     isActive && { backgroundColor: `${th.primary}18` },
                   ]}
                   activeOpacity={0.7}
-                  onPress={() => setActiveThemeKey(th.key)}
+                  onPress={() => {
+                    if (th.key !== 'tangerine' && !canAccessFeature('premium_themes', isPro)) setPaywallVisible(true);
+                    else setActiveThemeKey(th.key);
+                  }}
                 >
                   <View style={[styles.paletteDot, { backgroundColor: th.primary }]}>
                     {isActive && <Ionicons name="checkmark" size={10} color="#000" />}
@@ -309,6 +357,7 @@ export const CalendarScreen = () => {
           </View>
         </View>
       </ScrollView>
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </View>
   );
 };
@@ -320,6 +369,22 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: spacing.lg,
   },
+  yearToggle: {
+    borderWidth: 1,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  yearToggleText: { flex: 1, fontSize: 13, fontWeight: '700' },
+  yearCard: { borderRadius: radii.lg, borderWidth: 1, padding: spacing.md, marginBottom: spacing.lg },
+  yearTitle: { fontSize: 16, fontWeight: '800' },
+  yearCaption: { fontSize: 12, marginTop: 3, marginBottom: spacing.md },
+  yearGrid: { gap: 3 },
+  yearWeek: { gap: 3 },
+  yearSquare: { width: 9, height: 9, borderRadius: 2 },
   header: {
     marginTop: spacing.md,
     marginBottom: spacing.lg,

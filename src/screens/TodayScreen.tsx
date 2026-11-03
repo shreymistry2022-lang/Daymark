@@ -14,15 +14,24 @@ import { useHabits } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
 import { CreateHabitModal } from '../components/CreateHabitModal';
 import { HABIT_CATEGORIES } from '../constants/categories';
+import { useSubscription } from '../services/SubscriptionProvider';
+import { canCreateHabit } from '../services/subscriptionEntitlements';
+import { PaywallModal } from '../components/PaywallModal';
 
 export const TodayScreen = () => {
   const { habits, toggleHabit, addHabit, todayDateStr, stats, triggerCelebration } = useHabits();
   const { colors } = useTheme();
+  const { isPro } = useSubscription();
   const insets = useSafeAreaInsets();
 
   // Filter state
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const requestCreateHabit = () => {
+    if (!canCreateHabit(habits.length, isPro)) setPaywallVisible(true);
+    else setCreateModalVisible(true);
+  };
 
   // Extract unique active categories from existing habits plus popular ones
   const availableCategories = [
@@ -56,7 +65,7 @@ export const TodayScreen = () => {
           <TouchableOpacity
             style={[styles.addButton, { backgroundColor: colors.accent }]}
             activeOpacity={0.7}
-            onPress={() => setCreateModalVisible(true)}
+            onPress={requestCreateHabit}
           >
             <Ionicons name="add" size={20} color="#000" />
             <Text style={styles.addButtonText}>New Habit</Text>
@@ -249,7 +258,7 @@ export const TodayScreen = () => {
       <TouchableOpacity
         style={[styles.fab, { backgroundColor: colors.accent, bottom: insets.bottom + 80 }]}
         activeOpacity={0.8}
-        onPress={() => setCreateModalVisible(true)}
+        onPress={requestCreateHabit}
       >
         <Ionicons name="add" size={28} color="#000" />
       </TouchableOpacity>
@@ -260,6 +269,7 @@ export const TodayScreen = () => {
         onClose={() => setCreateModalVisible(false)}
         onAddHabit={addHabit}
       />
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </View>
   );
 };
