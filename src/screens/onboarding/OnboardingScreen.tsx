@@ -31,41 +31,18 @@ const GOALS = [
 ];
 
 const SUGGESTED_HABITS: Omit<Habit, 'id' | 'streak' | 'completedDates'>[] = [
-  {
-    name: 'Morning Sunlight & 15m Walk',
-    category: 'Morning Routine',
-    color: '#FF7A00',
-    icon: 'sunny-outline',
-    targetFrequency: 'Daily',
-  },
-  {
-    name: 'Drink 2.5L Filtered Water',
-    category: 'Nutrition & Water',
-    color: '#06B6D4',
-    icon: 'water-outline',
-    targetFrequency: 'Daily',
-  },
-  {
-    name: 'Read 20 Pages Non-Fiction',
-    category: 'Learning & Reading',
-    color: '#8B5CF6',
-    icon: 'book-outline',
-    targetFrequency: 'Daily',
-  },
-  {
-    name: 'Deep Work Block (90 mins)',
-    category: 'Focus & Career',
-    color: '#3B82F6',
-    icon: 'briefcase-outline',
-    targetFrequency: 'Weekdays',
-  },
-  {
-    name: 'Night Wind-down (No Screens)',
-    category: 'Night Routine',
-    color: '#6366F1',
-    icon: 'moon-outline',
-    targetFrequency: 'Daily',
-  },
+  { name: 'Drink Water', category: 'Nutrition & Water', color: '#06B6D4', icon: 'water-outline', targetFrequency: 'Daily', trackingMethod: 'count', targetValue: 8, unit: 'glasses' },
+  { name: 'Exercise', category: 'Fitness & Movement', color: '#10B981', icon: 'fitness-outline', targetFrequency: 'Weekdays' },
+  { name: 'Sleep 8 Hours', category: 'Sleep & Recovery', color: '#6366F1', icon: 'moon-outline', targetFrequency: 'Daily', trackingMethod: 'count', targetValue: 8, unit: 'hours' },
+  { name: 'Deep Work', category: 'Focus & Career', color: '#3B82F6', icon: 'briefcase-outline', targetFrequency: 'Weekdays' },
+  { name: 'Plan the Day', category: 'Productivity', color: '#F59E0B', icon: 'calendar-outline', targetFrequency: 'Weekdays' },
+  { name: 'Learn Something New', category: 'Learning & Reading', color: '#8B5CF6', icon: 'school-outline', targetFrequency: 'Daily' },
+  { name: 'Meditation', category: 'Mindfulness', color: '#EC4899', icon: 'flower-outline', targetFrequency: 'Daily' },
+  { name: 'Journaling', category: 'Mindfulness', color: '#EC4899', icon: 'journal-outline', targetFrequency: 'Daily' },
+  { name: 'Gratitude', category: 'Mindfulness', color: '#F43F5E', icon: 'heart-outline', targetFrequency: 'Daily' },
+  { name: 'Read 20 Pages', category: 'Learning & Reading', color: '#8B5CF6', icon: 'book-outline', targetFrequency: 'Daily', trackingMethod: 'measurable', targetValue: 20, unit: 'pages' },
+  { name: 'Learn a Language', category: 'Learning & Reading', color: '#06B6D4', icon: 'chatbubble-ellipses-outline', targetFrequency: 'Daily' },
+  { name: 'Practice a Skill', category: 'Learning & Reading', color: '#3B82F6', icon: 'construct-outline', targetFrequency: 'Daily' },
 ];
 
 export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {

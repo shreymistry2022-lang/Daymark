@@ -1,5 +1,5 @@
 // src/theme/tokens.ts
-export type ThemeMode = 'midnight' | 'pure' | 'light';
+export type ThemeMode = 'automatic' | 'midnight' | 'pure' | 'light';
 
 export interface ThemePalette {
   background: string;
@@ -16,7 +16,7 @@ export interface ThemePalette {
   isDark: boolean;
 }
 
-export const THEME_PALETTES: Record<ThemeMode, ThemePalette> = {
+export const THEME_PALETTES: Record<Exclude<ThemeMode, 'automatic'>, ThemePalette> = {
   midnight: {
     background: '#0D0E12',
     secondaryBackground: '#14161D',
@@ -74,6 +74,13 @@ export interface ThemeOptionDef {
 }
 
 export const THEME_OPTIONS: ThemeOptionDef[] = [
+  {
+    id: 'automatic',
+    label: 'Automatic',
+    desc: 'Follow your device appearance',
+    accentLabel: '#4169E1',
+    preview: { bg: '#0D0E12', card: '#1A1D26', accent: '#4169E1' },
+  },
   {
     id: 'midnight',
     label: 'Midnight Obsidian',

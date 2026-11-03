@@ -1,5 +1,5 @@
 // src/screens/TodayScreen.tsx
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -17,12 +17,29 @@ import { HABIT_CATEGORIES } from '../constants/categories';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canCreateHabit } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
+import { HabitTrackingControl } from '../components/HabitTrackingControl';
+import * as Haptics from 'expo-haptics';
+import { usePreferences } from '../services/PreferencesContext';
+import { formatAppDate, getWeekDates } from '../domain/preferencesEngine';
+import { getHabitDayStatus, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
+import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../services/AuthProvider';
 
 export const TodayScreen = () => {
-  const { habits, toggleHabit, addHabit, todayDateStr, stats, triggerCelebration } = useHabits();
+  const { habits, toggleHabit, recordHabitLog, addHabit, moveHabit, todayDateStr, stats, triggerCelebration } = useHabits();
   const { colors } = useTheme();
   const { isPro } = useSubscription();
+  const { preferences } = usePreferences();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<any>();
+  const [inspectedDate, setInspectedDate] = useState<string | null>(null);
+  const weekDates = useMemo(() => getWeekDates(todayDateStr, preferences.weekStart), [todayDateStr, preferences.weekStart]);
+  const selectedDate = inspectedDate && weekDates.includes(inspectedDate) ? inspectedDate : todayDateStr;
+  const dateReference = parseLocalDate(todayDateStr) ?? new Date();
+  const todaysHabits = habits.filter(habit => isTrackableOnDate(habit, selectedDate, dateReference));
+  const selectedCompleted = todaysHabits.filter(habit => getHabitDayStatus(habit, selectedDate, dateReference) === 'completed').length;
+  const selectedCompletionRate = todaysHabits.length ? Math.round(selectedCompleted / todaysHabits.length * 100) : 0;
 
   // Filter state
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
@@ -36,19 +53,17 @@ export const TodayScreen = () => {
   // Extract unique active categories from existing habits plus popular ones
   const availableCategories = [
     'All',
-    ...Array.from(new Set(habits.map(h => h.category))),
+    ...Array.from(new Set(todaysHabits.map(h => h.category))),
   ];
 
-  const filteredHabits = habits.filter(h => {
+  const filteredHabits = todaysHabits.filter(h => {
     if (selectedCategory === 'All') return true;
     return h.category === selectedCategory;
   });
 
-  const currentDateFormatted = new Date().toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  }).toUpperCase();
+  const currentDateFormatted = formatAppDate(new Date(`${selectedDate}T12:00:00Z`), preferences.dateFormat, preferences.timezone).toUpperCase();
+  const currentHour = Number(new Intl.DateTimeFormat('en', { hour: '2-digit', hour12: false, timeZone: preferences.timezone }).format(new Date()));
+  const greeting = currentHour < 12 ? 'Good morning' : currentHour < 18 ? 'Good afternoon' : 'Good evening';
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -60,30 +75,41 @@ export const TodayScreen = () => {
         <View style={styles.topBar}>
           <View>
             <Text style={[styles.dateLabel, { color: colors.accent }]}>{currentDateFormatted}</Text>
-            <Text style={[styles.mainTitle, { color: colors.primaryText }]}>Today&apos;s Focus</Text>
+            <Text style={[styles.mainTitle, { color: colors.primaryText }]}>{selectedDate === todayDateStr ? 'Today’s Focus' : 'Day Review'}</Text>
+            {user?.fullName ? <Text style={[styles.greeting, { color: colors.secondaryText }]}>{greeting}, {user.fullName.split(' ')[0]}</Text> : null}
           </View>
-          <TouchableOpacity
-            style={[styles.addButton, { backgroundColor: colors.accent }]}
-            activeOpacity={0.7}
-            onPress={requestCreateHabit}
-          >
-            <Ionicons name="add" size={20} color="#000" />
-            <Text style={styles.addButtonText}>New Habit</Text>
-          </TouchableOpacity>
+          <View style={styles.topActions}>
+            <View style={styles.iconActions}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open notification preferences" onPress={() => navigation.navigate('Profile', { openPreferences: true })} style={styles.topIconButton}><Ionicons name="notifications-outline" size={20} color={colors.primaryText} /></TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile" onPress={() => navigation.navigate('Profile')} style={styles.topIconButton}><Ionicons name="person-circle-outline" size={23} color={colors.primaryText} /></TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Create a new habit"
+              style={[styles.addButton, { backgroundColor: colors.accent }]}
+              activeOpacity={0.7}
+              onPress={requestCreateHabit}
+            >
+              <Ionicons name="add" size={20} color="#000" />
+              <Text style={styles.addButtonText}>New Habit</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Swiss Progress Dashboard Card */}
         <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={`${selectedCompletionRate}% complete${selectedDate === todayDateStr ? ', tap to celebrate when all habits are done' : ''}`}
           style={[
             styles.heroCard,
             {
               backgroundColor: colors.card,
-              borderColor: stats.completionRate === 100 ? colors.accent : colors.border,
+              borderColor: selectedCompletionRate === 100 ? colors.accent : colors.border,
             },
           ]}
-          activeOpacity={stats.completionRate === 100 ? 0.75 : 1}
+          activeOpacity={selectedCompletionRate === 100 ? 0.75 : 1}
           onPress={() => {
-            if (stats.completionRate === 100) {
+            if (selectedDate === todayDateStr && selectedCompletionRate === 100 && todaysHabits.length > 0) {
               triggerCelebration();
             }
           }}
@@ -92,11 +118,11 @@ export const TodayScreen = () => {
             <View>
               <Text style={[styles.heroCategory, { color: colors.secondaryText }]}>DAILY RITUALS</Text>
               <Text style={[styles.heroStats, { color: colors.primaryText }]}>
-                {stats.completedToday} of {stats.totalToday} completed
+                {todaysHabits.length > 0 ? `${selectedCompleted} of ${todaysHabits.length} completed` : 'No habits scheduled this day'}
               </Text>
             </View>
             <View style={[styles.percentageBadge, { backgroundColor: `${colors.accent}18` }]}>
-              <Text style={[styles.percentageText, { color: colors.accent }]}>{stats.completionRate}%</Text>
+              <Text style={[styles.percentageText, { color: colors.accent }]}>{selectedCompletionRate}%</Text>
             </View>
           </View>
 
@@ -105,7 +131,7 @@ export const TodayScreen = () => {
             <View
               style={[
                 styles.progressBar,
-                { width: `${Math.max(5, stats.completionRate)}%`, backgroundColor: colors.accent },
+                { width: `${Math.max(5, selectedCompletionRate)}%`, backgroundColor: colors.accent },
               ]}
             />
           </View>
@@ -116,10 +142,33 @@ export const TodayScreen = () => {
               <Text style={[styles.streakText, { color: colors.primaryText }]}>{stats.bestStreak} Day Best Streak</Text>
             </View>
             <Text style={[styles.quoteSubtext, { color: colors.mutedText }]}>
-              {stats.completionRate === 100 ? 'All done! 🎉 Tap to celebrate' : 'Keep momentum going'}
+              {selectedDate === todayDateStr ? (selectedCompletionRate === 100 && todaysHabits.length > 0 ? 'All done! 🎉 Tap to celebrate' : `${Math.max(0, todaysHabits.length - selectedCompleted)} remaining today`) : `${selectedCompleted} completed · ${Math.max(0, todaysHabits.length - selectedCompleted)} missed or unfinished`}
             </Text>
           </View>
         </TouchableOpacity>
+
+        <View style={[styles.weekCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.weekHeader}>
+            <Text style={[styles.weekTitle, { color: colors.primaryText }]}>{selectedDate === todayDateStr ? 'THIS WEEK' : 'REVIEWING A PAST DAY'}</Text>
+            {selectedDate !== todayDateStr && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Return to today" onPress={() => setInspectedDate(null)} style={styles.todayLink}><Text style={{ color: colors.accent, fontWeight: '700' }}>Today</Text></TouchableOpacity>}
+          </View>
+          <View style={styles.weekRow}>
+            {weekDates.map(date => {
+              const isFuture = date > todayDateStr;
+              const parsed = parseLocalDate(date)!;
+              const weekday = new Intl.DateTimeFormat('en', { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
+              const completed = habits.filter(habit => getHabitDayStatus(habit, date, dateReference) === 'completed').length;
+              const hasMissed = habits.some(habit => getHabitDayStatus(habit, date, dateReference) === 'missed');
+              const active = date === selectedDate;
+              return <TouchableOpacity key={date} accessibilityRole="button" accessibilityLabel={`${weekday}, ${parsed.getDate()}${date === todayDateStr ? ', today' : ''}${isFuture ? ', unavailable' : `, ${completed} completed${hasMissed ? ', missed habits' : ''}`}`} accessibilityState={{ selected: active, disabled: isFuture }} disabled={isFuture} onPress={() => setInspectedDate(date)} style={[styles.weekDay, { backgroundColor: active ? colors.accent : colors.secondaryBackground, opacity: isFuture ? 0.45 : 1 }]}>
+                <Text style={[styles.weekdayLabel, { color: active ? '#000' : colors.mutedText }]}>{weekday}</Text>
+                <Text style={[styles.weekdayDate, { color: active ? '#000' : colors.primaryText }]}>{parsed.getDate()}</Text>
+                <View style={[styles.weekDot, { backgroundColor: active ? '#000' : completed > 0 ? colors.accent : hasMissed ? colors.error : colors.border }]} />
+              </TouchableOpacity>;
+            })}
+          </View>
+          {selectedDate !== todayDateStr && <Text style={[styles.reviewHint, { color: colors.secondaryText }]}>You can correct this day’s habit entries. Future days are unavailable.</Text>}
+        </View>
 
         {/* Filter Pills with Categories */}
         <ScrollView
@@ -175,10 +224,10 @@ export const TodayScreen = () => {
             </TouchableOpacity>
           </View>
 
-          {filteredHabits.map(habit => {
-            const isCompleted = habit.completedDates.includes(todayDateStr);
+          {filteredHabits.map((habit, habitIndex) => {
+            const isCompleted = habit.completedDates.includes(selectedDate);
             return (
-              <TouchableOpacity
+              <View
                 key={habit.id}
                 style={[
                   styles.habitCard,
@@ -187,8 +236,6 @@ export const TodayScreen = () => {
                     borderColor: isCompleted ? `${colors.accent}40` : colors.border,
                   },
                 ]}
-                activeOpacity={0.8}
-                onPress={() => toggleHabit(habit.id)}
               >
                 <View
                   style={[
@@ -199,7 +246,7 @@ export const TodayScreen = () => {
                   <Ionicons name={habit.icon} size={22} color={habit.color} />
                 </View>
 
-                <View style={styles.habitMeta}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${habit.name} details`} style={styles.habitMeta} onPress={() => navigation.navigate('Habits', { focusHabitId: habit.id })}>
                   <Text
                     style={[
                       styles.habitTitle,
@@ -217,10 +264,14 @@ export const TodayScreen = () => {
                     <Text style={[styles.tagDivider, { color: colors.mutedText }]}>•</Text>
                     <Text style={[styles.freqTag, { color: colors.mutedText }]}>{habit.targetFrequency}</Text>
                   </View>
-                </View>
+                </TouchableOpacity>
 
                 {/* Big Interactive Checkbox */}
-                <TouchableOpacity
+                {habit.habitKind === 'quit' || habit.trackingMethod === 'count' || habit.trackingMethod === 'measurable' ? (
+                  <HabitTrackingControl key={`${habit.id}-${selectedDate}-${habit.logs?.find(log => log.date === selectedDate)?.value ?? 0}-${habit.logs?.find(log => log.date === selectedDate)?.outcome ?? ''}`} habit={habit} date={selectedDate} onSave={recordHabitLog} />
+                ) : <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={`${habit.completedDates.includes(selectedDate) ? 'Undo' : 'Complete'} ${habit.name} for ${selectedDate}`}
                   style={[
                     styles.checkbox,
                     {
@@ -229,20 +280,24 @@ export const TodayScreen = () => {
                     },
                   ]}
                   activeOpacity={0.6}
-                  onPress={() => toggleHabit(habit.id)}
+                  onPress={() => { toggleHabit(habit.id, selectedDate); if (preferences.hapticsEnabled) void Haptics.selectionAsync().catch(() => {}); }}
                 >
                   {isCompleted && (
                     <Ionicons name="checkmark" size={18} color="#000" />
                   )}
-                </TouchableOpacity>
-              </TouchableOpacity>
+                </TouchableOpacity>}
+                {preferences.dashboardSort === 'custom' && selectedCategory === 'All' && <View style={styles.reorderControls}>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Move ${habit.name} up`} accessibilityState={{ disabled: habitIndex === 0 }} disabled={habitIndex === 0} onPress={() => moveHabit(habit.id, filteredHabits[habitIndex - 1]?.id ?? '')} style={styles.reorderButton}><Ionicons name="chevron-up" size={18} color={habitIndex === 0 ? colors.mutedText : colors.secondaryText} /></TouchableOpacity>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Move ${habit.name} down`} accessibilityState={{ disabled: habitIndex === filteredHabits.length - 1 }} disabled={habitIndex === filteredHabits.length - 1} onPress={() => moveHabit(habit.id, filteredHabits[habitIndex + 1]?.id ?? '')} style={styles.reorderButton}><Ionicons name="chevron-down" size={18} color={habitIndex === filteredHabits.length - 1 ? colors.mutedText : colors.secondaryText} /></TouchableOpacity>
+                </View>}
+              </View>
             );
           })}
 
           {filteredHabits.length === 0 && (
             <View style={styles.emptyState}>
               <Ionicons name="leaf-outline" size={40} color={colors.secondaryText} />
-              <Text style={[styles.emptyTitle, { color: colors.primaryText }]}>No habits found</Text>
+              <Text style={[styles.emptyTitle, { color: colors.primaryText }]}>{selectedDate === todayDateStr ? 'No habits scheduled today' : 'No habits scheduled this day'}</Text>
               <TouchableOpacity
                 style={[styles.emptyButton, { backgroundColor: colors.card, borderColor: colors.accent }]}
                 onPress={() => setCreateModalVisible(true)}
@@ -264,11 +319,11 @@ export const TodayScreen = () => {
       </TouchableOpacity>
 
       {/* 14 Categories Creation Modal */}
-      <CreateHabitModal
+      {createModalVisible && <CreateHabitModal
         visible={createModalVisible}
         onClose={() => setCreateModalVisible(false)}
         onAddHabit={addHabit}
-      />
+      />}
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </View>
   );
@@ -293,6 +348,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1.5,
   },
+  greeting: { fontSize: 13, fontWeight: '600', marginTop: 5 },
+  topActions: { alignItems: 'flex-end', gap: 8 },
+  iconActions: { flexDirection: 'row', gap: 2 },
+  topIconButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   mainTitle: {
     fontSize: 32,
     fontWeight: '800',
@@ -318,6 +377,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: spacing.lg,
   },
+  weekCard: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, marginBottom: spacing.lg },
+  weekHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
+  weekTitle: { fontSize: 10, fontWeight: '800', letterSpacing: 1.1 },
+  todayLink: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 10 },
+  weekRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 6 },
+  weekDay: { flex: 1, minHeight: 68, borderRadius: radii.md, justifyContent: 'center', alignItems: 'center', paddingVertical: 7 },
+  weekdayLabel: { fontSize: 10, fontWeight: '700' },
+  weekdayDate: { fontSize: 16, fontWeight: '800', marginTop: 2 },
+  weekDot: { width: 5, height: 5, borderRadius: 3, marginTop: 4 },
+  reviewHint: { fontSize: 11, marginTop: spacing.sm },
   heroHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -424,6 +493,8 @@ const styles = StyleSheet.create({
   habitMeta: {
     flex: 1,
   },
+  reorderControls: { justifyContent: 'center', marginLeft: 4 },
+  reorderButton: { minWidth: 40, minHeight: 34, alignItems: 'center', justifyContent: 'center' },
   habitTitle: {
     fontSize: 16,
     fontWeight: '600',

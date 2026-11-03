@@ -15,38 +15,43 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canAccessFeature } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
+import { addLocalDays, calculateCompletionStats, calculateStreakStats, parseLocalDate } from '../domain/habitEngine';
+import { useAchievements } from '../services/AchievementsContext';
 
 export const InsightsScreen = () => {
   const insets = useSafeAreaInsets();
-  const { habits, stats } = useHabits();
+  const { habits, stats, todayDateStr } = useHabits();
+  const todayReferenceDate = parseLocalDate(todayDateStr) ?? new Date();
   const { colors, isDark } = useTheme();
   const { isPro } = useSubscription();
+  const { achievements } = useAchievements();
 
   const [timeRange, setTimeRange] = useState<'7D' | '30D' | '90D' | 'ALL'>('7D');
   const [paywallVisible, setPaywallVisible] = useState(false);
 
   const timeRanges: ('7D' | '30D' | '90D' | 'ALL')[] = ['7D', '30D', '90D', 'ALL'];
 
+  const earliestDate = habits.flatMap(habit => [habit.startDate, ...habit.completedDates].filter((date): date is string => Boolean(date))).sort()[0] ?? todayDateStr;
+  const allDays = Math.max(1, Math.round((new Date(`${todayDateStr}T12:00:00`).getTime() - new Date(`${earliestDate}T12:00:00`).getTime()) / 86400000) + 1);
   const getDaysForRange = (range: '7D' | '30D' | '90D' | 'ALL') => {
     switch (range) {
       case '7D': return 7;
       case '30D': return 30;
       case '90D': return 90;
-      case 'ALL': return 180;
+      case 'ALL': return allDays;
     }
   };
 
   const getWindowRate = (days: number, offsetDays: number = 0) => {
     if (habits.length === 0 || days <= 0) return 0;
-    let completedCount = 0;
-    for (let i = 0; i < days; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - (i + offsetDays));
-      const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      completedCount += habits.filter(h => h.completedDates.includes(dStr)).length;
-    }
-    const possible = habits.length * days;
-    return possible > 0 ? Math.round((completedCount / possible) * 100) : 0;
+    const end = addLocalDays(todayDateStr, -offsetDays);
+    const start = addLocalDays(end, -(days - 1));
+    const period = habits.reduce((total, habit) => {
+      const result = calculateCompletionStats(habit, start, end, todayReferenceDate);
+      return { completed: total.completed + result.completed, scheduled: total.scheduled + result.scheduled };
+    }, { completed: 0, scheduled: 0 });
+    const { completed: completedCount, scheduled: scheduledCount } = period;
+    return scheduledCount > 0 ? Math.round((completedCount / scheduledCount) * 100) : 0;
   };
 
   const rangeDays = getDaysForRange(timeRange);
@@ -58,11 +63,13 @@ export const InsightsScreen = () => {
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const weekData = Array.from({ length: 7 }, (_, idx) => {
     const daysAgo = 6 - idx; // 6 days ago up to 0 (today)
-    const d = new Date();
-    d.setDate(d.getDate() - daysAgo);
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const completedCount = habits.filter(h => h.completedDates.includes(dateStr)).length;
-    const rate = habits.length > 0 ? Math.round((completedCount / habits.length) * 100) : 0;
+    const dateStr = addLocalDays(todayDateStr, -daysAgo);
+    const d = new Date(`${dateStr}T12:00:00`);
+    const dayStats = habits.reduce((total, habit) => {
+      const result = calculateCompletionStats(habit, dateStr, dateStr, todayReferenceDate);
+      return { completed: total.completed + result.completed, scheduled: total.scheduled + result.scheduled };
+    }, { completed: 0, scheduled: 0 });
+    const rate = dayStats.scheduled > 0 ? Math.round((dayStats.completed / dayStats.scheduled) * 100) : 0;
     return {
       day: dayNames[d.getDay()],
       rate,
@@ -74,6 +81,12 @@ export const InsightsScreen = () => {
   const avgWeeklyRate = Math.round(
     weekData.reduce((acc, curr) => acc + curr.rate, 0) / (weekData.length || 1)
   );
+
+  const rankedHabits = habits.map(habit => {
+    const consistency = calculateCompletionStats(habit, addLocalDays(todayDateStr, -29), todayDateStr, todayReferenceDate).percentage;
+    return { habit, consistency, stats: calculateStreakStats(habit, todayReferenceDate) };
+  }).sort((a, b) => b.consistency - a.consistency || b.stats.currentStreak - a.stats.currentStreak);
+  const achievementProgress = achievements.slice(0, 3);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -177,11 +190,9 @@ export const InsightsScreen = () => {
         <View style={styles.leaderboardSection}>
           <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>HABIT CONSISTENCY</Text>
 
-          {[...habits]
-            .sort((a, b) => b.completedDates.length - a.completedDates.length || b.streak - a.streak)
-            .map((h, i) => {
-              const totalDaysCount = h.completedDates.length;
-              const calculatedProgress = Math.min(100, Math.max(12, Math.round((totalDaysCount / 30) * 100)));
+          {rankedHabits.length === 0 ? <Text style={[styles.chartSubtitle, { color: colors.secondaryText }]}>Create a habit and log activity to see your consistency here.</Text> : rankedHabits
+            .map(({ habit: h, consistency, stats: habitStats }, i) => {
+              const calculatedProgress = consistency;
               return (
                 <View key={h.id} style={[styles.rankingRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <View style={styles.rankingLeft}>
@@ -201,7 +212,7 @@ export const InsightsScreen = () => {
                         ]}
                       />
                     </View>
-                    <Text style={[styles.rankStreak, { color: colors.accent }]}>{h.streak}d</Text>
+                    <Text style={[styles.rankStreak, { color: colors.accent }]}>{habitStats.currentStreak}d · {consistency}%</Text>
                   </View>
                 </View>
               );
@@ -212,26 +223,12 @@ export const InsightsScreen = () => {
         <View style={[styles.achievementCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.achievementTitle, { color: colors.primaryText }]}>Milestones Unlocked</Text>
           <View style={styles.badgeRow}>
-            <View style={styles.badgeItem}>
-              <View style={[styles.badgeIcon, { backgroundColor: `${colors.accent}1F` }]}>
-                <Ionicons name="trophy" size={24} color={colors.accent} />
+            {achievementProgress.map(item => <View key={item.key} style={styles.badgeItem}>
+              <View style={[styles.badgeIcon, { backgroundColor: item.unlocked ? `${colors.accent}1F` : colors.secondaryBackground }]}>
+                <Ionicons name={item.unlocked ? 'ribbon' : 'lock-closed-outline'} size={24} color={item.unlocked ? colors.accent : colors.mutedText} />
               </View>
-              <Text style={[styles.badgeName, { color: colors.primaryText }]}>7d Streak</Text>
-            </View>
-
-            <View style={styles.badgeItem}>
-              <View style={[styles.badgeIcon, { backgroundColor: 'rgba(6, 182, 212, 0.15)' }]}>
-                <Ionicons name="sparkles" size={24} color="#06B6D4" />
-              </View>
-              <Text style={[styles.badgeName, { color: colors.primaryText }]}>Disciplined</Text>
-            </View>
-
-            <View style={styles.badgeItem}>
-              <View style={[styles.badgeIcon, { backgroundColor: 'rgba(139, 92, 246, 0.15)' }]}>
-                <Ionicons name="rocket" size={24} color="#8B5CF6" />
-              </View>
-              <Text style={[styles.badgeName, { color: colors.primaryText }]}>Momentum</Text>
-            </View>
+              <Text style={[styles.badgeName, { color: colors.primaryText }]}>{item.title} {item.progress}/{item.target}</Text>
+            </View>)}
           </View>
         </View>
       </ScrollView>

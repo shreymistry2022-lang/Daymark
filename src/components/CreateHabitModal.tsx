@@ -8,6 +8,7 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
+  Switch,
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,14 +16,32 @@ import { spacing, radii } from '../theme/tokens';
 import { HABIT_CATEGORIES, CategoryDefinition } from '../constants/categories';
 import { Habit } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
+import { HabitKind, HabitSchedule, TrackingMethod } from '../domain/habitTypes';
+import { parseLocalDate } from '../domain/habitEngine';
+import { ensureLocalReminderPermission } from '../services/localReminders';
+import { useSubscription } from '../services/SubscriptionProvider';
+import { canAccessFeature } from '../services/subscriptionEntitlements';
+import { usePreferences } from '../services/PreferencesContext';
+import { dateKeyInTimezone } from '../domain/preferencesEngine';
 
 interface CreateHabitModalProps {
   visible: boolean;
   onClose: () => void;
   onAddHabit: (habit: Omit<Habit, 'id' | 'streak' | 'completedDates'>) => void;
+  initialHabit?: Habit | null;
+  onUpdateHabit?: (id: string, changes: Partial<Omit<Habit, 'id' | 'completedDates' | 'streak'>>) => { error?: string };
 }
 
-const FREQUENCY_OPTIONS = ['Daily', 'Weekdays', 'Weekends', '3x / week', '5x / week'];
+const FREQUENCY_OPTIONS = ['Daily', 'Weekdays', 'Weekends', 'Selected days', '3x / week', '5x / week'];
+const WEEKDAYS = [
+  { label: 'M', value: 1 }, { label: 'T', value: 2 }, { label: 'W', value: 3 },
+  { label: 'T', value: 4 }, { label: 'F', value: 5 }, { label: 'S', value: 6 }, { label: 'S', value: 7 },
+];
+const ICON_OPTIONS: (keyof typeof Ionicons.glyphMap)[] = [
+  'sunny-outline', 'water-outline', 'fitness-outline', 'book-outline', 'briefcase-outline',
+  'moon-outline', 'flower-outline', 'leaf-outline', 'walk-outline', 'heart-outline',
+  'barbell-outline', 'journal-outline', 'cash-outline', 'phone-portrait-outline',
+];
 
 const COLOR_OPTIONS = [
   '#FF7A00', // Tangerine
@@ -44,18 +63,33 @@ const PRESETS = [
   { name: 'Evening Meditation', catId: 'mindfulness', icon: 'flower-outline', color: '#EC4899' },
 ];
 
-export const CreateHabitModal = ({ visible, onClose, onAddHabit }: CreateHabitModalProps) => {
+export const CreateHabitModal = ({ visible, onClose, onAddHabit, initialHabit, onUpdateHabit }: CreateHabitModalProps) => {
   const { width } = useWindowDimensions();
   const { colors } = useTheme();
+  const { isPro } = useSubscription();
+  const { preferences } = usePreferences();
 
-  const [name, setName] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<CategoryDefinition>(HABIT_CATEGORIES[0]);
-  const [selectedColor, setSelectedColor] = useState(HABIT_CATEGORIES[0].color);
+  const [name, setName] = useState(initialHabit?.name ?? '');
+  const [description, setDescription] = useState(initialHabit?.description ?? '');
+  const [selectedCategory, setSelectedCategory] = useState<CategoryDefinition>(HABIT_CATEGORIES.find(category => category.name === initialHabit?.category) ?? HABIT_CATEGORIES[0]);
+  const [selectedColor, setSelectedColor] = useState(initialHabit?.color ?? HABIT_CATEGORIES[0].color);
+  const [selectedIcon, setSelectedIcon] = useState<keyof typeof Ionicons.glyphMap>(initialHabit?.icon ?? HABIT_CATEGORIES[0].icon);
   const [frequency, setFrequency] = useState('Daily');
+  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>(initialHabit?.schedule?.weekdays ?? [1, 2, 3, 4, 5]);
+  const [habitKind, setHabitKind] = useState<HabitKind>(initialHabit?.habitKind ?? 'positive');
+  const [trackingMethod, setTrackingMethod] = useState<TrackingMethod>(initialHabit?.trackingMethod ?? 'yes_no');
+  const [targetValue, setTargetValue] = useState(String(initialHabit?.targetValue ?? 1));
+  const [unit, setUnit] = useState(initialHabit?.unit ?? '');
+  const [startDate, setStartDate] = useState(initialHabit?.startDate ?? dateKeyInTimezone(new Date(), preferences.timezone));
+  const [endDate, setEndDate] = useState(initialHabit?.endDate ?? '');
+  const [reminderTime, setReminderTime] = useState('08:00');
+  const [reminders, setReminders] = useState<Habit['reminders']>(initialHabit?.reminders ?? []);
+  const [error, setError] = useState('');
 
   const handleSelectCategory = (cat: CategoryDefinition) => {
     setSelectedCategory(cat);
     setSelectedColor(cat.color);
+    setSelectedIcon(cat.icon);
   };
 
   const handleApplyPreset = (preset: typeof PRESETS[0]) => {
@@ -65,16 +99,48 @@ export const CreateHabitModal = ({ visible, onClose, onAddHabit }: CreateHabitMo
     setSelectedColor(preset.color);
   };
 
-  const handleCreate = () => {
-    if (!name.trim()) return;
-    onAddHabit({
+  const handleCreate = async () => {
+    const trimmedName = name.trim();
+    const numericTarget = Number(targetValue);
+    if (!trimmedName) { setError('Enter a habit name.'); return; }
+    if (trimmedName.length > 80) { setError('Keep the habit name under 80 characters.'); return; }
+    if (trackingMethod !== 'yes_no' && (!Number.isFinite(numericTarget) || numericTarget <= 0)) { setError('Target must be a number greater than zero.'); return; }
+    if (!parseLocalDate(startDate) || (endDate && !parseLocalDate(endDate))) { setError('Use valid dates in YYYY-MM-DD format.'); return; }
+    if (endDate && endDate < startDate) { setError('End date must be on or after the start date.'); return; }
+    if (frequency === 'Selected days' && selectedWeekdays.length === 0) { setError('Choose at least one weekday.'); return; }
+    if ((reminders ?? []).some(reminder => reminder.enabled) && !(await ensureLocalReminderPermission())) {
+      setError('Allow notifications in device settings to use habit reminders. Your habit can still be saved without reminders.');
+      return;
+    }
+    const schedule: HabitSchedule = frequency === 'Weekdays'
+      ? { frequency: 'weekdays' }
+      : frequency === 'Weekends'
+        ? { frequency: 'weekends' }
+        : frequency === 'Selected days'
+          ? { frequency: 'selected_weekdays', weekdays: selectedWeekdays }
+          : frequency.includes('x / week')
+            ? { frequency: 'weekly_target', weeklyTarget: Number(frequency.match(/^\d+/)?.[0] ?? 3) }
+            : { frequency: 'daily' };
+    const values: Omit<Habit, 'id' | 'streak' | 'completedDates'> = {
       name: name.trim(),
+      description: description.trim(),
       category: selectedCategory.name,
       color: selectedColor,
-      icon: selectedCategory.icon,
+      icon: selectedIcon,
       targetFrequency: frequency,
-    });
-    setName('');
+      habitKind,
+      trackingMethod,
+      targetValue: trackingMethod === 'yes_no' ? 1 : numericTarget,
+      unit: unit.trim(),
+      schedule,
+      startDate,
+      endDate: endDate || null,
+      reminders: reminders ?? [],
+    };
+    const result = initialHabit && onUpdateHabit
+      ? onUpdateHabit(initialHabit.id, values)
+      : onAddHabit(values);
+    if (result && 'error' in result && result.error) { setError(result.error); return; }
     onClose();
   };
 
@@ -86,7 +152,7 @@ export const CreateHabitModal = ({ visible, onClose, onAddHabit }: CreateHabitMo
           <View style={styles.header}>
             <View>
               <Text style={[styles.eyebrow, { color: colors.accent }]}>CUSTOM HABIT CREATOR</Text>
-              <Text style={[styles.title, { color: colors.primaryText }]}>Create New Habit</Text>
+              <Text style={[styles.title, { color: colors.primaryText }]}>{initialHabit ? 'Edit Habit' : 'Create New Habit'}</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Ionicons name="close" size={22} color={colors.secondaryText} />
@@ -119,6 +185,57 @@ export const CreateHabitModal = ({ visible, onClose, onAddHabit }: CreateHabitMo
               value={name}
               onChangeText={setName}
             />
+
+            <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>DESCRIPTION</Text>
+            <TextInput
+              style={[styles.textInput, styles.multilineInput, { backgroundColor: colors.secondaryBackground, borderColor: colors.border, color: colors.primaryText }]}
+              placeholder="What does this habit mean to you?"
+              placeholderTextColor={colors.mutedText}
+              value={description}
+              onChangeText={setDescription}
+              multiline
+              maxLength={240}
+            />
+
+            <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>HABIT TYPE</Text>
+            <View style={styles.choiceRow}>
+              {([{ key: 'positive', label: 'Build a habit' }, { key: 'quit', label: 'Quit a habit' }] as const).map(option => (
+                <TouchableOpacity key={option.key} style={[styles.choicePill, { backgroundColor: colors.secondaryBackground, borderColor: habitKind === option.key ? selectedColor : colors.border }]} onPress={() => { setHabitKind(option.key); if (option.key === 'quit') setTrackingMethod('yes_no'); }}>
+                  <Text style={[styles.choiceText, { color: habitKind === option.key ? selectedColor : colors.secondaryText }]}>{option.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>TRACKING METHOD</Text>
+            <View style={styles.choiceRow}>
+              {([{ key: 'yes_no', label: 'Yes / No' }, { key: 'count', label: 'Count' }, { key: 'measurable', label: 'Measure' }] as const).map(option => (
+                <TouchableOpacity key={option.key} disabled={habitKind === 'quit' && option.key !== 'yes_no'} style={[styles.choicePill, { opacity: habitKind === 'quit' && option.key !== 'yes_no' ? 0.4 : 1, backgroundColor: colors.secondaryBackground, borderColor: trackingMethod === option.key ? selectedColor : colors.border }]} onPress={() => setTrackingMethod(option.key)}>
+                  <Text style={[styles.choiceText, { color: trackingMethod === option.key ? selectedColor : colors.secondaryText }]}>{option.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {trackingMethod !== 'yes_no' ? (
+              <View style={styles.valueFields}>
+                <View style={styles.valueField}>
+                  <Text style={[styles.fieldLabel, { color: colors.secondaryText }]}>TARGET</Text>
+                  <TextInput style={[styles.textInput, { backgroundColor: colors.secondaryBackground, borderColor: colors.border, color: colors.primaryText }]} value={targetValue} onChangeText={setTargetValue} keyboardType="decimal-pad" placeholder="e.g. 8" placeholderTextColor={colors.mutedText} />
+                </View>
+                <View style={styles.valueField}>
+                  <Text style={[styles.fieldLabel, { color: colors.secondaryText }]}>UNIT</Text>
+                  <TextInput style={[styles.textInput, { backgroundColor: colors.secondaryBackground, borderColor: colors.border, color: colors.primaryText }]} value={unit} onChangeText={setUnit} placeholder="Glasses, pages..." placeholderTextColor={colors.mutedText} maxLength={24} />
+                </View>
+              </View>
+            ) : null}
+
+            <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>ICON</Text>
+            <View style={styles.iconGrid}>
+              {ICON_OPTIONS.map(icon => (
+                <TouchableOpacity key={icon} accessibilityRole="button" accessibilityLabel={`Select ${icon.replace('-outline', '').replaceAll('-', ' ')} icon`} style={[styles.iconOption, { backgroundColor: colors.secondaryBackground, borderColor: selectedIcon === icon ? selectedColor : colors.border }]} onPress={() => setSelectedIcon(icon)}>
+                  <Ionicons name={icon} size={20} color={selectedIcon === icon ? selectedColor : colors.secondaryText} />
+                </TouchableOpacity>
+              ))}
+            </View>
 
             {/* 14 Categories Grid */}
             <View style={styles.categoryHeaderRow}>
@@ -194,6 +311,49 @@ export const CreateHabitModal = ({ visible, onClose, onAddHabit }: CreateHabitMo
                 );
               })}
             </View>
+            {frequency === 'Selected days' ? (
+              <View style={styles.weekdayRow}>
+                {WEEKDAYS.map(day => {
+                  const active = selectedWeekdays.includes(day.value);
+                  return <TouchableOpacity key={day.value} style={[styles.weekdayPill, { backgroundColor: active ? `${selectedColor}22` : colors.secondaryBackground, borderColor: active ? selectedColor : colors.border }]} onPress={() => setSelectedWeekdays(current => active ? current.filter(value => value !== day.value) : [...current, day.value].sort())}><Text style={[styles.choiceText, { color: active ? selectedColor : colors.secondaryText }]}>{day.label}</Text></TouchableOpacity>;
+                })}
+              </View>
+            ) : null}
+
+            <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>ACTIVE DATES</Text>
+            <View style={styles.valueFields}>
+              <View style={styles.valueField}>
+                <Text style={[styles.fieldLabel, { color: colors.secondaryText }]}>START (YYYY-MM-DD)</Text>
+                <TextInput style={[styles.textInput, { backgroundColor: colors.secondaryBackground, borderColor: colors.border, color: colors.primaryText }]} value={startDate} onChangeText={setStartDate} autoCapitalize="none" placeholder="2026-01-01" placeholderTextColor={colors.mutedText} />
+              </View>
+              <View style={styles.valueField}>
+                <Text style={[styles.fieldLabel, { color: colors.secondaryText }]}>END (OPTIONAL)</Text>
+                <TextInput style={[styles.textInput, { backgroundColor: colors.secondaryBackground, borderColor: colors.border, color: colors.primaryText }]} value={endDate ?? ''} onChangeText={setEndDate} autoCapitalize="none" placeholder="No end date" placeholderTextColor={colors.mutedText} />
+              </View>
+            </View>
+
+            <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>REMINDERS</Text>
+            {(reminders ?? []).map(reminder => (
+              <View key={reminder.id} style={styles.reminderRow}>
+                <Ionicons name="notifications-outline" size={16} color={selectedColor} />
+                <Text style={[styles.reminderText, { color: colors.primaryText }]}>{`${String(reminder.hour).padStart(2, '0')}:${String(reminder.minute).padStart(2, '0')}`} · {reminder.weekdays.length === 7 ? 'Every day' : `${reminder.weekdays.length} days/week`}</Text>
+                <Switch accessibilityLabel={`Toggle reminder at ${String(reminder.hour).padStart(2, '0')}:${String(reminder.minute).padStart(2, '0')}`} value={reminder.enabled} onValueChange={enabled => setReminders(current => (current ?? []).map(item => item.id === reminder.id ? { ...item, enabled } : item))} trackColor={{ true: selectedColor }} />
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Remove reminder" onPress={() => setReminders(current => (current ?? []).filter(item => item.id !== reminder.id))}><Ionicons name="close-circle-outline" size={20} color={colors.secondaryText} /></TouchableOpacity>
+              </View>
+            ))}
+            <View style={styles.addReminderRow}>
+              <TextInput style={[styles.textInput, styles.reminderInput, { backgroundColor: colors.secondaryBackground, borderColor: colors.border, color: colors.primaryText }]} value={reminderTime} onChangeText={setReminderTime} keyboardType="numbers-and-punctuation" placeholder="HH:mm" placeholderTextColor={colors.mutedText} />
+              <TouchableOpacity style={[styles.addReminderButton, { borderColor: colors.border }]} onPress={() => {
+                const match = reminderTime.match(/^(\d{1,2}):(\d{2})$/);
+                if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) { setError('Enter a reminder time in 24-hour HH:mm format.'); return; }
+                const hour = Number(match[1]); const minute = Number(match[2]);
+                if ((reminders ?? []).some(item => item.hour === hour && item.minute === minute)) { setError('That reminder already exists.'); return; }
+                if ((reminders ?? []).length >= 1 && !canAccessFeature('unlimited_reminders', isPro)) { setError('Free accounts can set one reminder per habit. Upgrade to Pro for multiple reminders.'); return; }
+                setError('');
+                const reminderWeekdays = frequency === 'Daily' ? [1,2,3,4,5,6,7] : frequency === 'Weekdays' ? [1,2,3,4,5] : frequency === 'Weekends' ? [6,7] : selectedWeekdays;
+                setReminders(current => [...(current ?? []), { id: `reminder_${Date.now()}`, hour, minute, weekdays: reminderWeekdays, enabled: true }]);
+              }}><Text style={[styles.choiceText, { color: colors.primaryText }]}>Add reminder</Text></TouchableOpacity>
+            </View>
 
             {/* Color Accent */}
             <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>ACCENT COLOR</Text>
@@ -228,6 +388,7 @@ export const CreateHabitModal = ({ visible, onClose, onAddHabit }: CreateHabitMo
               <Ionicons name="sparkles" size={18} color="#000" />
               <Text style={styles.submitButtonText}>Add to Daily Routine</Text>
             </TouchableOpacity>
+            {error ? <Text accessibilityRole="alert" style={styles.errorText}>{error}</Text> : null}
           </ScrollView>
         </View>
       </View>
@@ -306,6 +467,23 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     fontSize: 15,
   },
+  multilineInput: { minHeight: 64, textAlignVertical: 'top' },
+  choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  choicePill: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: radii.md, borderWidth: 1 },
+  choiceText: { fontSize: 12, fontWeight: '600' },
+  valueFields: { flexDirection: 'row', gap: 10 },
+  valueField: { flex: 1 },
+  fieldLabel: { fontSize: 12, fontWeight: '600', marginBottom: 6 },
+  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  iconOption: { width: 38, height: 38, borderRadius: radii.md, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  weekdayRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 4 },
+  weekdayPill: { flex: 1, paddingVertical: 8, borderRadius: radii.md, borderWidth: 1, alignItems: 'center' },
+  reminderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
+  reminderText: { fontSize: 13, fontWeight: '500' },
+  addReminderRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  reminderInput: { flex: 1, borderWidth: 1, borderRadius: radii.md, padding: 8 },
+  addReminderButton: { paddingHorizontal: 12, borderRadius: radii.md, justifyContent: 'center' },
+  errorText: { fontSize: 12, marginTop: 6 },
   categoryHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

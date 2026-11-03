@@ -1,5 +1,5 @@
 // src/screens/HabitsScreen.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -20,31 +20,52 @@ import { HABIT_CATEGORIES } from '../constants/categories';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canCreateHabit } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
+import { addLocalDays, calculateCompletionStats, calculateStreakStats, isPausedOnDate, isTrackableOnDate } from '../domain/habitEngine';
+import { HabitTrackingControl } from '../components/HabitTrackingControl';
+import { useNavigation, useRoute } from '@react-navigation/native';
 
 export const HabitsScreen = () => {
-  const { habits, toggleHabit, addHabit, deleteHabit, todayDateStr } = useHabits();
+  const { habits, archivedHabits, allHabits, toggleHabit, recordHabitLog, addHabit, updateHabit, archiveHabit, restoreHabit, pauseHabit, resumeHabit, deleteHabit, todayDateStr } = useHabits();
   const { colors } = useTheme();
   const { isPro } = useSubscription();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<any>();
+  const route = useRoute<any>();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [selectedHabit, setSelectedHabit] = useState<Habit | null>(null);
+  const [selectedHabitId, setSelectedHabitId] = useState<string | null>(null);
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const selectedHabit = selectedHabitId ? allHabits.find(habit => habit.id === selectedHabitId) ?? null : null;
   const [paywallVisible, setPaywallVisible] = useState(false);
   const requestCreateHabit = () => {
     if (!canCreateHabit(habits.length, isPro)) setPaywallVisible(true);
     else setCreateModalVisible(true);
   };
 
+  useEffect(() => {
+    const focusHabitId = route.params?.focusHabitId as string | undefined;
+    if (!focusHabitId) return;
+    const timeout = setTimeout(() => {
+      const habit = allHabits.find(item => item.id === focusHabitId);
+      if (habit) { setShowArchived(Boolean(habit.archivedAt)); setSelectedHabitId(habit.id); }
+      navigation.setParams({ focusHabitId: undefined });
+    }, 0);
+    return () => clearTimeout(timeout);
+  }, [route.params?.focusHabitId, allHabits, navigation]);
+
   // Available categories: 'All' + all 14 standard categories
   const categoriesList = ['All', ...HABIT_CATEGORIES.map(c => c.name)];
 
-  const filteredHabits = habits.filter(h => {
+  const filteredHabits = (showArchived ? archivedHabits : habits).filter(h => {
     const matchesSearch = h.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCat = selectedCategory === 'All' || h.category === selectedCategory;
     return matchesSearch && matchesCat;
   });
+  const selectedHabitStats = selectedHabit ? calculateStreakStats(selectedHabit) : null;
+  const selectedHabitRecentRate = selectedHabit ? calculateCompletionStats(selectedHabit, addLocalDays(todayDateStr, -29), todayDateStr).percentage : 0;
 
   const handleDelete = (id: string, name: string) => {
     Alert.alert(
@@ -57,7 +78,7 @@ export const HabitsScreen = () => {
           style: 'destructive',
           onPress: () => {
             deleteHabit(id);
-            setSelectedHabit(null);
+            setSelectedHabitId(null);
           },
         },
       ]
@@ -74,6 +95,9 @@ export const HabitsScreen = () => {
           <View>
             <Text style={[styles.eyebrow, { color: colors.accent }]}>CATALOG & TRACKING</Text>
             <Text style={[styles.title, { color: colors.primaryText }]}>All Habits</Text>
+          <TouchableOpacity onPress={() => setShowArchived(value => !value)} accessibilityRole="button" accessibilityLabel={showArchived ? 'Show active habits' : `Show archived habits, ${archivedHabits.length}`}>
+            <Text style={{ color: colors.accent, fontWeight: '600', marginTop: 6 }}>{showArchived ? 'Active' : `Archived (${archivedHabits.length})`}</Text>
+          </TouchableOpacity>
           </View>
           <TouchableOpacity
             style={[styles.newHabitBtn, { backgroundColor: colors.accent }]}
@@ -160,7 +184,7 @@ export const HabitsScreen = () => {
                   },
                 ]}
                 activeOpacity={0.7}
-                onPress={() => setSelectedHabit(habit)}
+                onPress={() => setSelectedHabitId(habit.id)}
               >
                 <View style={[styles.iconCircle, { backgroundColor: `${habit.color}1F` }]}>
                   <Ionicons name={habit.icon} size={22} color={habit.color} />
@@ -227,15 +251,16 @@ export const HabitsScreen = () => {
           animationType="fade"
           transparent={true}
           visible={!!selectedHabit}
-          onRequestClose={() => setSelectedHabit(null)}
+          onRequestClose={() => setSelectedHabitId(null)}
         >
           <View style={styles.modalBackdrop}>
             <View style={[styles.modalBody, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailScroll}>
               <View style={styles.modalHeader}>
                 <View style={[styles.modalIcon, { backgroundColor: `${selectedHabit.color}25` }]}>
                   <Ionicons name={selectedHabit.icon} size={28} color={selectedHabit.color} />
                 </View>
-                <TouchableOpacity onPress={() => setSelectedHabit(null)}>
+                <TouchableOpacity onPress={() => setSelectedHabitId(null)}>
                   <Ionicons name="close" size={24} color={colors.secondaryText} />
                 </TouchableOpacity>
               </View>
@@ -245,19 +270,31 @@ export const HabitsScreen = () => {
                 Category: <Text style={{ color: selectedHabit.color }}>{selectedHabit.category}</Text>
                 {'  '}•{'  '}Frequency: {selectedHabit.targetFrequency}
               </Text>
+              {!!selectedHabit.description && <Text style={{ color: colors.secondaryText, marginTop: 8 }}>{selectedHabit.description}</Text>}
+              <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>{selectedHabit.habitKind === 'quit' ? 'Quit habit' : 'Positive habit'} · {selectedHabit.trackingMethod ?? 'yes_no'}{selectedHabit.trackingMethod !== 'yes_no' ? ` · Target ${selectedHabit.targetValue ?? 1} ${selectedHabit.unit ?? ''}` : ''}</Text>
+              <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Since {selectedHabit.startDate ?? '—'}{selectedHabit.endDate ? ` · Ends ${selectedHabit.endDate}` : ''}</Text>
+              {isPausedOnDate(selectedHabit, todayDateStr) && <Text style={{ color: colors.accent, marginTop: 8 }}>Paused today · streaks are protected</Text>}
+              {!!selectedHabit.pausedPeriods?.length && <Text style={{ color: colors.mutedText, marginTop: 6, fontSize: 12 }}>Pause history: {selectedHabit.pausedPeriods.map(period => `${period.startDate}–${period.endDate ?? 'ongoing'}`).join(', ')}</Text>}
 
               <View style={styles.modalStatsRow}>
                 <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
                   <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabit.streak}</Text>
-                  <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Day Streak</Text>
+                  <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Current streak</Text>
                 </View>
                 <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                  <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabit.completedDates.length}</Text>
-                  <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Total Logs</Text>
+                  <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabitStats?.bestStreak ?? 0}</Text>
+                  <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Best streak</Text>
+                </View>
+                <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
+                  <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabitRecentRate}%</Text>
+                  <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Last 30 days</Text>
                 </View>
               </View>
+              <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>{selectedHabitStats?.totalSuccessfulScheduledDays ?? 0} successful scheduled days recorded</Text>
 
-              <TouchableOpacity
+              {isTrackableOnDate(selectedHabit, todayDateStr) ? selectedHabit.habitKind === 'quit' || selectedHabit.trackingMethod === 'count' || selectedHabit.trackingMethod === 'measurable' ? (
+                <HabitTrackingControl habit={selectedHabit} date={todayDateStr} onSave={recordHabitLog} />
+              ) : <TouchableOpacity
                 style={[
                   styles.toggleActionBtn,
                   { backgroundColor: colors.secondaryBackground },
@@ -266,16 +303,6 @@ export const HabitsScreen = () => {
                 activeOpacity={0.8}
                 onPress={() => {
                   toggleHabit(selectedHabit.id);
-                  setSelectedHabit(prev =>
-                    prev
-                      ? {
-                          ...prev,
-                          completedDates: prev.completedDates.includes(todayDateStr)
-                            ? prev.completedDates.filter(d => d !== todayDateStr)
-                            : [...prev.completedDates, todayDateStr],
-                        }
-                      : null
-                  );
                 }}
               >
                 <Ionicons
@@ -292,7 +319,8 @@ export const HabitsScreen = () => {
                     ? 'Completed Today'
                     : 'Mark Completed for Today'}
                 </Text>
-              </TouchableOpacity>
+              </TouchableOpacity> : <Text style={[styles.detailMetadata, { color: colors.secondaryText, marginBottom: spacing.md }]}>{selectedHabit.archivedAt ? 'Archived habits are read-only.' : isPausedOnDate(selectedHabit, todayDateStr) ? 'Paused today. Tracking resumes after the pause.' : 'This habit is not scheduled today.'}</Text>}
+              {!!selectedHabit.reminders?.length && <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Reminders: {selectedHabit.reminders.filter(reminder => reminder.enabled).map(reminder => `${String(reminder.hour).padStart(2, '0')}:${String(reminder.minute).padStart(2, '0')}`).join(', ') || 'All disabled'}</Text>}
 
               <TouchableOpacity
                 style={styles.deleteButton}
@@ -302,17 +330,53 @@ export const HabitsScreen = () => {
                 <Ionicons name="trash-outline" size={18} color={colors.error} />
                 <Text style={[styles.deleteText, { color: colors.error }]}>Delete Habit</Text>
               </TouchableOpacity>
+              {showArchived ? (
+                <TouchableOpacity style={styles.deleteButton} onPress={() => { restoreHabit(selectedHabit.id); setSelectedHabitId(null); }}>
+                  <Ionicons name="refresh-outline" size={18} color={colors.accent} />
+                  <Text style={[styles.deleteText, { color: colors.accent }]}>Restore Habit</Text>
+                </TouchableOpacity>
+              ) : (
+                <>
+                  {isPausedOnDate(selectedHabit, todayDateStr) ? (
+                    <TouchableOpacity style={styles.deleteButton} onPress={() => { resumeHabit(selectedHabit.id); setSelectedHabitId(null); }}>
+                      <Ionicons name="play-outline" size={18} color={colors.accent} />
+                      <Text style={[styles.deleteText, { color: colors.accent }]}>Resume Habit</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity style={styles.deleteButton} onPress={() => Alert.alert('Pause habit', 'Choose how long to pause this habit.', [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: '1 week', onPress: () => { pauseHabit(selectedHabit.id, todayDateStr, addLocalDays(todayDateStr, 6)); setSelectedHabitId(null); } },
+                      { text: '2 weeks', onPress: () => { pauseHabit(selectedHabit.id, todayDateStr, addLocalDays(todayDateStr, 13)); setSelectedHabitId(null); } },
+                      { text: 'Until I resume', onPress: () => { pauseHabit(selectedHabit.id, todayDateStr, null); setSelectedHabitId(null); } },
+                    ])}>
+                      <Ionicons name="pause-outline" size={18} color={colors.secondaryText} />
+                      <Text style={[styles.deleteText, { color: colors.secondaryText }]}>Pause Habit</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity style={styles.deleteButton} onPress={() => { setEditingHabit(selectedHabit); setCreateModalVisible(true); }}>
+                    <Ionicons name="create-outline" size={18} color={colors.accent} />
+                    <Text style={[styles.deleteText, { color: colors.accent }]}>Edit Habit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.deleteButton} onPress={() => { archiveHabit(selectedHabit.id); setSelectedHabitId(null); }}>
+                    <Ionicons name="archive-outline" size={18} color={colors.secondaryText} />
+                    <Text style={[styles.deleteText, { color: colors.secondaryText }]}>Archive Habit</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+              </ScrollView>
             </View>
           </View>
         </Modal>
       )}
 
       {/* Create Habit Modal */}
-      <CreateHabitModal
+      {createModalVisible && <CreateHabitModal
         visible={createModalVisible}
-        onClose={() => setCreateModalVisible(false)}
+        onClose={() => { setCreateModalVisible(false); setEditingHabit(null); }}
         onAddHabit={addHabit}
-      />
+        initialHabit={editingHabit}
+        onUpdateHabit={updateHabit}
+      />}
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </View>
   );
@@ -478,7 +542,10 @@ const styles = StyleSheet.create({
     borderRadius: radii.xl,
     padding: spacing.xl,
     borderWidth: 1,
+    maxHeight: '90%',
   },
+  detailScroll: { paddingBottom: spacing.sm },
+  detailMetadata: { fontSize: 12, marginTop: 7, lineHeight: 18 },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

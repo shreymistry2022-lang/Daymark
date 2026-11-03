@@ -21,7 +21,15 @@ import { useAuth } from '../services/AuthProvider';
 export const AuthScreen = () => {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const { signIn, signUp, continueAsGuest } = useAuth();
+  const {
+    signIn,
+    signUp,
+    sendPasswordRecovery,
+    updatePassword,
+    signInWithProvider,
+    passwordRecoveryRequested,
+    continueAsGuest,
+  } = useAuth();
 
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [fullName, setFullName] = useState('');
@@ -80,23 +88,74 @@ export const AuthScreen = () => {
   };
 
   const handleForgotPassword = () => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      Alert.alert('Reset Password', 'Please enter your email address in the field below first.');
+      return;
+    }
     Alert.alert(
       'Reset Password',
-      'If your account is connected to cloud sync, a password reset link will be sent to your email.',
+      `Send a password recovery email to ${trimmedEmail}?`,
       [
+        { text: 'Cancel', style: 'cancel' },
         {
           text: 'Send Reset Link',
-          onPress: () => {
-            if (!email.trim()) {
-              Alert.alert('Notice', 'Please type your email address first.');
-            } else {
-              Alert.alert('Email Sent', `Check inbox at ${email.trim()} for instructions.`);
+          onPress: async () => {
+            setIsSubmitting(true);
+            try {
+              const res = await sendPasswordRecovery(trimmedEmail);
+              if (res.error) {
+                setErrorMessage(res.error);
+              } else {
+                Alert.alert(
+                  'Recovery Email Sent',
+                  `Check your inbox at ${trimmedEmail} for password recovery instructions.`
+                );
+              }
+            } finally {
+              setIsSubmitting(false);
             }
           },
         },
-        { text: 'Cancel', style: 'cancel' },
       ]
     );
+  };
+
+  const handleSocialSignIn = async (provider: 'google' | 'apple') => {
+    setErrorMessage(null);
+    setIsSubmitting(true);
+    try {
+      const res = await signInWithProvider(provider);
+      if (res.error) {
+        setErrorMessage(res.error);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    setErrorMessage(null);
+    const trimmedPass = password.trim();
+    if (trimmedPass.length < 6) {
+      setErrorMessage('New password must be at least 6 characters.');
+      return;
+    }
+    if (trimmedPass !== confirmPassword.trim()) {
+      setErrorMessage('Passwords do not match.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await updatePassword(trimmedPass);
+      if (res.error) {
+        setErrorMessage(res.error);
+      } else {
+        Alert.alert('Success', 'Your password has been successfully updated.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -197,79 +256,44 @@ export const AuthScreen = () => {
           )}
 
           {/* Auth Card with Inputs */}
-          <View style={[styles.formCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            {authMode === 'signup' && (
+          {passwordRecoveryRequested ? (
+            <View style={[styles.formCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.inputLabel, { color: colors.accent, marginBottom: spacing.xs }]}>RECOVER ACCOUNT</Text>
+              <Text style={[styles.title, { color: colors.primaryText, fontSize: 22, marginBottom: spacing.sm }]}>Set New Password</Text>
+              <Text style={[styles.guestBtnSub, { color: colors.secondaryText, marginBottom: spacing.md }]}>
+                Enter a new secure password for your Daymark account.
+              </Text>
+
               <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: colors.secondaryText }]}>FULL NAME</Text>
+                <Text style={[styles.inputLabel, { color: colors.secondaryText }]}>NEW PASSWORD</Text>
                 <View style={[styles.inputWrap, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                  <Ionicons name="person-outline" size={18} color={colors.mutedText} />
+                  <Ionicons name="lock-closed-outline" size={18} color={colors.mutedText} />
                   <TextInput
                     style={[styles.input, { color: colors.primaryText }]}
-                    placeholder="e.g. Alex Mercer"
+                    placeholder="Enter at least 6 characters"
                     placeholderTextColor={colors.mutedText}
-                    value={fullName}
-                    onChangeText={setFullName}
-                    autoCapitalize="words"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
                   />
+                  <TouchableOpacity onPress={() => setShowPassword(prev => !prev)} style={styles.eyeBtn}>
+                    <Ionicons
+                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={18}
+                      color={colors.mutedText}
+                    />
+                  </TouchableOpacity>
                 </View>
               </View>
-            )}
 
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.secondaryText }]}>EMAIL ADDRESS</Text>
-              <View style={[styles.inputWrap, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                <Ionicons name="mail-outline" size={18} color={colors.mutedText} />
-                <TextInput
-                  style={[styles.input, { color: colors.primaryText }]}
-                  placeholder="name@example.com"
-                  placeholderTextColor={colors.mutedText}
-                  value={email}
-                  onChangeText={setEmail}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  autoCorrect={false}
-                />
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <View style={styles.labelRow}>
-                <Text style={[styles.inputLabel, { color: colors.secondaryText }]}>PASSWORD</Text>
-                {authMode === 'signin' && (
-                  <TouchableOpacity onPress={handleForgotPassword}>
-                    <Text style={[styles.forgotLink, { color: colors.accent }]}>Forgot?</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              <View style={[styles.inputWrap, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                <Ionicons name="lock-closed-outline" size={18} color={colors.mutedText} />
-                <TextInput
-                  style={[styles.input, { color: colors.primaryText }]}
-                  placeholder="Enter your password"
-                  placeholderTextColor={colors.mutedText}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                />
-                <TouchableOpacity onPress={() => setShowPassword(prev => !prev)} style={styles.eyeBtn}>
-                  <Ionicons
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={18}
-                    color={colors.mutedText}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {authMode === 'signup' && (
               <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: colors.secondaryText }]}>CONFIRM PASSWORD</Text>
+                <Text style={[styles.inputLabel, { color: colors.secondaryText }]}>CONFIRM NEW PASSWORD</Text>
                 <View style={[styles.inputWrap, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
                   <Ionicons name="shield-checkmark-outline" size={18} color={colors.mutedText} />
                   <TextInput
                     style={[styles.input, { color: colors.primaryText }]}
-                    placeholder="Repeat your password"
+                    placeholder="Repeat your new password"
                     placeholderTextColor={colors.mutedText}
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
@@ -278,29 +302,162 @@ export const AuthScreen = () => {
                   />
                 </View>
               </View>
-            )}
 
-            {/* Primary Action Button */}
-            <TouchableOpacity
-              style={[styles.primaryBtn, { backgroundColor: colors.accent }]}
-              onPress={handleSubmit}
-              disabled={isSubmitting}
-              activeOpacity={0.8}
-            >
-              {isSubmitting ? (
-                <ActivityIndicator size="small" color="#000" />
-              ) : (
-                <>
-                  <Ionicons
-                    name={authMode === 'signin' ? 'log-in-outline' : 'person-add-outline'}
-                    size={20}
-                    color="#000"
-                  />
-                  <Text style={styles.primaryBtnText}>
-                    {authMode === 'signin' ? 'Sign In to Daymark' : 'Create Daymark Account'}
-                  </Text>
-                </>
+              <TouchableOpacity
+                style={[styles.primaryBtn, { backgroundColor: colors.accent }]}
+                onPress={handleUpdatePassword}
+                disabled={isSubmitting}
+                activeOpacity={0.8}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle-outline" size={20} color="#000" />
+                    <Text style={styles.primaryBtnText}>Save New Password</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={[styles.formCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              {authMode === 'signup' && (
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.inputLabel, { color: colors.secondaryText }]}>FULL NAME</Text>
+                  <View style={[styles.inputWrap, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
+                    <Ionicons name="person-outline" size={18} color={colors.mutedText} />
+                    <TextInput
+                      style={[styles.input, { color: colors.primaryText }]}
+                      placeholder="e.g. Alex Mercer"
+                      placeholderTextColor={colors.mutedText}
+                      value={fullName}
+                      onChangeText={setFullName}
+                      autoCapitalize="words"
+                    />
+                  </View>
+                </View>
               )}
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.inputLabel, { color: colors.secondaryText }]}>EMAIL ADDRESS</Text>
+                <View style={[styles.inputWrap, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
+                  <Ionicons name="mail-outline" size={18} color={colors.mutedText} />
+                  <TextInput
+                    style={[styles.input, { color: colors.primaryText }]}
+                    placeholder="name@example.com"
+                    placeholderTextColor={colors.mutedText}
+                    value={email}
+                    onChangeText={setEmail}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    autoCorrect={false}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <View style={styles.labelRow}>
+                  <Text style={[styles.inputLabel, { color: colors.secondaryText }]}>PASSWORD</Text>
+                  {authMode === 'signin' && (
+                    <TouchableOpacity onPress={handleForgotPassword}>
+                      <Text style={[styles.forgotLink, { color: colors.accent }]}>Forgot?</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <View style={[styles.inputWrap, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
+                  <Ionicons name="lock-closed-outline" size={18} color={colors.mutedText} />
+                  <TextInput
+                    style={[styles.input, { color: colors.primaryText }]}
+                    placeholder="Enter your password"
+                    placeholderTextColor={colors.mutedText}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity onPress={() => setShowPassword(prev => !prev)} style={styles.eyeBtn}>
+                    <Ionicons
+                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={18}
+                      color={colors.mutedText}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {authMode === 'signup' && (
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.inputLabel, { color: colors.secondaryText }]}>CONFIRM PASSWORD</Text>
+                  <View style={[styles.inputWrap, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
+                    <Ionicons name="shield-checkmark-outline" size={18} color={colors.mutedText} />
+                    <TextInput
+                      style={[styles.input, { color: colors.primaryText }]}
+                      placeholder="Repeat your password"
+                      placeholderTextColor={colors.mutedText}
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                    />
+                  </View>
+                </View>
+              )}
+
+              {/* Primary Action Button */}
+              <TouchableOpacity
+                style={[styles.primaryBtn, { backgroundColor: colors.accent }]}
+                onPress={handleSubmit}
+                disabled={isSubmitting}
+                activeOpacity={0.8}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name={authMode === 'signin' ? 'log-in-outline' : 'person-add-outline'}
+                      size={20}
+                      color="#000"
+                    />
+                    <Text style={styles.primaryBtnText}>
+                      {authMode === 'signin' ? 'Sign In to Daymark' : 'Create Daymark Account'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Social Sign-in Option */}
+          <View style={styles.dividerRow}>
+            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            <Text style={[styles.dividerText, { color: colors.mutedText }]}>OR SIGN IN WITH</Text>
+            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+          </View>
+
+          <View style={styles.socialRow}>
+            <TouchableOpacity
+              style={[styles.socialBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={() => handleSocialSignIn('google')}
+              disabled={isSubmitting}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Sign in with Google"
+            >
+              <Ionicons name="logo-google" size={18} color={colors.primaryText} />
+              <Text style={[styles.socialBtnText, { color: colors.primaryText }]}>Google</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.socialBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={() => handleSocialSignIn('apple')}
+              disabled={isSubmitting}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Sign in with Apple"
+            >
+              <Ionicons name="logo-apple" size={18} color={colors.primaryText} />
+              <Text style={[styles.socialBtnText, { color: colors.primaryText }]}>Apple</Text>
             </TouchableOpacity>
           </View>
 
@@ -487,6 +644,25 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1,
+  },
+  socialRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  socialBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.sm,
+  },
+  socialBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   guestBtn: {
     flexDirection: 'row',

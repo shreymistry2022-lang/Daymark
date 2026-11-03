@@ -1,9 +1,9 @@
 // src/theme/ThemeProvider.tsx
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, ReactNode } from 'react';
+import { useColorScheme, View } from 'react-native';
 import { ThemeMode, ThemePalette, THEME_PALETTES } from './tokens';
 import { useSubscription } from '../services/SubscriptionProvider';
+import { usePreferences } from '../services/PreferencesContext';
 
 type ThemeContextType = {
   mode: ThemeMode;
@@ -11,8 +11,6 @@ type ThemeContextType = {
   colors: ThemePalette;
   isDark: boolean;
 };
-
-const THEME_STORAGE_KEY = '@daymark_theme_mode';
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
@@ -24,42 +22,23 @@ export const useTheme = () => {
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const { isPro, isLoading: isSubscriptionLoading } = useSubscription();
-  const [mode, setModeState] = useState<ThemeMode>('midnight');
-
-  useEffect(() => {
-    if (isSubscriptionLoading) return;
-    AsyncStorage.getItem(THEME_STORAGE_KEY)
-      .then(savedMode => {
-        if (savedMode && (savedMode === 'midnight' || savedMode === 'pure' || savedMode === 'light')) {
-          const allowedMode = savedMode === 'pure' && !isPro ? 'midnight' : savedMode as ThemeMode;
-          setModeState(allowedMode);
-          if (allowedMode !== savedMode) AsyncStorage.setItem(THEME_STORAGE_KEY, allowedMode).catch(() => {});
-        }
-      })
-      .catch(err => {
-        console.error('Failed to load theme preference:', err);
-      });
-  }, [isPro, isSubscriptionLoading]);
-
-  useEffect(() => {
-    if (!isSubscriptionLoading && !isPro && mode === 'pure') {
-      AsyncStorage.setItem(THEME_STORAGE_KEY, 'midnight').catch(() => {});
-    }
-  }, [isPro, isSubscriptionLoading, mode]);
+  const { preferences, updatePreferences } = usePreferences();
+  const deviceScheme = useColorScheme();
+  const mode = preferences.themeMode;
 
   const setMode = (newMode: ThemeMode) => {
-    if (newMode === 'pure' && !isPro) return;
-    setModeState(newMode);
-    AsyncStorage.setItem(THEME_STORAGE_KEY, newMode).catch(() => {});
+    if (newMode === 'pure' && (!isPro || isSubscriptionLoading)) return;
+    updatePreferences({ themeMode: newMode });
   };
 
-  const effectiveMode = mode === 'pure' && !isPro ? 'midnight' : mode;
-  const currentColors = THEME_PALETTES[effectiveMode] || THEME_PALETTES.midnight;
+  const effectiveMode = mode === 'automatic' ? (deviceScheme === 'light' ? 'light' : 'midnight') : mode;
+  const palette = THEME_PALETTES[effectiveMode === 'pure' && !isPro ? 'midnight' : effectiveMode] || THEME_PALETTES.midnight;
+  const currentColors = preferences.accentColor ? { ...palette, accent: preferences.accentColor, accentHover: preferences.accentColor } : palette;
 
   return (
     <ThemeContext.Provider
       value={{
-        mode: effectiveMode,
+        mode,
         setMode,
         colors: currentColors,
         isDark: currentColors.isDark,

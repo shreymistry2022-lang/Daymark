@@ -3,6 +3,14 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from './supabase';
 import type { Session } from '@supabase/supabase-js';
+import { makeRedirectUri } from 'expo-auth-session';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
+import { deleteLocalCredential, getLocalCredential, migrateLegacyCredentials, saveLocalCredential } from './localCredentialStore';
+
+WebBrowser.maybeCompleteAuthSession();
+
+export type SocialProvider = 'google' | 'apple';
 
 export interface AppUser {
   id: string;
@@ -16,8 +24,13 @@ type AuthContextType = {
   session: Session | null;
   isLoading: boolean;
   isGuest: boolean;
+  passwordRecoveryRequested: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error?: string }>;
+  sendPasswordRecovery: (email: string) => Promise<{ error?: string }>;
+  updatePassword: (password: string) => Promise<{ error?: string }>;
+  signInWithProvider: (provider: SocialProvider) => Promise<{ error?: string }>;
+  deleteAccount: () => Promise<{ error?: string }>;
   continueAsGuest: () => void;
   signOut: () => Promise<void>;
 };
@@ -25,8 +38,9 @@ type AuthContextType = {
 const STORAGE_KEYS = {
   LOCAL_USER: '@daymark_local_user',
   GUEST_MODE: '@daymark_guest_mode',
-  REGISTERED_USERS: '@daymark_registered_users',
 };
+const OAUTH_REDIRECT = () => makeRedirectUri({ scheme: 'daymark', path: 'auth/callback' });
+const LOCAL_DATA_KEYS = ['@daymark_habits_v1', '@daymark_onboarding_v1', '@daymark_routines_v1', '@daymark_routine_delete_queue_v1', '@daymark_goals_v1', '@daymark_goal_delete_queue_v1', '@daymark_journal_v1', '@daymark_journal_delete_queue_v1'];
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -41,6 +55,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isGuest, setIsGuest] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [passwordRecoveryRequested, setPasswordRecoveryRequested] = useState(false);
 
   // Restore initial auth state from Supabase or AsyncStorage
   useEffect(() => {
@@ -48,6 +63,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const restoreSession = async () => {
       try {
+        await migrateLegacyCredentials().catch(error => console.warn('Could not migrate legacy local credentials securely:', error));
         // 1. Check if user was in guest mode
         const savedGuest = await AsyncStorage.getItem(STORAGE_KEYS.GUEST_MODE);
         if (savedGuest === 'true' && isMounted) {
@@ -103,6 +119,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (isSupabaseConfigured) {
       const { data } = supabase.auth.onAuthStateChange((event, sess) => {
         if (!isMounted) return;
+        if (event === 'PASSWORD_RECOVERY') setPasswordRecoveryRequested(true);
         setSession(sess);
         if (sess?.user) {
           setUser({
@@ -181,11 +198,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // Offline / Local registered account fallback
     try {
-      const regJson = await AsyncStorage.getItem(STORAGE_KEYS.REGISTERED_USERS);
-      const registeredMap = regJson ? JSON.parse(regJson) : {};
-
-      if (registeredMap[trimmedEmail]) {
-        const record = registeredMap[trimmedEmail];
+      const record = await getLocalCredential(trimmedEmail);
+      if (record) {
         if (record.password !== trimmedPassword) {
           return { error: 'Incorrect password. Please try again.' };
         }
@@ -286,18 +300,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // Offline / Local registration
     try {
-      const regJson = await AsyncStorage.getItem(STORAGE_KEYS.REGISTERED_USERS);
-      const registeredMap = regJson ? JSON.parse(regJson) : {};
-
       const newUserId = `u_${Date.now()}`;
-      registeredMap[trimmedEmail] = {
+      await saveLocalCredential({
         id: newUserId,
         email: trimmedEmail,
         password: trimmedPassword,
         fullName: trimmedName,
-      };
-
-      await AsyncStorage.setItem(STORAGE_KEYS.REGISTERED_USERS, JSON.stringify(registeredMap));
+      });
 
       const appUser: AppUser = {
         id: newUserId,
@@ -313,6 +322,104 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return {};
     } catch {
       return { error: 'Failed to create account. Please try again.' };
+    }
+  };
+
+  const sendPasswordRecovery = async (email: string): Promise<{ error?: string }> => {
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail) return { error: 'Please enter your email address.' };
+    if (!isSupabaseConfigured) {
+      return { error: 'Password recovery requires an active cloud connection. Please configure Supabase in your environment.' };
+    }
+    try {
+      const redirectUri = makeRedirectUri({ scheme: 'daymark', path: 'auth/reset' });
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo: redirectUri,
+      });
+      if (error) return { error: error.message };
+      return {};
+    } catch (err: any) {
+      return { error: err?.message || 'Failed to send password recovery email.' };
+    }
+  };
+
+  const updatePassword = async (password: string): Promise<{ error?: string }> => {
+    const trimmedPassword = password.trim();
+    if (trimmedPassword.length < 6) {
+      return { error: 'Password must be at least 6 characters.' };
+    }
+    if (!isSupabaseConfigured) {
+      return { error: 'Password update requires an active cloud connection.' };
+    }
+    try {
+      const { error } = await supabase.auth.updateUser({ password: trimmedPassword });
+      if (error) return { error: error.message };
+      setPasswordRecoveryRequested(false);
+      return {};
+    } catch (err: any) {
+      return { error: err?.message || 'Failed to update password.' };
+    }
+  };
+
+  const signInWithProvider = async (provider: SocialProvider): Promise<{ error?: string }> => {
+    if (!isSupabaseConfigured) {
+      return { error: 'Social sign-in requires online Supabase authentication to be configured.' };
+    }
+    try {
+      const redirectUri = OAUTH_REDIRECT();
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: redirectUri,
+          skipBrowserRedirect: false,
+        },
+      });
+      if (error) return { error: error.message };
+      if (!data.url) return { error: 'Could not obtain OAuth authorization URL.' };
+
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUri);
+      if (result.type === 'success' && result.url) {
+        const parsed = Linking.parse(result.url);
+        if (parsed.queryParams?.code) {
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
+            String(parsed.queryParams.code)
+          );
+          if (exchangeError) return { error: exchangeError.message };
+        }
+      }
+      return {};
+    } catch (err: any) {
+      return { error: err?.message || `${provider} sign-in failed.` };
+    }
+  };
+
+  const deleteAccount = async (): Promise<{ error?: string }> => {
+    try {
+      // If signed in via Supabase, invoke account deletion function / endpoint if present
+      if (isSupabaseConfigured && user && !user.isGuest) {
+        try {
+          await supabase.functions.invoke('delete-account').catch(() => {});
+        } catch {
+          // Continue local wipe even if edge function not deployed yet
+        }
+      }
+
+      // Delete local credentials if registered locally
+      if (user?.email) {
+        await deleteLocalCredential(user.email).catch(() => {});
+      }
+
+      // Wipe all local storage keys
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.LOCAL_USER,
+        STORAGE_KEYS.GUEST_MODE,
+        ...LOCAL_DATA_KEYS,
+      ]).catch(() => {});
+
+      await signOut();
+      return {};
+    } catch (err: any) {
+      return { error: err?.message || 'Failed to delete account.' };
     }
   };
 
@@ -352,8 +459,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         user,
         isLoading,
         isGuest,
+        passwordRecoveryRequested,
         signIn,
         signUp,
+        sendPasswordRecovery,
+        updatePassword,
+        signInWithProvider,
+        deleteAccount,
         continueAsGuest,
         signOut,
       }}

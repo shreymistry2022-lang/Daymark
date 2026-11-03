@@ -13,6 +13,12 @@ import { OnboardingScreen } from './src/screens/onboarding/OnboardingScreen';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { CelebrationOverlay } from './src/components/CelebrationOverlay';
 import { SubscriptionProvider } from './src/services/SubscriptionProvider';
+import { RoutinesProvider } from './src/services/RoutinesContext';
+import { GoalsProvider } from './src/services/GoalsContext';
+import { JournalProvider } from './src/services/JournalContext';
+import { AchievementsProvider } from './src/services/AchievementsContext';
+import { ReportsProvider } from './src/services/ReportsContext';
+import { PreferencesProvider } from './src/services/PreferencesContext';
 
 const queryClient = new QueryClient();
 
@@ -76,13 +82,25 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider>
         <SubscriptionProvider>
-          <ThemeProvider>
-            <HabitProvider>
-              <QueryClientProvider client={queryClient}>
-                <RootNavigator />
-              </QueryClientProvider>
-            </HabitProvider>
-          </ThemeProvider>
+          <PreferencesProvider>
+            <ThemeProvider>
+              <HabitProvider>
+                <RoutinesProvider>
+                  <GoalsProvider>
+                    <JournalProvider>
+                      <AchievementsProvider>
+                        <ReportsProvider>
+                          <QueryClientProvider client={queryClient}>
+                            <RootNavigator />
+                          </QueryClientProvider>
+                        </ReportsProvider>
+                      </AchievementsProvider>
+                    </JournalProvider>
+                  </GoalsProvider>
+                </RoutinesProvider>
+              </HabitProvider>
+            </ThemeProvider>
+          </PreferencesProvider>
         </SubscriptionProvider>
       </AuthProvider>
     </SafeAreaProvider>

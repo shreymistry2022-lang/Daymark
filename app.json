@@ -4,9 +4,10 @@
     "slug": "Daymark",
     "version": "1.0.0",
     "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
     "ios": {
+      "bundleIdentifier": "com.daymark.app",
       "supportsTablet": true
     },
     "android": {
@@ -29,7 +30,30 @@
       "policy": "appVersion"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-sharing",
+      "expo-system-ui",
+      [
+        "expo-widgets",
+        {
+          "enableAndroid": true,
+          "widgets": [
+            {
+              "name": "DaymarkTodayWidget",
+              "displayName": "Daymark Today",
+              "description": "See today's habit progress at a glance",
+              "ios": {
+                "supportedFamilies": [
+                  "systemSmall",
+                  "systemMedium"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "expo-web-browser",
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {
