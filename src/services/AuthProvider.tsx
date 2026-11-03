@@ -52,6 +52,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const savedGuest = await AsyncStorage.getItem(STORAGE_KEYS.GUEST_MODE);
         if (savedGuest === 'true' && isMounted) {
           setIsGuest(true);
+          setUser({
+            id: 'guest_user',
+            email: 'guest@daymark.local',
+            fullName: 'Daymark Guest',
+            isGuest: true,
+          });
           setIsLoading(false);
           return;
         }

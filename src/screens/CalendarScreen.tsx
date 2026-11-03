@@ -64,8 +64,10 @@ export const CalendarScreen = () => {
   const { habits, toggleHabit } = useHabits();
   const { colors, isDark } = useTheme();
 
-  const [selectedDay, setSelectedDay] = useState<number>(new Date().getDate());
-  const [currentMonthIndex, setCurrentMonthIndex] = useState<number>(10); // Nov
+  const today = new Date();
+  const [currentYear, setCurrentYear] = useState<number>(today.getFullYear());
+  const [currentMonthIndex, setCurrentMonthIndex] = useState<number>(today.getMonth());
+  const [selectedDay, setSelectedDay] = useState<number>(today.getDate());
   const [activeThemeKey, setActiveThemeKey] = useState<string>('tangerine');
 
   const activeTheme = HEATMAP_THEMES[activeThemeKey] || HEATMAP_THEMES.tangerine;
@@ -73,15 +75,43 @@ export const CalendarScreen = () => {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const daysOfWeek = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-  // Days in November: 30
-  const daysInMonth = 30;
+  // Days in selected month
+  const daysInMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const firstDayOfWeek = (new Date(currentYear, currentMonthIndex, 1).getDay() + 6) % 7; // Monday = 0, Sunday = 6
+
+  const safeSelectedDay = Math.min(selectedDay, daysInMonth);
 
   const getDayString = (day: number) => {
-    return `2026-${String(currentMonthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   };
 
-  const selectedDateStr = getDayString(selectedDay);
+  const selectedDateStr = getDayString(safeSelectedDay);
+
+  const handlePrevMonth = () => {
+    if (currentMonthIndex === 0) {
+      setCurrentMonthIndex(11);
+      setCurrentYear(prev => prev - 1);
+    } else {
+      setCurrentMonthIndex(prev => prev - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (currentMonthIndex === 11) {
+      setCurrentMonthIndex(0);
+      setCurrentYear(prev => prev + 1);
+    } else {
+      setCurrentMonthIndex(prev => prev + 1);
+    }
+  };
+
+  const handleJumpToToday = () => {
+    const now = new Date();
+    setCurrentYear(now.getFullYear());
+    setCurrentMonthIndex(now.getMonth());
+    setSelectedDay(now.getDate());
+  };
 
   // Compute activity intensity for each day (0 to 3)
   const getIntensity = (day: number) => {
@@ -115,14 +145,18 @@ export const CalendarScreen = () => {
         <View style={[styles.monthNav, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <TouchableOpacity
             style={styles.navArrow}
-            onPress={() => setCurrentMonthIndex(prev => Math.max(0, prev - 1))}
+            onPress={handlePrevMonth}
           >
             <Ionicons name="chevron-back" size={20} color={colors.primaryText} />
           </TouchableOpacity>
-          <Text style={[styles.monthName, { color: colors.primaryText }]}>{months[currentMonthIndex]} 2026</Text>
+          <TouchableOpacity onPress={handleJumpToToday} activeOpacity={0.7}>
+            <Text style={[styles.monthName, { color: colors.primaryText }]}>
+              {months[currentMonthIndex]} {currentYear}
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.navArrow}
-            onPress={() => setCurrentMonthIndex(prev => Math.min(11, prev + 1))}
+            onPress={handleNextMonth}
           >
             <Ionicons name="chevron-forward" size={20} color={colors.primaryText} />
           </TouchableOpacity>
@@ -181,9 +215,12 @@ export const CalendarScreen = () => {
           </View>
 
           <View style={styles.daysGrid}>
+            {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+              <View key={`empty-${i}`} style={styles.daySquareEmpty} />
+            ))}
             {daysArray.map(day => {
               const intensity = getIntensity(day);
-              const isSelected = selectedDay === day;
+              const isSelected = safeSelectedDay === day;
               return (
                 <TouchableOpacity
                   key={day}
@@ -230,7 +267,7 @@ export const CalendarScreen = () => {
         <View style={[styles.detailsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.detailsHeader}>
             <Text style={[styles.detailsTitle, { color: colors.primaryText }]}>
-              {months[currentMonthIndex]} {selectedDay}, 2026
+              {months[currentMonthIndex]} {safeSelectedDay}, {currentYear}
             </Text>
             <View style={[styles.logPill, { backgroundColor: `${activeTheme.primary}1A` }]}>
               <Text style={[styles.logPillText, { color: activeTheme.primary }]}>
@@ -380,6 +417,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'transparent',
+  },
+  daySquareEmpty: {
+    width: 38,
+    height: 38,
   },
   daySquareSelected: {
     borderWidth: 2,

@@ -50,6 +50,21 @@ const getTodayString = (): string => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+const getRelativeDateString = (daysOffset: number): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + daysOffset);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const generatePastDates = (count: number, includeToday = true): string[] => {
+  const dates: string[] = [];
+  const startOffset = includeToday ? 0 : 1;
+  for (let i = startOffset; i < count + startOffset; i++) {
+    dates.push(getRelativeDateString(-i));
+  }
+  return dates.reverse();
+};
+
 const INITIAL_HABITS: Habit[] = [
   {
     id: 'h1',
@@ -58,7 +73,7 @@ const INITIAL_HABITS: Habit[] = [
     color: '#FF7A00',
     icon: 'sunny-outline',
     streak: 14,
-    completedDates: [getTodayString()],
+    completedDates: generatePastDates(14, true),
     targetFrequency: 'Daily',
   },
   {
@@ -68,7 +83,7 @@ const INITIAL_HABITS: Habit[] = [
     color: '#06B6D4',
     icon: 'water-outline',
     streak: 21,
-    completedDates: [getTodayString()],
+    completedDates: generatePastDates(21, true),
     targetFrequency: 'Daily',
   },
   {
@@ -78,7 +93,7 @@ const INITIAL_HABITS: Habit[] = [
     color: '#3B82F6',
     icon: 'briefcase-outline',
     streak: 8,
-    completedDates: [],
+    completedDates: generatePastDates(8, false),
     targetFrequency: 'Weekdays',
   },
   {
@@ -88,7 +103,7 @@ const INITIAL_HABITS: Habit[] = [
     color: '#8B5CF6',
     icon: 'book-outline',
     streak: 6,
-    completedDates: [getTodayString()],
+    completedDates: generatePastDates(6, true),
     targetFrequency: 'Daily',
   },
   {
@@ -98,7 +113,7 @@ const INITIAL_HABITS: Habit[] = [
     color: '#10B981',
     icon: 'fitness-outline',
     streak: 12,
-    completedDates: [],
+    completedDates: generatePastDates(12, false),
     targetFrequency: 'Daily',
   },
   {
@@ -108,7 +123,7 @@ const INITIAL_HABITS: Habit[] = [
     color: '#6366F1',
     icon: 'moon-outline',
     streak: 9,
-    completedDates: [],
+    completedDates: generatePastDates(9, false),
     targetFrequency: 'Daily',
   },
   {
@@ -118,7 +133,7 @@ const INITIAL_HABITS: Habit[] = [
     color: '#F59E0B',
     icon: 'wallet-outline',
     streak: 15,
-    completedDates: [getTodayString()],
+    completedDates: generatePastDates(15, true),
     targetFrequency: 'Daily',
   },
 ];
@@ -151,34 +166,42 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     let isMounted = true;
 
     const loadData = async () => {
-      if (!user) {
-        if (isMounted) {
-          setHabits(INITIAL_HABITS);
-          setIsLoadingData(false);
-        }
-        await AsyncStorage.removeItem(STORAGE_KEYS.HABITS).catch(() => {});
-        return;
-      }
-
       try {
-        // 1. First load local cache for instant UI
+        // 1. ALWAYS load cached habits from AsyncStorage first so data from previous days is never lost!
         const [savedHabitsJson, savedOnboarding] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.HABITS),
           AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING),
         ]);
 
-        if (savedHabitsJson && isMounted) {
-          const parsed = JSON.parse(savedHabitsJson);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setHabits(parsed);
+        let localHabits: Habit[] = [];
+        if (savedHabitsJson) {
+          try {
+            const parsed = JSON.parse(savedHabitsJson);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              localHabits = parsed;
+              if (isMounted) {
+                setHabits(parsed);
+              }
+            }
+          } catch (parseErr) {
+            console.warn('Failed to parse cached habits:', parseErr);
           }
+        }
+
+        // If user has never had habits saved locally, seed INITIAL_HABITS
+        if (localHabits.length === 0) {
+          localHabits = INITIAL_HABITS;
+          if (isMounted) {
+            setHabits(INITIAL_HABITS);
+          }
+          await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(INITIAL_HABITS)).catch(() => {});
         }
 
         if (savedOnboarding !== null && isMounted) {
           setHasCompletedOnboarding(savedOnboarding === 'true');
         }
 
-        // 2. If user is logged in and Supabase is configured, fetch latest from cloud
+        // 2. If user is logged in with Supabase, merge with cloud and preserve all completed dates!
         if (user && !user.isGuest && isSupabaseConfigured) {
           const { data: cloudRows, error } = await supabase
             .from('habits')
@@ -187,45 +210,80 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
             .order('created_at', { ascending: false });
 
           if (!error && Array.isArray(cloudRows) && cloudRows.length > 0 && isMounted) {
-            const mapped: Habit[] = cloudRows.map(row => ({
-              id: row.id,
-              name: row.name,
-              category: row.category,
-              color: row.color,
-              icon: row.icon as keyof typeof Ionicons.glyphMap,
-              streak: row.streak || 0,
-              completedDates: Array.isArray(row.completed_dates) ? row.completed_dates : [],
-              targetFrequency: row.target_frequency || 'Daily',
-            }));
-            setHabits(mapped);
-            await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(mapped));
-          } else if (!error && Array.isArray(cloudRows) && cloudRows.length === 0) {
-            // New cloud account: seed initial starter habits with user-specific IDs to Supabase
-            const starterWithUserId: Habit[] = INITIAL_HABITS.map(h => ({
-              ...h,
-              id: `${user.id}_${h.id}`,
-            }));
+            const cloudHabits: Habit[] = cloudRows.map(row => {
+              const cloudDates: string[] = Array.isArray(row.completed_dates) ? row.completed_dates : [];
+              // Find matching local habit to combine all previous days' dates
+              const localMatch = localHabits.find(
+                lh => lh.id === row.id || lh.name.toLowerCase() === row.name.toLowerCase()
+              );
+              const localDates = localMatch ? localMatch.completedDates : [];
+              const mergedDates = Array.from(new Set([...cloudDates, ...localDates])).sort();
 
-            const starterPayload = starterWithUserId.map(h => ({
-              id: h.id,
+              return {
+                id: row.id,
+                name: row.name,
+                category: row.category,
+                color: row.color,
+                icon: row.icon as keyof typeof Ionicons.glyphMap,
+                streak: row.streak || mergedDates.length,
+                completedDates: mergedDates,
+                targetFrequency: row.target_frequency || 'Daily',
+              };
+            });
+
+            setHabits(cloudHabits);
+            await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(cloudHabits));
+
+            // Sync merged previous days back to Supabase in background
+            for (const ch of cloudHabits) {
+              supabase
+                .from('habits')
+                .upsert({
+                  id: ch.id,
+                  user_id: user.id,
+                  name: ch.name,
+                  category: ch.category,
+                  color: ch.color,
+                  icon: ch.icon,
+                  streak: ch.streak,
+                  completed_dates: ch.completedDates,
+                  target_frequency: ch.targetFrequency,
+                  updated_at: new Date().toISOString(),
+                })
+                .then(() => {});
+            }
+          } else if (!error && Array.isArray(cloudRows) && cloudRows.length === 0) {
+            // New cloud account: upload local habits WITH all previous days' history
+            const uploadPayload = localHabits.map(h => ({
+              id: h.id.startsWith(user.id) ? h.id : `${user.id}_${h.id}`,
               user_id: user.id,
               name: h.name,
               category: h.category,
               color: h.color,
               icon: h.icon,
               streak: h.streak,
-              completed_dates: h.completedDates,
+              completed_dates: h.completedDates, // ALL PREVIOUS DAYS PRESERVED!
               target_frequency: h.targetFrequency,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             }));
 
-            const { error: insertErr } = await supabase.from('habits').upsert(starterPayload);
-            if (!insertErr && isMounted) {
-              setHabits(starterWithUserId);
-              await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(starterWithUserId));
-            } else if (insertErr) {
-              console.warn('Failed to seed starter habits to Supabase:', insertErr.message);
+            const { error: upsertErr } = await supabase.from('habits').upsert(uploadPayload);
+            if (!upsertErr && isMounted) {
+              const syncedHabits: Habit[] = uploadPayload.map(p => ({
+                id: p.id,
+                name: p.name,
+                category: p.category,
+                color: p.color,
+                icon: p.icon as keyof typeof Ionicons.glyphMap,
+                streak: p.streak,
+                completedDates: p.completed_dates,
+                targetFrequency: p.target_frequency,
+              }));
+              setHabits(syncedHabits);
+              await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(syncedHabits));
+            } else if (upsertErr) {
+              console.warn('Failed to seed starter habits to Supabase:', upsertErr.message);
             }
           }
         }

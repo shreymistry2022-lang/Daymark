@@ -22,16 +22,53 @@ export const InsightsScreen = () => {
 
   const timeRanges: ('7D' | '30D' | '90D' | 'ALL')[] = ['7D', '30D', '90D', 'ALL'];
 
-  // Simulated week distribution
-  const weekData = [
-    { day: 'Mon', rate: 75, active: false },
-    { day: 'Tue', rate: 100, active: true },
-    { day: 'Wed', rate: 60, active: false },
-    { day: 'Thu', rate: 85, active: false },
-    { day: 'Fri', rate: 100, active: true },
-    { day: 'Sat', rate: 90, active: false },
-    { day: 'Sun', rate: stats.completionRate, active: true },
-  ];
+  const getDaysForRange = (range: '7D' | '30D' | '90D' | 'ALL') => {
+    switch (range) {
+      case '7D': return 7;
+      case '30D': return 30;
+      case '90D': return 90;
+      case 'ALL': return 180;
+    }
+  };
+
+  const getWindowRate = (days: number, offsetDays: number = 0) => {
+    if (habits.length === 0 || days <= 0) return 0;
+    let completedCount = 0;
+    for (let i = 0; i < days; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - (i + offsetDays));
+      const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      completedCount += habits.filter(h => h.completedDates.includes(dStr)).length;
+    }
+    const possible = habits.length * days;
+    return possible > 0 ? Math.round((completedCount / possible) * 100) : 0;
+  };
+
+  const rangeDays = getDaysForRange(timeRange);
+  const currentCompletionRate = getWindowRate(rangeDays, 0);
+  const prevCompletionRate = getWindowRate(rangeDays, rangeDays);
+  const diffRate = currentCompletionRate - prevCompletionRate;
+
+  // Real trailing 7 days completion rate
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const weekData = Array.from({ length: 7 }, (_, idx) => {
+    const daysAgo = 6 - idx; // 6 days ago up to 0 (today)
+    const d = new Date();
+    d.setDate(d.getDate() - daysAgo);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const completedCount = habits.filter(h => h.completedDates.includes(dateStr)).length;
+    const rate = habits.length > 0 ? Math.round((completedCount / habits.length) * 100) : 0;
+    return {
+      day: dayNames[d.getDay()],
+      rate,
+      active: daysAgo === 0,
+      dateStr,
+    };
+  });
+
+  const avgWeeklyRate = Math.round(
+    weekData.reduce((acc, curr) => acc + curr.rate, 0) / (weekData.length || 1)
+  );
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -76,11 +113,13 @@ export const InsightsScreen = () => {
         <View style={styles.metricGrid}>
           <View style={[styles.metricCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.metricHeader}>
-              <Text style={[styles.metricTitle, { color: colors.secondaryText }]}>COMPLETION</Text>
+              <Text style={[styles.metricTitle, { color: colors.secondaryText }]}>COMPLETION ({timeRange})</Text>
               <Ionicons name="trending-up" size={16} color={colors.accent} />
             </View>
-            <Text style={[styles.metricMain, { color: colors.primaryText }]}>{stats.completionRate}%</Text>
-            <Text style={[styles.metricSub, { color: colors.accent }]}>+8% vs last cycle</Text>
+            <Text style={[styles.metricMain, { color: colors.primaryText }]}>{currentCompletionRate}%</Text>
+            <Text style={[styles.metricSub, { color: colors.accent }]}>
+              {diffRate >= 0 ? `+${diffRate}%` : `${diffRate}%`} vs last cycle
+            </Text>
           </View>
 
           <View style={[styles.metricCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -97,7 +136,7 @@ export const InsightsScreen = () => {
         <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.chartHeader}>
             <Text style={[styles.chartTitle, { color: colors.primaryText }]}>Consistency Distribution</Text>
-            <Text style={[styles.chartSubtitle, { color: colors.secondaryText }]}>Avg. 82% daily completion</Text>
+            <Text style={[styles.chartSubtitle, { color: colors.secondaryText }]}>Avg. {avgWeeklyRate}% daily completion</Text>
           </View>
 
           <View style={styles.chartBars}>
@@ -130,32 +169,35 @@ export const InsightsScreen = () => {
         <View style={styles.leaderboardSection}>
           <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>HABIT CONSISTENCY</Text>
 
-          {habits.map((h, i) => {
-            const calculatedProgress = Math.min(100, Math.max(15, h.streak * 8));
-            return (
-              <View key={h.id} style={[styles.rankingRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <View style={styles.rankingLeft}>
-                  <Text style={[styles.rankIndex, { color: colors.mutedText }]}>#{i + 1}</Text>
-                  <View style={[styles.rankDot, { backgroundColor: h.color }]} />
-                  <Text style={[styles.rankName, { color: colors.primaryText }]} numberOfLines={1}>
-                    {h.name}
-                  </Text>
-                </View>
-
-                <View style={styles.rankingRight}>
-                  <View style={[styles.rankingTrack, { backgroundColor: colors.secondaryBackground }]}>
-                    <View
-                      style={[
-                        styles.rankingFill,
-                        { width: `${calculatedProgress}%`, backgroundColor: h.color },
-                      ]}
-                    />
+          {[...habits]
+            .sort((a, b) => b.completedDates.length - a.completedDates.length || b.streak - a.streak)
+            .map((h, i) => {
+              const totalDaysCount = h.completedDates.length;
+              const calculatedProgress = Math.min(100, Math.max(12, Math.round((totalDaysCount / 30) * 100)));
+              return (
+                <View key={h.id} style={[styles.rankingRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <View style={styles.rankingLeft}>
+                    <Text style={[styles.rankIndex, { color: colors.mutedText }]}>#{i + 1}</Text>
+                    <View style={[styles.rankDot, { backgroundColor: h.color }]} />
+                    <Text style={[styles.rankName, { color: colors.primaryText }]} numberOfLines={1}>
+                      {h.name}
+                    </Text>
                   </View>
-                  <Text style={[styles.rankStreak, { color: colors.accent }]}>{h.streak}d</Text>
+
+                  <View style={styles.rankingRight}>
+                    <View style={[styles.rankingTrack, { backgroundColor: colors.secondaryBackground }]}>
+                      <View
+                        style={[
+                          styles.rankingFill,
+                          { width: `${calculatedProgress}%`, backgroundColor: h.color },
+                        ]}
+                      />
+                    </View>
+                    <Text style={[styles.rankStreak, { color: colors.accent }]}>{h.streak}d</Text>
+                  </View>
                 </View>
-              </View>
-            );
-          })}
+              );
+            })}
         </View>
 
         {/* Achievement Showcase */}
