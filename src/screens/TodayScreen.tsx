@@ -225,7 +225,7 @@ export const TodayScreen = () => {
           </View>
 
           {filteredHabits.map((habit, habitIndex) => {
-            const isCompleted = habit.completedDates.includes(selectedDate);
+            const isCompleted = getHabitDayStatus(habit, selectedDate, dateReference) === 'completed';
             return (
               <View
                 key={habit.id}
@@ -320,6 +320,7 @@ export const TodayScreen = () => {
 
       {/* 14 Categories Creation Modal */}
       {createModalVisible && <CreateHabitModal
+        key={createModalVisible ? 'open' : 'closed'}
         visible={createModalVisible}
         onClose={() => setCreateModalVisible(false)}
         onAddHabit={addHabit}

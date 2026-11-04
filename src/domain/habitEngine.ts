@@ -111,7 +111,7 @@ export const isTrackableOnDate = (habit: SchedulableHabit, dateString: string, n
   return isScheduledOnDate(habit, dateString) || (schedule.frequency === 'weekly_target' && !schedule.weekdays?.length);
 };
 
-export const isWeeklyTargetMet = (habit: SchedulableHabit, weekStart: string): boolean => {
+export const isWeeklyTargetMet = (habit: SchedulableHabit, weekStart: string, now = new Date()): boolean => {
   const config = configForDate(habit, weekStart);
   const schedule = normalizeSchedule(config);
   if (schedule.frequency !== 'weekly_target') return false;
@@ -124,15 +124,21 @@ export const isWeeklyTargetMet = (habit: SchedulableHabit, weekStart: string): b
         if (habit.endDate && date > habit.endDate) return false;
         return !isPausedOnDate(habit, date);
       });
-  const successful = scheduledDates.filter(date => logSuccessful(habit, date)).length;
+  const today = toLocalDateString(now);
+  const successful = scheduledDates.filter(date => logSuccessful(habit, date, today)).length;
   return successful >= target;
 };
 
-const logSuccessful = (habit: SchedulableHabit, date: string): boolean => {
+const logSuccessful = (habit: SchedulableHabit, date: string, today?: string): boolean => {
   const config = configForDate(habit, date);
   const log = habit.logs?.find(entry => entry.date === date);
   if (log?.outcome === 'lapse') return false;
-  if (config.habitKind === 'quit') return true;
+  if (config.habitKind === 'quit') {
+    if (log?.outcome === 'completed') return true;
+    // Today and future days are in progress (pending), not completed yet
+    if (today && date >= today) return false;
+    return true;
+  }
   if (config.trackingMethod !== 'count' && config.trackingMethod !== 'measurable') {
     return log?.outcome === 'completed' || Boolean(habit.completedDates?.includes(date));
   }
@@ -153,13 +159,13 @@ export const getHabitDayStatus = (habit: SchedulableHabit, date: string, now = n
   if (schedule.frequency === 'weekly_target' && !schedule.weekdays?.length) {
     const log = habit.logs?.find(entry => entry.date === date);
     if (log?.outcome === 'lapse') return 'lapse';
-    if (logSuccessful(habit, date)) return 'completed';
+    if (logSuccessful(habit, date, today)) return 'completed';
     return date === today ? 'pending' : 'unscheduled';
   }
   if (!isScheduledOnDate(habit, date)) return 'unscheduled';
   const log = habit.logs?.find(entry => entry.date === date);
   if (log?.outcome === 'lapse') return 'lapse';
-  if (logSuccessful(habit, date)) return 'completed';
+  if (logSuccessful(habit, date, today)) return 'completed';
   if (date === today) return 'pending';
   return 'missed';
 };
@@ -253,7 +259,7 @@ const calculateWeeklyTargetStreak = (habit: SchedulableHabit, start: string, tod
   for (let monday = firstMonday; monday <= today; monday = addLocalDays(monday, 7)) {
     const sunday = addLocalDays(monday, 6);
     if (sunday < start || monday > today) continue;
-    const complete = isWeeklyTargetMet(habit, monday);
+    const complete = isWeeklyTargetMet(habit, monday, now);
     const isCurrentWeek = today >= monday && today <= sunday;
     if (complete || (isCurrentWeek && toLocalDateString(now) === today)) {
       if (complete) total += 1;

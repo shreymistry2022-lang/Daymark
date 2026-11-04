@@ -116,4 +116,16 @@ describe('habit scheduling engine', () => {
     expect(calculateCompletionStats(habit, '2025-01-06', '2025-01-12', today(2025, 0, 12))).toEqual({ completed: 1, scheduled: 1, percentage: 100 });
     expect(getHabitDayStatus(habit, '2025-01-08', today(2025, 0, 12))).toBe('completed');
   });
+
+  it('does not mark newly started habits as completed on their start date or today', () => {
+    const startDay = '2025-01-10';
+    const now = today(2025, 0, 10);
+    // Positive habit starting today
+    const positive = dailyHabit({ startDate: startDay, habitKind: 'positive' });
+    expect(getHabitDayStatus(positive, startDay, now)).toBe('pending');
+
+    // Quit habit starting today
+    const quit = dailyHabit({ startDate: startDay, habitKind: 'quit' });
+    expect(getHabitDayStatus(quit, startDay, now)).toBe('pending');
+  });
 });

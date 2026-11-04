@@ -1,5 +1,5 @@
 // src/screens/HabitsScreen.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   TextInput,
   Modal,
   Alert,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,11 +17,12 @@ import { spacing, radii } from '../theme/tokens';
 import { useHabits, Habit } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
 import { CreateHabitModal } from '../components/CreateHabitModal';
+import { PauseHabitModal } from '../components/PauseHabitModal';
 import { HABIT_CATEGORIES } from '../constants/categories';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canCreateHabit } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
-import { addLocalDays, calculateCompletionStats, calculateStreakStats, isPausedOnDate, isTrackableOnDate } from '../domain/habitEngine';
+import { addLocalDays, calculateCompletionStats, calculateStreakStats, getHabitDayStatus, isPausedOnDate, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
 import { HabitTrackingControl } from '../components/HabitTrackingControl';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
@@ -37,6 +39,7 @@ export const HabitsScreen = () => {
   const [selectedHabitId, setSelectedHabitId] = useState<string | null>(null);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+  const [pauseModalHabit, setPauseModalHabit] = useState<Habit | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const selectedHabit = selectedHabitId ? allHabits.find(habit => habit.id === selectedHabitId) ?? null : null;
   const [paywallVisible, setPaywallVisible] = useState(false);
@@ -58,6 +61,7 @@ export const HabitsScreen = () => {
 
   // Available categories: 'All' + all 14 standard categories
   const categoriesList = ['All', ...HABIT_CATEGORIES.map(c => c.name)];
+  const todayReferenceDate = useMemo(() => parseLocalDate(todayDateStr) ?? new Date(), [todayDateStr]);
 
   const filteredHabits = (showArchived ? archivedHabits : habits).filter(h => {
     const matchesSearch = h.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -68,9 +72,16 @@ export const HabitsScreen = () => {
   const selectedHabitRecentRate = selectedHabit ? calculateCompletionStats(selectedHabit, addLocalDays(todayDateStr, -29), todayDateStr).percentage : 0;
 
   const handleDelete = (id: string, name: string) => {
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm(`Are you sure you want to delete "${name}"? This cannot be undone.`)) {
+        deleteHabit(id);
+        setSelectedHabitId(null);
+      }
+      return;
+    }
     Alert.alert(
       'Delete Habit',
-      `Are you sure you want to delete "${name}"?`,
+      `Are you sure you want to delete "${name}"? This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -172,7 +183,7 @@ export const HabitsScreen = () => {
         {/* Habit Rows */}
         <View style={styles.habitList}>
           {filteredHabits.map(habit => {
-            const isCompleted = habit.completedDates.includes(todayDateStr);
+            const isCompleted = getHabitDayStatus(habit, todayDateStr, todayReferenceDate) === 'completed';
             return (
               <TouchableOpacity
                 key={habit.id}
@@ -294,32 +305,39 @@ export const HabitsScreen = () => {
 
               {isTrackableOnDate(selectedHabit, todayDateStr) ? selectedHabit.habitKind === 'quit' || selectedHabit.trackingMethod === 'count' || selectedHabit.trackingMethod === 'measurable' ? (
                 <HabitTrackingControl habit={selectedHabit} date={todayDateStr} onSave={recordHabitLog} />
-              ) : <TouchableOpacity
-                style={[
-                  styles.toggleActionBtn,
-                  { backgroundColor: colors.secondaryBackground },
-                  selectedHabit.completedDates.includes(todayDateStr) && styles.toggleActionBtnDone,
-                ]}
-                activeOpacity={0.8}
-                onPress={() => {
-                  toggleHabit(selectedHabit.id);
-                }}
-              >
-                <Ionicons
-                  name={
-                    selectedHabit.completedDates.includes(todayDateStr)
-                      ? 'checkmark-circle'
-                      : 'ellipse-outline'
-                  }
-                  size={20}
-                  color="#FFF"
-                />
-                <Text style={styles.toggleActionText}>
-                  {selectedHabit.completedDates.includes(todayDateStr)
-                    ? 'Completed Today'
-                    : 'Mark Completed for Today'}
-                </Text>
-              </TouchableOpacity> : <Text style={[styles.detailMetadata, { color: colors.secondaryText, marginBottom: spacing.md }]}>{selectedHabit.archivedAt ? 'Archived habits are read-only.' : isPausedOnDate(selectedHabit, todayDateStr) ? 'Paused today. Tracking resumes after the pause.' : 'This habit is not scheduled today.'}</Text>}
+              ) : (
+                (() => {
+                  const isSelectedDone = getHabitDayStatus(selectedHabit, todayDateStr, todayReferenceDate) === 'completed';
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.toggleActionBtn,
+                        { backgroundColor: colors.secondaryBackground },
+                        isSelectedDone && styles.toggleActionBtnDone,
+                      ]}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        toggleHabit(selectedHabit.id);
+                      }}
+                    >
+                      <Ionicons
+                        name={
+                          isSelectedDone
+                            ? 'checkmark-circle'
+                            : 'ellipse-outline'
+                        }
+                        size={20}
+                        color="#FFF"
+                      />
+                      <Text style={styles.toggleActionText}>
+                        {isSelectedDone
+                          ? 'Completed Today'
+                          : 'Mark Completed for Today'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })()
+              ) : <Text style={[styles.detailMetadata, { color: colors.secondaryText, marginBottom: spacing.md }]}>{selectedHabit.archivedAt ? 'Archived habits are read-only.' : isPausedOnDate(selectedHabit, todayDateStr) ? 'Paused today. Tracking resumes after the pause.' : 'This habit is not scheduled today.'}</Text>}
               {!!selectedHabit.reminders?.length && <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Reminders: {selectedHabit.reminders.filter(reminder => reminder.enabled).map(reminder => `${String(reminder.hour).padStart(2, '0')}:${String(reminder.minute).padStart(2, '0')}`).join(', ') || 'All disabled'}</Text>}
 
               <TouchableOpacity
@@ -343,12 +361,11 @@ export const HabitsScreen = () => {
                       <Text style={[styles.deleteText, { color: colors.accent }]}>Resume Habit</Text>
                     </TouchableOpacity>
                   ) : (
-                    <TouchableOpacity style={styles.deleteButton} onPress={() => Alert.alert('Pause habit', 'Choose how long to pause this habit.', [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: '1 week', onPress: () => { pauseHabit(selectedHabit.id, todayDateStr, addLocalDays(todayDateStr, 6)); setSelectedHabitId(null); } },
-                      { text: '2 weeks', onPress: () => { pauseHabit(selectedHabit.id, todayDateStr, addLocalDays(todayDateStr, 13)); setSelectedHabitId(null); } },
-                      { text: 'Until I resume', onPress: () => { pauseHabit(selectedHabit.id, todayDateStr, null); setSelectedHabitId(null); } },
-                    ])}>
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      activeOpacity={0.7}
+                      onPress={() => setPauseModalHabit(selectedHabit)}
+                    >
                       <Ionicons name="pause-outline" size={18} color={colors.secondaryText} />
                       <Text style={[styles.deleteText, { color: colors.secondaryText }]}>Pause Habit</Text>
                     </TouchableOpacity>
@@ -369,13 +386,45 @@ export const HabitsScreen = () => {
         </Modal>
       )}
 
-      {/* Create Habit Modal */}
+      {/* Pause Habit Modal */}
+      <PauseHabitModal
+        visible={Boolean(pauseModalHabit)}
+        habit={pauseModalHabit}
+        todayDateStr={todayDateStr}
+        onClose={() => setPauseModalHabit(null)}
+        onConfirmPause={(id, startDate, endDate) => {
+          pauseHabit(id, startDate, endDate);
+          setPauseModalHabit(null);
+          setSelectedHabitId(null);
+        }}
+      />
+
+      {/* Create / Edit Habit Modal */}
       {createModalVisible && <CreateHabitModal
+        key={editingHabit ? `edit_${editingHabit.id}` : 'create_habit'}
         visible={createModalVisible}
         onClose={() => { setCreateModalVisible(false); setEditingHabit(null); }}
         onAddHabit={addHabit}
         initialHabit={editingHabit}
         onUpdateHabit={updateHabit}
+        onDeleteHabit={id => {
+          deleteHabit(id);
+          setCreateModalVisible(false);
+          setEditingHabit(null);
+          setSelectedHabitId(null);
+        }}
+        onPauseHabit={(id, startDate, endDate) => {
+          pauseHabit(id, startDate, endDate);
+          setCreateModalVisible(false);
+          setEditingHabit(null);
+          setSelectedHabitId(null);
+        }}
+        onResumeHabit={id => {
+          resumeHabit(id);
+          setCreateModalVisible(false);
+          setEditingHabit(null);
+          setSelectedHabitId(null);
+        }}
       />}
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </View>

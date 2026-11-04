@@ -9,6 +9,8 @@ import {
   TouchableOpacity,
   ScrollView,
   Switch,
+  Alert,
+  Platform,
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,7 +19,7 @@ import { HABIT_CATEGORIES, CategoryDefinition } from '../constants/categories';
 import { Habit } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
 import { HabitKind, HabitSchedule, TrackingMethod } from '../domain/habitTypes';
-import { parseLocalDate } from '../domain/habitEngine';
+import { addLocalDays, isPausedOnDate, parseLocalDate } from '../domain/habitEngine';
 import { ensureLocalReminderPermission } from '../services/localReminders';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canAccessFeature } from '../services/subscriptionEntitlements';
@@ -30,6 +32,9 @@ interface CreateHabitModalProps {
   onAddHabit: (habit: Omit<Habit, 'id' | 'streak' | 'completedDates'>) => void;
   initialHabit?: Habit | null;
   onUpdateHabit?: (id: string, changes: Partial<Omit<Habit, 'id' | 'completedDates' | 'streak'>>) => { error?: string };
+  onDeleteHabit?: (id: string) => void;
+  onPauseHabit?: (id: string, startDate: string, endDate: string | null) => void;
+  onResumeHabit?: (id: string) => void;
 }
 
 const FREQUENCY_OPTIONS = ['Daily', 'Weekdays', 'Weekends', 'Selected days', '3x / week', '5x / week'];
@@ -63,7 +68,16 @@ const PRESETS = [
   { name: 'Evening Meditation', catId: 'mindfulness', icon: 'flower-outline', color: '#EC4899' },
 ];
 
-export const CreateHabitModal = ({ visible, onClose, onAddHabit, initialHabit, onUpdateHabit }: CreateHabitModalProps) => {
+export const CreateHabitModal = ({
+  visible,
+  onClose,
+  onAddHabit,
+  initialHabit,
+  onUpdateHabit,
+  onDeleteHabit,
+  onPauseHabit,
+  onResumeHabit,
+}: CreateHabitModalProps) => {
   const { width } = useWindowDimensions();
   const { colors } = useTheme();
   const { isPro } = useSubscription();
@@ -85,6 +99,35 @@ export const CreateHabitModal = ({ visible, onClose, onAddHabit, initialHabit, o
   const [reminderTime, setReminderTime] = useState('08:00');
   const [reminders, setReminders] = useState<Habit['reminders']>(initialHabit?.reminders ?? []);
   const [error, setError] = useState('');
+
+  const todayKey = dateKeyInTimezone(new Date(), preferences.timezone);
+  const isCurrentlyPaused = Boolean(initialHabit && isPausedOnDate(initialHabit, todayKey));
+
+  const handleDeleteHabit = () => {
+    if (!initialHabit || !onDeleteHabit) return;
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Are you sure you want to delete "${initialHabit.name}"? This cannot be undone.`)) {
+        onDeleteHabit(initialHabit.id);
+        onClose();
+      }
+      return;
+    }
+    Alert.alert(
+      'Delete Habit',
+      `Are you sure you want to delete "${initialHabit.name}"? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            onDeleteHabit(initialHabit.id);
+            onClose();
+          },
+        },
+      ]
+    );
+  };
 
   const handleSelectCategory = (cat: CategoryDefinition) => {
     setSelectedCategory(cat);
@@ -385,9 +428,48 @@ export const CreateHabitModal = ({ visible, onClose, onAddHabit, initialHabit, o
               activeOpacity={0.8}
               onPress={handleCreate}
             >
-              <Ionicons name="sparkles" size={18} color="#000" />
-              <Text style={styles.submitButtonText}>Add to Daily Routine</Text>
+              <Ionicons name={initialHabit ? 'checkmark-circle' : 'sparkles'} size={18} color="#000" />
+              <Text style={styles.submitButtonText}>{initialHabit ? 'Save Changes' : 'Add to Daily Routine'}</Text>
             </TouchableOpacity>
+
+            {/* Edit / Management Actions */}
+            {initialHabit ? (
+              <View style={styles.editActionsContainer}>
+                {onPauseHabit ? (
+                  isCurrentlyPaused ? (
+                    <TouchableOpacity
+                      style={[styles.secondaryActionButton, { borderColor: colors.border, backgroundColor: colors.secondaryBackground }]}
+                      activeOpacity={0.7}
+                      onPress={() => onResumeHabit?.(initialHabit.id)}
+                    >
+                      <Ionicons name="play-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
+                      <Text style={[styles.secondaryActionText, { color: colors.accent }]}>Resume Habit</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.secondaryActionButton, { borderColor: colors.border, backgroundColor: colors.secondaryBackground }]}
+                      activeOpacity={0.7}
+                      onPress={() => onPauseHabit(initialHabit.id, todayKey, addLocalDays(todayKey, 6))}
+                    >
+                      <Ionicons name="pause-outline" size={16} color={colors.secondaryText} style={{ marginRight: 6 }} />
+                      <Text style={[styles.secondaryActionText, { color: colors.secondaryText }]}>Pause for 1 Week</Text>
+                    </TouchableOpacity>
+                  )
+                ) : null}
+
+                {onDeleteHabit ? (
+                  <TouchableOpacity
+                    style={[styles.deleteActionButton, { borderColor: `${colors.error}40`, backgroundColor: `${colors.error}12` }]}
+                    activeOpacity={0.7}
+                    onPress={handleDeleteHabit}
+                  >
+                    <Ionicons name="trash-outline" size={16} color={colors.error} style={{ marginRight: 6 }} />
+                    <Text style={[styles.deleteActionText, { color: colors.error }]}>Delete Habit</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+
             {error ? <Text accessibilityRole="alert" style={styles.errorText}>{error}</Text> : null}
           </ScrollView>
         </View>
@@ -397,6 +479,34 @@ export const CreateHabitModal = ({ visible, onClose, onAddHabit, initialHabit, o
 };
 
 const styles = StyleSheet.create({
+  editActionsContainer: {
+    marginTop: spacing.md,
+    gap: spacing.xs,
+  },
+  secondaryActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: radii.md,
+    borderWidth: 1,
+  },
+  secondaryActionText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  deleteActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: radii.md,
+    borderWidth: 1,
+  },
+  deleteActionText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.75)',
