@@ -315,7 +315,6 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       console.error('Failed to save recorded habits locally:', err);
     }
   };
-  syncHabitToCloudRef.current = syncHabitToCloud;
 
   const syncHabitToCloud = async (habit: Habit) => {
     if (!session || !user || user.isGuest || !isSupabaseConfigured) return;
@@ -409,7 +408,9 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       if (remindersError) console.warn('Habit reminders are saved on the habit row; apply the reminders migration to sync them separately:', remindersError.message);
     }
   };
-  syncHabitToCloudRef.current = syncHabitToCloud;
+  useEffect(() => {
+    syncHabitToCloudRef.current = syncHabitToCloud;
+  });
 
   const refreshReminderSchedule = async (habit: Habit, fallbackHabits: Habit[], previous?: Habit) => {
     try {
