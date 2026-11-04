@@ -3,7 +3,8 @@ import { AppState, Platform } from 'react-native';
 import Constants from 'expo-constants';
 import Purchases, { CustomerInfo, PurchasesEntitlementInfo, PurchasesPackage } from 'react-native-purchases';
 import { useAuth } from './AuthProvider';
-import { PRO_ENTITLEMENT_ID } from './subscriptionEntitlements';
+import { PRO_ENTITLEMENT_ID, isWhitelistedProEmail } from './subscriptionEntitlements';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 type SubscriptionContextValue = {
   isPro: boolean;
@@ -37,7 +38,37 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
   const [isConfigured, setIsConfigured] = useState(false);
   const [configured, setConfigured] = useState(false);
 
+  const checkCloudOrWhitelistedPro = useCallback(async (): Promise<boolean> => {
+    if (isWhitelistedProEmail(user?.email)) {
+      return true;
+    }
+    if (isSupabaseConfigured && user?.id && !user.isGuest) {
+      try {
+        const { data: profile } = await supabase
+          .from('subscription_profiles')
+          .select('entitlement_status, expires_at')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (profile?.entitlement_status === 'active') {
+          const notExpired = !profile.expires_at || new Date(profile.expires_at) > new Date();
+          if (notExpired) return true;
+        }
+      } catch (err) {
+        console.warn('Could not check Supabase subscription profile:', err);
+      }
+    }
+    return false;
+  }, [user]);
+
   const loadStoreData = useCallback(async () => {
+    const isSpecialPro = await checkCloudOrWhitelistedPro();
+    if (isSpecialPro) {
+      setIsPro(true);
+      setIsLoading(false);
+      return;
+    }
+
     if (!apiKey || Platform.OS === 'web' || isExpoGo) {
       setIsPro(false);
       setEntitlement(null);
@@ -58,12 +89,22 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [checkCloudOrWhitelistedPro]);
 
   useEffect(() => {
     let active = true;
     const initialize = async () => {
       if (isAuthLoading) return;
+
+      const isSpecialPro = await checkCloudOrWhitelistedPro();
+      if (isSpecialPro) {
+        if (active) {
+          setIsPro(true);
+          setIsLoading(false);
+        }
+        return;
+      }
+
       if (!apiKey || Platform.OS === 'web' || isExpoGo) {
         setIsConfigured(false);
         setIsPro(false);
@@ -95,7 +136,7 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     };
     void initialize();
     return () => { active = false; };
-  }, [configured, isAuthLoading, user?.id, user?.isGuest, loadStoreData]);
+  }, [configured, isAuthLoading, user, loadStoreData, checkCloudOrWhitelistedPro]);
 
   useEffect(() => {
     if (!isConfigured || Platform.OS === 'web') return;

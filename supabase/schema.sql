@@ -392,3 +392,14 @@ create policy "Users can view their own subscription profile"
 
 -- No client write policies are intentionally defined for either table.
 
+-- Helper: Grant complimentary Pro access to VIP / admin emails in Supabase
+insert into public.subscription_profiles (user_id, entitlement_status, subscription_type, platform, will_renew, updated_at)
+select id::text, 'active', 'complimentary_lifetime', 'admin', true, now()
+from auth.users
+where lower(email) in ('smsm44186@gmail.com')
+on conflict (user_id) do update set
+  entitlement_status = 'active',
+  subscription_type = 'complimentary_lifetime',
+  updated_at = now();
+
+

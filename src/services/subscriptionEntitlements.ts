@@ -40,3 +40,14 @@ export const canAccessFeature = (feature: SubscriptionFeature, isPro: boolean): 
 
 export const canCreateHabit = (activeHabitCount: number, isPro: boolean): boolean =>
   isPro || activeHabitCount < FREE_ACTIVE_HABIT_LIMIT;
+
+export const PRO_WHITELISTED_EMAILS: string[] = [
+  'smsm44186@gmail.com',
+];
+
+export const isWhitelistedProEmail = (email?: string | null): boolean => {
+  if (!email) return false;
+  const normalized = email.trim().toLowerCase();
+  return PRO_WHITELISTED_EMAILS.includes(normalized);
+};
+

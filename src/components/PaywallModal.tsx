@@ -78,7 +78,7 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
         </TouchableOpacity>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Text style={styles.brand}>DAYMARK <Text style={{ color: LIME }}>PRO</Text></Text>
-          <Text style={styles.title}>Your progress{ '\n' }has no limits.</Text>
+          <Text style={styles.title}>Your progress{'\n'}has no limits.</Text>
           <Text style={styles.subtitle}>Build stronger routines. Understand your consistency. See the bigger picture.</Text>
 
           <View style={styles.benefits}>
@@ -112,11 +112,15 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
                 : `Pro ${entitlement.willRenew ? 'renews' : 'access ends'} ${activePeriodEnd ?? 'according to your store'}${renewalPrice && entitlement.willRenew ? ` at ${renewalPrice}` : ''}.`}
               {' '}{entitlement.willRenew ? 'Automatically renews unless cancelled in your store account.' : 'You can keep Pro until the current period ends.'}
             </Text>
+          ) : isPro ? (
+            <Text style={styles.notice}>
+              Daymark Pro is active on your account (Complimentary / VIP Access). All premium features are unlocked.
+            </Text>
           ) : null}
-          {!isConfigured ? <Text style={styles.notice}>Store plans are not configured yet. Pro stays locked until a verified store entitlement is available.</Text> : null}
-          {!isConfigured && Platform.OS !== 'web' ? <Text style={styles.notice}>Real purchases require a development or release build with the RevenueCat SDK keys configured.</Text> : null}
-          {isConfigured && !canPurchase ? <Text style={styles.notice}>Sign in with an account to purchase and sync Pro across devices.</Text> : null}
-          {isConfigured && !isLoading && !monthly && !annual ? <Text style={styles.notice}>No subscription plans are available right now.</Text> : null}
+          {!isConfigured && !isPro ? <Text style={styles.notice}>Store plans are not configured yet. Pro stays locked until a verified store entitlement is available.</Text> : null}
+          {!isConfigured && !isPro && Platform.OS !== 'web' ? <Text style={styles.notice}>Real purchases require a development or release build with the RevenueCat SDK keys configured.</Text> : null}
+          {isConfigured && !canPurchase && !isPro ? <Text style={styles.notice}>Sign in with an account to purchase and sync Pro across devices.</Text> : null}
+          {isConfigured && !isLoading && !monthly && !annual && !isPro ? <Text style={styles.notice}>No subscription plans are available right now.</Text> : null}
           <Text style={styles.terms}>Subscriptions renew automatically unless cancelled through your store account. The store purchase sheet displays the applicable trial, renewal date and localized price before confirmation.</Text>
 
           <TouchableOpacity style={styles.restore} onPress={() => void handleRestore()} disabled={busy}><Text style={styles.restoreText}>Restore Purchases</Text></TouchableOpacity>
