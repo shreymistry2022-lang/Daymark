@@ -44,7 +44,7 @@ export const ProfileScreen = () => {
   const route = useRoute<any>();
   const { habits, allHabits, stats, restartOnboarding } = useHabits();
   const { mode, setMode, colors } = useTheme();
-  const { user, isGuest, signOut, deleteAccount } = useAuth();
+  const { user, signOut, deleteAccount } = useAuth();
   const { isPro } = useSubscription();
   const { preferences, updatePreferences } = usePreferences();
   const { routines } = useRoutines();
@@ -156,12 +156,12 @@ export const ProfileScreen = () => {
     );
   };
 
-  const displayName = user?.fullName || (isGuest ? 'Guest User' : 'Daymark Member');
+  const displayName = user?.fullName || user?.email?.split('@')[0] || 'Daymark Member';
   const displayRole = user?.email
-    ? `${user.email} • Cloud Synced`
-    : isGuest
-    ? 'Local Storage (Offline)'
-    : 'Consistent Tracker • Pro';
+    ? isPro
+      ? `${user.email} • Daymark Pro`
+      : `${user.email} • Free Member`
+    : 'Daymark Member';
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>

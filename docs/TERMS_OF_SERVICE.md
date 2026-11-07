@@ -16,7 +16,7 @@ Daymark is a productivity and habit-tracking mobile application designed to help
 ## 2. Eligibility & Accounts
 
 - You must be at least 13 years old (or the legal age required in your jurisdiction) to use Daymark.
-- You may use the App as a guest without creating an account.
+- Creating an account (Free or Pro) is required to access and use the App.
 - When creating an account, you agree to provide accurate information and keep your credentials confidential. You are responsible for all activities that occur under your account.
 
 ---

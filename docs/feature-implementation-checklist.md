@@ -4,7 +4,7 @@ Tracking status for the complete feature specification. A checked item means imp
 
 ## Dependency order & Implementation Audit
 
-- [x] 01. Account and onboarding (Guest mode with persistent storage, SecureStore offline credential storage, Supabase auth with rate limit handling, PKCE OAuth for Google/Apple, deep-link password recovery and in-app password reset, account deletion [App Store 5.1.1(v)], and 12 curated starter templates across 4 life pillars)
+- [x] 01. Account and onboarding (Mandatory account sign-up for Free and Pro tiers, SecureStore offline credential storage, Supabase auth with rate limit handling, PKCE OAuth for Google/Apple, deep-link password recovery and in-app password reset, account deletion [App Store 5.1.1(v)], and 12 curated starter templates across 4 life pillars)
 - [x] 02. Today dashboard (Timezone-aware greeting, formatted date, Swiss progress card with 100% celebration, configurable 7-day week strip, historical review & logging, category filters, HabitTrackingControl, and custom habit reordering)
 - [x] 03. Habit management (Create, edit, pause with date intervals, resume, archive/restore toggle, delete confirmation, 14 categories, 8 colors, 14 icons, and preset templates)
 - [x] 04. Scheduling engine (Daily, weekdays, weekends, selected days, weekly targets, monthly dates, start/end bounds, pause intervals, and quit-habit inverse logic)

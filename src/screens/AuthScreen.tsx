@@ -28,7 +28,6 @@ export const AuthScreen = () => {
     updatePassword,
     signInWithProvider,
     passwordRecoveryRequested,
-    continueAsGuest,
   } = useAuth();
 
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
@@ -176,12 +175,12 @@ export const AuthScreen = () => {
             </View>
             <Text style={[styles.eyebrow, { color: colors.accent }]}>DAYMARK • HABIT SYSTEM</Text>
             <Text style={[styles.title, { color: colors.primaryText }]}>
-              {authMode === 'signin' ? 'Welcome Back' : 'Create Account'}
+              {authMode === 'signin' ? 'Welcome Back' : 'Create Free Account'}
             </Text>
             <Text style={[styles.subtitle, { color: colors.secondaryText }]}>
               {authMode === 'signin'
                 ? 'Sign in to access your recorded habits and streak history.'
-                : 'Join Daymark to record your rituals and build unbreakable streaks.'}
+                : 'Create a free account to track habits, protect your streaks, and keep your data backed up.'}
             </Text>
           </View>
 
@@ -228,6 +227,7 @@ export const AuthScreen = () => {
                 ]}
               >
                 Create Account
+                Create Free Account
               </Text>
             </TouchableOpacity>
           </View>
@@ -260,7 +260,7 @@ export const AuthScreen = () => {
             <View style={[styles.formCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Text style={[styles.inputLabel, { color: colors.accent, marginBottom: spacing.xs }]}>RECOVER ACCOUNT</Text>
               <Text style={[styles.title, { color: colors.primaryText, fontSize: 22, marginBottom: spacing.sm }]}>Set New Password</Text>
-              <Text style={[styles.guestBtnSub, { color: colors.secondaryText, marginBottom: spacing.md }]}>
+              <Text style={[styles.freeNoticeSub, { color: colors.secondaryText, marginBottom: spacing.md }]}>
                 Enter a new secure password for your Daymark account.
               </Text>
 
@@ -461,29 +461,16 @@ export const AuthScreen = () => {
             </TouchableOpacity>
           </View>
 
-          {/* Quick Guest / Demo Option */}
-          <View style={styles.dividerRow}>
-            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-            <Text style={[styles.dividerText, { color: colors.mutedText }]}>OR EXPLORE INSTANTLY</Text>
-            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-          </View>
-
-          <TouchableOpacity
-            style={[styles.guestBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={continueAsGuest}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="flash-outline" size={18} color={colors.accent} />
-            <View style={styles.guestTextCol}>
-              <Text style={[styles.guestBtnTitle, { color: colors.primaryText }]}>
-                Continue as Guest (Local Offline)
-              </Text>
-              <Text style={[styles.guestBtnSub, { color: colors.secondaryText }]}>
-                No signup needed. All data persists securely on this device.
-              </Text>
+          {/* Free Tier Info Badge */}
+          <View style={[styles.freeNoticeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.freeNoticeHeader}>
+              <Ionicons name="shield-checkmark" size={16} color={colors.accent} />
+              <Text style={[styles.freeNoticeTitle, { color: colors.primaryText }]}>Free Account Included</Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
+            <Text style={[styles.freeNoticeSub, { color: colors.secondaryText }]}>
+              Signing up is 100% free. It secures your habit streaks, syncs your daily progress, and keeps your data safely backed up.
+            </Text>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -664,25 +651,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  guestBtn: {
+  freeNoticeCard: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    marginTop: spacing.xl,
+  },
+  freeNoticeHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.lg,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    gap: spacing.md,
+    gap: 6,
+    marginBottom: 4,
   },
-  guestTextCol: {
-    flex: 1,
-  },
-  guestBtnTitle: {
-    fontSize: 14,
+  freeNoticeTitle: {
+    fontSize: 13,
     fontWeight: '700',
-    marginBottom: 2,
   },
-  guestBtnSub: {
+  freeNoticeSub: {
     fontSize: 12,
-    lineHeight: 16,
+    lineHeight: 17,
   },
 });
 

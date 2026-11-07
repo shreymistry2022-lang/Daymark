@@ -64,19 +64,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const restoreSession = async () => {
       try {
         await migrateLegacyCredentials().catch(error => console.warn('Could not migrate legacy local credentials securely:', error));
-        // 1. Check if user was in guest mode
-        const savedGuest = await AsyncStorage.getItem(STORAGE_KEYS.GUEST_MODE);
-        if (savedGuest === 'true' && isMounted) {
-          setIsGuest(true);
-          setUser({
-            id: 'guest_user',
-            email: 'guest@daymark.local',
-            fullName: 'Daymark Guest',
-            isGuest: true,
-          });
-          setIsLoading(false);
-          return;
-        }
+        // Clear legacy guest mode since free tier requires account sign up
+        await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
 
         // 2. Check Supabase session if configured
         if (isSupabaseConfigured) {
@@ -424,14 +413,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const continueAsGuest = () => {
-    setIsGuest(true);
-    setUser({
-      id: 'guest_user',
-      email: 'guest@daymark.local',
-      fullName: 'Daymark Guest',
-      isGuest: true,
-    });
-    AsyncStorage.setItem(STORAGE_KEYS.GUEST_MODE, 'true').catch(() => {});
+    // Deprecated: free tier requires an account to be created
+    setIsGuest(false);
   };
 
   const signOut = async () => {

@@ -10,9 +10,8 @@ Daymark ("we", "our", or "us") is dedicated to protecting your privacy. This Pri
 ## 1. Local-First & Privacy-By-Design Philosophy
 
 Daymark is built with a **local-first** architecture:
-- Your habits, routines, goals, journal entries, achievements, and app preferences are stored directly on your device.
-- You can use Daymark completely offline as a guest without creating an account or transmitting personal tracking data.
-- If you choose to create an account or sign in, your data is securely synchronized across your devices using our backend infrastructure.
+- Daymark requires account sign-up (Free or Pro) to ensure your habits, routines, goals, journal reflections, and app preferences are securely protected and backed up.
+- Your personal tracking data is stored with local-first performance on your device and synchronized securely to your account via our backend infrastructure.
 
 ---
 
