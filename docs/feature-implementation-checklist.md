@@ -26,6 +26,7 @@ Tracking status for the complete feature specification. A checked item means imp
 - [x] 20. Accessibility, loading, empty and error states (Accessibility roles, accessible labels, loading spinners, empty state illustrations with action buttons, and cloud offline banners)
 - [x] 21. Monetization foundation (RevenueCat integration, daymark_pro entitlement, 5-habit free limit, PaywallModal with annual/monthly packages, restore purchases, and Supabase webhook function)
 - [x] 22. Automated tests and validation (TypeScript check, Expo lint, and 9 Jest test suites with 29 deterministic unit tests passing)
+- [x] 23. App Store & Google Play production readiness (Configured app scheme 'daymark', android versionCode 1, eas.json production profile for AAB generation, Profile screen legal & privacy links, build version indicator, and public Privacy Policy and Terms of Service)
 
 ## Foundation work completed
 

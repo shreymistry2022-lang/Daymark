@@ -127,8 +127,8 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
           {isPro ? <TouchableOpacity style={styles.restore} onPress={() => void manage()}><Text style={styles.restoreText}>Manage Subscription</Text></TouchableOpacity> : null}
           <TouchableOpacity style={styles.continue} onPress={onClose}><Text style={styles.continueText}>Continue with Free Version</Text></TouchableOpacity>
           <View style={styles.legalRow}>
-            <TouchableOpacity onPress={() => void openLegal(process.env.EXPO_PUBLIC_TERMS_URL)}><Text style={styles.legal}>Terms of Service</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => void openLegal(process.env.EXPO_PUBLIC_PRIVACY_URL)}><Text style={styles.legal}>Privacy Policy</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => void openLegal(process.env.EXPO_PUBLIC_TERMS_URL || 'https://shreymistry2022-lang.github.io/Daymark/terms.html')}><Text style={styles.legal}>Terms of Service</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => void openLegal(process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://shreymistry2022-lang.github.io/Daymark/privacy.html')}><Text style={styles.legal}>Privacy Policy</Text></TouchableOpacity>
           </View>
         </ScrollView>
       </View>

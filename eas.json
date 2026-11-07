@@ -16,14 +16,22 @@
       },
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://iygeiyhglbbeqfkzbyga.supabase.co",
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml5Z2VpeWhnbGJiZXFma3pieWdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2MTk3NzMsImV4cCI6MjEwOTE5NTc3M30.5lN--7ITs-qkTJandUA9YRgBy5cEkwpi6WzCG_AWXqA"
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml5Z2VpeWhnbGJiZXFma3pieWdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2MTk3NzMsImV4cCI6MjEwOTE5NTc3M30.5lN--7ITs-qkTJandUA9YRgBy5cEkwpi6WzCG_AWXqA",
+        "EXPO_PUBLIC_PRIVACY_URL": "https://shreymistry2022-lang.github.io/Daymark/privacy.html",
+        "EXPO_PUBLIC_TERMS_URL": "https://shreymistry2022-lang.github.io/Daymark/terms.html"
       }
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
+      "android": {
+        "buildType": "app-bundle"
+      },
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://iygeiyhglbbeqfkzbyga.supabase.co",
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml5Z2VpeWhnbGJiZXFma3pieWdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2MTk3NzMsImV4cCI6MjEwOTE5NTc3M30.5lN--7ITs-qkTJandUA9YRgBy5cEkwpi6WzCG_AWXqA"
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml5Z2VpeWhnbGJiZXFma3pieWdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2MTk3NzMsImV4cCI6MjEwOTE5NTc3M30.5lN--7ITs-qkTJandUA9YRgBy5cEkwpi6WzCG_AWXqA",
+        "EXPO_PUBLIC_PRIVACY_URL": "https://shreymistry2022-lang.github.io/Daymark/privacy.html",
+        "EXPO_PUBLIC_TERMS_URL": "https://shreymistry2022-lang.github.io/Daymark/terms.html"
       }
     }
   },

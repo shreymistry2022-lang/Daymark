@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - Daymark</title>
+  <style>
+    :root {
+      --bg: #0D0E10;
+      --card-bg: #171920;
+      --border: #2B2E38;
+      --text: #F2F3F7;
+      --text-muted: #9EA3B2;
+      --accent: #B8FF00;
+      --link: #5382EC;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      margin: 0;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 780px;
+      margin: 0 auto;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px;
+    }
+    h1 { font-size: 2.2rem; margin-top: 0; color: #FFFFFF; }
+    h2 { font-size: 1.4rem; color: #FFFFFF; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-top: 32px; }
+    h3 { font-size: 1.1rem; color: #E0E2EC; margin-top: 20px; }
+    p, li { color: var(--text-muted); font-size: 1rem; }
+    strong { color: var(--text); }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th, td { border: 1px solid var(--border); padding: 10px 14px; text-align: left; font-size: 0.95rem; }
+    th { background: rgba(255, 255, 255, 0.05); color: #FFF; }
+    td { color: var(--text-muted); }
+    .badge { display: inline-block; background: var(--accent); color: #0D0E10; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.8rem; margin-bottom: 16px; }
+    .footer { margin-top: 40px; font-size: 0.85rem; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 20px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <span class="badge">LEGAL COMPLIANCE</span>
+    <h1>Daymark Privacy Policy</h1>
+    <p><strong>Effective Date:</strong> November 7, 2026 | <strong>Last Updated:</strong> November 7, 2026</p>
+
+    <h2>1. Local-First & Privacy-By-Design Philosophy</h2>
+    <p>Daymark is built with a <strong>local-first architecture</strong>:</p>
+    <ul>
+      <li>Your habits, routines, goals, journal entries, achievements, and app preferences are stored directly on your device.</li>
+      <li>You can use Daymark completely offline as a guest without creating an account or transmitting personal tracking data.</li>
+      <li>If you choose to create an account or sign in, your data is securely synchronized across your devices using our backend infrastructure.</li>
+    </ul>
+
+    <h2>2. Information We Collect</h2>
+    <h3>A. Data You Provide Directly</h3>
+    <ul>
+      <li><strong>Account Information:</strong> When you sign up, we collect your email address and authentication credentials. If you authenticate using Google or Apple Sign-In, we receive authentication tokens and your verified email address provided by the identity provider.</li>
+      <li><strong>Habit and Productivity Data:</strong> Habits, schedules, frequency settings, check-ins, custom notes, routines, milestones, and personal journal reflections you enter.</li>
+      <li><strong>App Preferences:</strong> Selected theme, accent color, week start day, notification preferences, date formatting, and timezone settings.</li>
+    </ul>
+
+    <h3>B. Automatically Collected Technical Data</h3>
+    <ul>
+      <li><strong>Device & Operating Information:</strong> Device model, operating system version, and unique app instance identifiers required for error tracking and notification routing.</li>
+      <li><strong>Subscription & Purchase State:</strong> When purchasing Daymark Pro, purchase receipts and transaction identifiers are processed via Google Play Billing / Apple App Store and RevenueCat. We <strong>never</strong> collect, receive, or store your credit card numbers or financial details.</li>
+    </ul>
+
+    <h2>3. How We Use Your Information</h2>
+    <p>We use your information strictly for providing and improving the core service:</p>
+    <ul>
+      <li>Delivering habit tracking, routine sequencing, milestone calculation, and local reminders.</li>
+      <li>Synchronizing your data across devices when you are logged in.</li>
+      <li>Verifying your Daymark Pro entitlement status.</li>
+      <li>Assisting you with customer support and bug resolution.</li>
+    </ul>
+    <p>We <strong>never sell your personal data</strong> or share your personal tracking details with third-party advertisers.</p>
+
+    <h2>4. Third-Party Service Providers</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Provider</th>
+          <th>Purpose</th>
+          <th>Data Handled</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Supabase</strong></td>
+          <td>Cloud authentication and database synchronization</td>
+          <td>Account credentials, habit/journal records (encrypted in transit and at rest)</td>
+        </tr>
+        <tr>
+          <td><strong>RevenueCat</strong></td>
+          <td>Subscription entitlement verification & receipt validation</td>
+          <td>Anonymous App User ID, transaction receipts</td>
+        </tr>
+        <tr>
+          <td><strong>Google Play / Apple</strong></td>
+          <td>Payment processing & in-app purchases</td>
+          <td>Payment execution and store subscription status</td>
+        </tr>
+        <tr>
+          <td><strong>Expo / EAS</strong></td>
+          <td>App runtime, crash diagnostics & updates</td>
+          <td>Device OS version, application build version</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>5. Security & Data Protection</h2>
+    <p>We implement industry-standard security safeguards to protect your personal information:</p>
+    <ul>
+      <li>All data transfers are encrypted in transit using modern TLS 1.3/HTTPS.</li>
+      <li>Sensitive device credentials and tokens are secured via hardware-backed SecureStore (Android Keystore / iOS Keychain).</li>
+      <li>Cloud databases enforce strict Row-Level Security (RLS) policies guaranteeing that only you can access or modify your records.</li>
+    </ul>
+
+    <h2>6. Data Retention and Deletion (Your Rights)</h2>
+    <ul>
+      <li><strong>Exporting Data:</strong> Export your complete data anytime as CSV or JSON from the Profile menu.</li>
+      <li><strong>Deleting Account:</strong> Instantly wipe your account, cloud data, and local cache via <em>Profile &rarr; Delete Account &amp; Data</em>.</li>
+      <li><strong>Manual Request:</strong> Email us at <a href="mailto:support@daymark.app">support@daymark.app</a> or <a href="mailto:smsm44186@gmail.com">smsm44186@gmail.com</a> with the subject "Data Deletion Request" to have all server records permanently expunged within 14 days.</li>
+    </ul>
+
+    <h2>7. Contact Us</h2>
+    <p>If you have any questions or feedback regarding this Privacy Policy:</p>
+    <ul>
+      <li><strong>Email:</strong> <a href="mailto:support@daymark.app">support@daymark.app</a> / <a href="mailto:smsm44186@gmail.com">smsm44186@gmail.com</a></li>
+      <li><strong>Developer:</strong> Shrey Mistry</li>
+      <li><strong>Project:</strong> <a href="https://github.com/shreymistry2022-lang/Daymark">github.com/shreymistry2022-lang/Daymark</a></li>
+    </ul>
+
+    <div class="footer">
+      &copy; 2026 Daymark. All rights reserved.
+    </div>
+  </div>
+</body>
+</html>
+

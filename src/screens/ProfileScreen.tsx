@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, THEME_OPTIONS } from '../theme/tokens';
@@ -93,6 +94,18 @@ export const ProfileScreen = () => {
     } catch (error) {
       console.warn('Could not create data export:', error);
       Alert.alert('Export failed', 'Daymark could not create or share the export. Check available storage and try again.');
+    }
+  };
+
+  const handleOpenUrl = async (url: string) => {
+    try {
+      if (Platform.OS === 'web') {
+        window.open(url, '_blank');
+      } else {
+        await WebBrowser.openBrowserAsync(url);
+      }
+    } catch {
+      Alert.alert('Unable to open link', `Could not open ${url}. Please try again later.`);
     }
   };
 
@@ -382,6 +395,26 @@ export const ProfileScreen = () => {
           </TouchableOpacity>
 
           <TouchableOpacity
+            style={[styles.actionButton, { borderBottomColor: colors.border }]}
+            onPress={() => void handleOpenUrl(process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://shreymistry2022-lang.github.io/Daymark/privacy.html')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="shield-checkmark-outline" size={20} color={colors.primaryText} />
+            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Privacy Policy</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionButton, { borderBottomColor: colors.border }]}
+            onPress={() => void handleOpenUrl(process.env.EXPO_PUBLIC_TERMS_URL || 'https://shreymistry2022-lang.github.io/Daymark/terms.html')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="document-text-outline" size={20} color={colors.primaryText} />
+            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Terms of Service</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[styles.actionButton, styles.signOutButton, { borderBottomColor: colors.border }]}
             onPress={handleSignOut}
             activeOpacity={0.7}
@@ -398,6 +431,10 @@ export const ProfileScreen = () => {
             <Ionicons name="trash-outline" size={20} color={colors.error} />
             <Text style={[styles.signOutText, { color: colors.error }]}>Delete Account & Data</Text>
           </TouchableOpacity>
+        </View>
+
+        <View style={styles.appVersionContainer}>
+          <Text style={[styles.appVersionText, { color: colors.mutedText }]}>Daymark v1.0.0 (Build 1)</Text>
         </View>
       </ScrollView>
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
@@ -628,5 +665,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     marginLeft: spacing.md,
+  },
+  appVersionContainer: {
+    alignItems: 'center',
+    marginVertical: spacing.xl,
+  },
+  appVersionText: {
+    fontSize: 12,
+    fontWeight: '500',
+    letterSpacing: 0.5,
   },
 });
