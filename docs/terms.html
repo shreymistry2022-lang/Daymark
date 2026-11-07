@@ -38,12 +38,17 @@
     a { color: var(--link); text-decoration: none; }
     a:hover { text-decoration: underline; }
     .badge { display: inline-block; background: var(--accent); color: #FFFFFF; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.8rem; margin-bottom: 16px; }
+    .nav-back { display: inline-block; margin-bottom: 20px; color: var(--text-muted); text-decoration: none; font-size: 0.9rem; font-weight: 600; }
+    .nav-back:hover { color: #FFFFFF; }
     .footer { margin-top: 40px; font-size: 0.85rem; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 20px; text-align: center; }
+    .footer a { color: var(--text-muted); text-decoration: none; margin: 0 8px; }
+    .footer a:hover { color: #FFFFFF; }
   </style>
 </head>
 <body>
   <div class="container">
-    <span class="badge">TERMS OF USE</span>
+    <a href="index.html" class="nav-back">&larr; Back to Daymark Home</a>
+    <div><span class="badge">TERMS OF USE</span></div>
     <h1>Daymark Terms of Service</h1>
     <p><strong>Effective Date:</strong> November 7, 2026 | <strong>Last Updated:</strong> November 7, 2026</p>
 
@@ -81,7 +86,10 @@
     </ul>
 
     <div class="footer">
-      &copy; 2026 Daymark. All rights reserved.
+      <a href="index.html">Home</a> &bull;
+      <a href="privacy.html">Privacy Policy</a> &bull;
+      <a href="delete-account.html">Account Deletion</a> &bull;
+      <span>&copy; 2026 Daymark. All rights reserved.</span>
     </div>
   </div>
 </body>
