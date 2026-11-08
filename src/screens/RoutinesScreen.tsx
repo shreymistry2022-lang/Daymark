@@ -1,21 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useHabits } from '../services/HabitContext';
 import { Routine, getRoutineProgress } from '../domain/routineEngine';
 import { HabitSchedule } from '../domain/habitTypes';
-import { isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
+import { addLocalDays, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
 import { ensureLocalReminderPermission } from '../services/localReminders';
 import { useRoutines } from '../services/RoutinesContext';
 import { useTheme } from '../theme/ThemeProvider';
@@ -29,30 +19,16 @@ const SCHEDULES: { label: string; value: HabitSchedule['frequency'] }[] = [
   { label: 'Weekdays', value: 'weekdays' },
   { label: 'Weekends', value: 'weekends' },
 ];
-const weekdaysFor = (frequency: HabitSchedule['frequency']) =>
-  frequency === 'weekdays' ? [1, 2, 3, 4, 5] : frequency === 'weekends' ? [6, 7] : [1, 2, 3, 4, 5, 6, 7];
+const weekdaysFor = (frequency: HabitSchedule['frequency']) => frequency === 'weekdays' ? [1, 2, 3, 4, 5] : frequency === 'weekends' ? [6, 7] : [1, 2, 3, 4, 5, 6, 7];
 
-interface Props {
-  onClose?: () => void;
-  initialRoutineId?: string | null;
-  onInitialRoutineHandled?: () => void;
-}
+interface Props { onClose?: () => void; initialRoutineId?: string | null; onInitialRoutineHandled?: () => void }
 
 export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHandled }: Props) => {
   const insets = useSafeAreaInsets();
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const { isPro } = useSubscription();
   const { habits, todayDateStr } = useHabits();
-  const {
-    routines,
-    isLoadingRoutines,
-    routineError,
-    createRoutine,
-    updateRoutine,
-    deleteRoutine,
-    toggleRoutineLog,
-  } = useRoutines();
-
+  const { routines, isLoadingRoutines, routineError, createRoutine, updateRoutine, deleteRoutine, reorderRoutine, toggleRoutineLog } = useRoutines();
   const [editorVisible, setEditorVisible] = useState(false);
   const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
   const [paywallVisible, setPaywallVisible] = useState(false);
@@ -61,29 +37,23 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
   const [schedule, setSchedule] = useState<HabitSchedule['frequency']>('daily');
   const [selectedHabitIds, setSelectedHabitIds] = useState<string[]>([]);
   const [reminders, setReminders] = useState<Routine['reminders']>([]);
+  const [reminderTime, setReminderTime] = useState('08:00');
   const [formError, setFormError] = useState('');
-  const [cheeredRoutines, setCheeredRoutines] = useState<Record<string, boolean>>({});
-
   const allowed = canAccessFeature('routines', isPro);
   const activeRoutines = routines.filter(routine => !routine.archivedAt);
 
-  const openEditor = useCallback(
-    (routine?: Routine) => {
-      if (!allowed) {
-        setPaywallVisible(true);
-        return;
-      }
-      setEditingRoutine(routine ?? null);
-      setName(routine?.name ?? '');
-      setDescription(routine?.description ?? '');
-      setSchedule(routine?.schedule.frequency ?? 'daily');
-      setSelectedHabitIds(routine?.habitIds ?? []);
-      setReminders(routine?.reminders ?? []);
-      setFormError('');
-      setEditorVisible(true);
-    },
-    [allowed]
-  );
+  const openEditor = useCallback((routine?: Routine) => {
+    if (!allowed) { setPaywallVisible(true); return; }
+    setEditingRoutine(routine ?? null);
+    setName(routine?.name ?? '');
+    setDescription(routine?.description ?? '');
+    setSchedule(routine?.schedule.frequency ?? 'daily');
+    setSelectedHabitIds(routine?.habitIds ?? []);
+    setReminders(routine?.reminders ?? []);
+    setReminderTime('08:00');
+    setFormError('');
+    setEditorVisible(true);
+  }, [allowed]);
 
   useEffect(() => {
     if (!initialRoutineId || isLoadingRoutines) return;
@@ -97,716 +67,138 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
 
   const saveRoutine = async () => {
     if (reminders.some(reminder => reminder.enabled) && !(await ensureLocalReminderPermission())) {
-      setFormError('Notification permission is off. Allow notifications in device settings, or remove reminders.');
+      setFormError('Notification permission is off. Allow notifications in device settings, or remove the routine reminders.');
       return;
     }
-    const values = {
-      name,
-      description,
-      schedule: { frequency: schedule } as HabitSchedule,
-      habitIds: selectedHabitIds,
-      reminders,
-    };
-    const result = editingRoutine ? updateRoutine(editingRoutine.id, values) : createRoutine(values);
-    if (result.error) {
-      setFormError(result.error);
-      return;
-    }
+    const values = { name, description, schedule: { frequency: schedule } as HabitSchedule, habitIds: selectedHabitIds, reminders };
+    const result = editingRoutine
+      ? updateRoutine(editingRoutine.id, values)
+      : createRoutine(values);
+    if (result.error) { setFormError(result.error); return; }
     setEditorVisible(false);
   };
 
-  const confirmDelete = (routine: Routine) =>
-    Alert.alert('Delete routine?', `“${routine.name}” and its routine history will be deleted.`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete routine', style: 'destructive', onPress: () => deleteRoutine(routine.id) },
-    ]);
-
-  const toggleCheer = (routineId: string) => {
-    setCheeredRoutines(prev => ({ ...prev, [routineId]: !prev[routineId] }));
-  };
+  const confirmDelete = (routine: Routine) => Alert.alert('Delete routine?', `“${routine.name}” and its routine history will be deleted. Habit logs remain unchanged.`, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete routine', style: 'destructive', onPress: () => deleteRoutine(routine.id) },
+  ]);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      {/* Top Header matching screen 4.png */}
-      <View style={styles.topBar}>
-        {onClose ? (
-          <TouchableOpacity onPress={onClose} style={styles.topIconBtn}>
-            <Ionicons name="arrow-back" size={20} color={colors.primaryText} />
-          </TouchableOpacity>
-        ) : (
-          <View style={{ width: 34 }} />
-        )}
-
-        <Text style={[styles.headerTitle, { color: colors.primaryText }]}>Group & Routines</Text>
-
-        <TouchableOpacity
-          style={styles.addCircleBtn}
-          onPress={() => openEditor()}
-          accessibilityRole="button"
-          accessibilityLabel="Create routine"
-        >
-          <Ionicons name="add" size={20} color="#FFFFFF" />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {!allowed && (
-          <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Ionicons name="lock-closed-outline" size={18} color="#FF5264" />
-            <Text style={[styles.noticeText, { color: colors.secondaryText }]}>
-              Routines are included with Daymark Pro. Existing routines are still visible.
-            </Text>
-            <TouchableOpacity onPress={() => setPaywallVisible(true)}>
-              <Text style={{ color: '#FF5264', fontWeight: '700' }}>See Pro</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        {routineError && (
-          <Text accessibilityRole="alert" style={[styles.errorBanner, { color: colors.error }]}>
-            {routineError}
-          </Text>
-        )}
-
-        {isLoadingRoutines ? (
-          <View style={styles.loading}>
-            <ActivityIndicator color="#FF5264" />
-            <Text style={{ color: colors.secondaryText, marginTop: 10 }}>Loading routines…</Text>
-          </View>
-        ) : activeRoutines.length === 0 ? (
-          <View style={[styles.empty, { backgroundColor: isDark ? '#1C1E28' : '#FFFFFF', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}>
-            <View style={[styles.emptyIcon, { backgroundColor: 'rgba(255,82,100,0.12)' }]}>
-              <Ionicons name="people-outline" size={28} color="#FF5264" />
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]} keyboardShouldPersistTaps="handled">
+        <View style={styles.header}>
+          <View style={styles.headingGroup}>
+            {onClose && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close routines" onPress={onClose} style={styles.backButton}><Ionicons name="arrow-back" size={21} color={colors.primaryText} /></TouchableOpacity>}
+            <View>
+              <Text style={[styles.eyebrow, { color: colors.accent }]}>STRUCTURE YOUR DAY</Text>
+              <Text style={[styles.title, { color: colors.primaryText }]}>Routines</Text>
             </View>
-            <Text style={[styles.emptyTitle, { color: colors.primaryText }]}>Build Shared Habits & Routines</Text>
-            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>
-              Group habits into morning, evening, or shared team routines with progress bars and encouragement.
-            </Text>
-            <TouchableOpacity
-              style={[styles.primaryButton, { backgroundColor: '#FF5264' }]}
-              onPress={() => openEditor()}
-            >
-              <Text style={styles.primaryText}>Create New Routine</Text>
-            </TouchableOpacity>
           </View>
-        ) : (
-          activeRoutines.map(routine => {
-            const progress = getRoutineProgress(
-              routine,
-              habits,
-              todayDateStr,
-              parseLocalDate(todayDateStr) ?? new Date()
-            );
-            const logged = progress.loggedComplete;
-            const routineScheduledToday = isTrackableOnDate(routine, todayDateStr);
-            const linkedHabits = routine.habitIds
-              .map(id => habits.find(habit => habit.id === id))
-              .filter(Boolean);
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Create routine" style={[styles.addButton, { backgroundColor: colors.accent }]} onPress={() => openEditor()}>
+            <Ionicons name="add" size={20} color="#000" /><Text style={styles.addText}>New</Text>
+          </TouchableOpacity>
+        </View>
 
-            return (
-              <View
-                key={routine.id}
-                style={[
-                  styles.groupCard,
-                  {
-                    backgroundColor: isDark ? '#1C1E28' : '#FFFFFF',
-                    borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
-                  },
-                ]}
-              >
-                {/* Group Card Header matching screen 4.png: 🧘 Routine Name > */}
-                <TouchableOpacity
-                  style={styles.cardHeader}
-                  activeOpacity={0.7}
-                  onPress={() => openEditor(routine)}
-                >
-                  <View style={styles.cardHeaderLeft}>
-                    <Text style={styles.cardHeaderEmoji}>🧘</Text>
-                    <Text style={[styles.cardHeaderTitle, { color: colors.primaryText }]}>
-                      {routine.name}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.secondaryText} />
-                </TouchableOpacity>
+        {!allowed && <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border }]}><Ionicons name="lock-closed-outline" size={18} color={colors.accent} /><Text style={[styles.noticeText, { color: colors.secondaryText }]}>Routines are included with Daymark Pro. Existing routines are still visible.</Text><TouchableOpacity onPress={() => setPaywallVisible(true)}><Text style={{ color: colors.accent, fontWeight: '700' }}>See Pro</Text></TouchableOpacity></View>}
+        {routineError && <Text accessibilityRole="alert" style={[styles.errorBanner, { color: colors.error }]}>{routineError}</Text>}
 
-                {/* Member / Habit Rows matching screen 4.png */}
-                <View style={styles.membersList}>
-                  {linkedHabits.length > 0 ? (
-                    linkedHabits.map((h, hIdx) => {
-                      if (!h) return null;
-                      const isHabitDone = h.completedDates.includes(todayDateStr);
-                      return (
-                        <View key={h.id} style={styles.memberRow}>
-                          <View
-                            style={[
-                              styles.memberAvatar,
-                              { backgroundColor: `${h.color || '#FF5264'}20` },
-                            ]}
-                          >
-                            <Ionicons name={h.icon as any} size={16} color={h.color || '#FF5264'} />
-                          </View>
-
-                          <View style={styles.memberProgressBlock}>
-                            <View style={styles.memberNameAndPercent}>
-                              <Text
-                                numberOfLines={1}
-                                style={[styles.memberName, { color: colors.primaryText }]}
-                              >
-                                {h.name}
-                              </Text>
-                              <Text style={[styles.memberPercent, { color: colors.secondaryText }]}>
-                                {isHabitDone ? '100%' : '0%'}
-                              </Text>
-                            </View>
-
-                            <View style={[styles.progressBarTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F1F2F6' }]}>
-                              <View
-                                style={[
-                                  styles.progressBarFill,
-                                  {
-                                    width: isHabitDone ? '100%' : '0%',
-                                    backgroundColor: h.color || '#FF5264',
-                                  },
-                                ]}
-                              />
-                            </View>
-                          </View>
-
-                          {/* Thumbs up cheer button */}
-                          <TouchableOpacity
-                            style={[
-                              styles.cheerBtn,
-                              isHabitDone && { backgroundColor: 'rgba(255,82,100,0.12)' },
-                            ]}
-                            onPress={() => toggleCheer(`${routine.id}_${h.id}`)}
-                          >
-                            <Ionicons
-                              name={cheeredRoutines[`${routine.id}_${h.id}`] ? 'thumbs-up' : 'thumbs-up-outline'}
-                              size={18}
-                              color={cheeredRoutines[`${routine.id}_${h.id}`] ? '#FF5264' : colors.secondaryText}
-                            />
-                          </TouchableOpacity>
-                        </View>
-                      );
-                    })
-                  ) : (
-                    <Text style={[styles.emptySubtitle, { color: colors.secondaryText }]}>
-                      No habits linked yet. Tap to add habits!
-                    </Text>
-                  )}
+        {isLoadingRoutines ? <View style={styles.loading}><ActivityIndicator color={colors.accent} /><Text style={{ color: colors.secondaryText, marginTop: 10 }}>Loading routines…</Text></View> : activeRoutines.length === 0 ? (
+          <View style={[styles.empty, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.emptyIcon, { backgroundColor: `${colors.accent}1A` }]}><Ionicons name="layers-outline" size={27} color={colors.accent} /></View>
+            <Text style={[styles.emptyTitle, { color: colors.primaryText }]}>Give your habits a sequence</Text>
+            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>Group existing habits into a morning, evening, or custom routine. Tracking a routine keeps its own history and never creates duplicate habit logs.</Text>
+            <TouchableOpacity style={[styles.primaryButton, { backgroundColor: colors.accent }]} onPress={() => openEditor()}><Text style={styles.primaryText}>Create a routine</Text></TouchableOpacity>
+          </View>
+        ) : activeRoutines.map((routine, index) => {
+          const progress = getRoutineProgress(routine, habits, todayDateStr, parseLocalDate(todayDateStr) ?? new Date());
+          const logged = progress.loggedComplete;
+          const routineScheduledToday = isTrackableOnDate(routine, todayDateStr);
+          const linkedHabits = routine.habitIds.map(id => habits.find(habit => habit.id === id)).filter(Boolean);
+          const routineHistory = Array.from({ length: 7 }, (_, offset) => addLocalDays(todayDateStr, offset - 6));
+          return (
+            <View key={routine.id} style={[styles.routineCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.routineTop}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.routineName, { color: colors.primaryText }]}>{routine.name}</Text>
+                  <Text style={[styles.routineSchedule, { color: colors.secondaryText }]}>{routine.schedule.frequency.replace('_', ' ')} · {linkedHabits.length} habit{linkedHabits.length === 1 ? '' : 's'}{routine.reminders.some(reminder => reminder.enabled) ? ` · ${routine.reminders.filter(reminder => reminder.enabled).map(reminder => `${String(reminder.hour).padStart(2, '0')}:${String(reminder.minute).padStart(2, '0')}`).join(', ')}` : ''}</Text>
                 </View>
-
-                {/* Overall Routine Progress Line */}
-                <View style={styles.overallRow}>
-                  <View style={[styles.progressTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F1F2F6' }]}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        { width: `${progress.percentage}%`, backgroundColor: '#FF5264' },
-                      ]}
-                    />
-                  </View>
-                  <Text style={[styles.progressLabel, { color: colors.secondaryText }]}>
-                    {progress.percentage}% Complete
-                  </Text>
-                </View>
-
-                {/* Action buttons */}
-                <View style={styles.cardActions}>
-                  <TouchableOpacity
-                    disabled={!routineScheduledToday}
-                    style={[
-                      styles.completeBtn,
-                      logged
-                        ? { backgroundColor: '#10B981', borderColor: '#10B981' }
-                        : { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB', borderColor: colors.border },
-                      !routineScheduledToday && { opacity: 0.5 },
-                    ]}
-                    onPress={() => toggleRoutineLog(routine.id, todayDateStr)}
-                  >
-                    <Ionicons
-                      name={logged ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={18}
-                      color={logged ? '#FFFFFF' : colors.secondaryText}
-                    />
-                    <Text
-                      style={[
-                        styles.completeBtnText,
-                        { color: logged ? '#FFFFFF' : colors.primaryText },
-                      ]}
-                    >
-                      {logged ? 'Completed Today' : 'Mark Completed'}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.iconAction}
-                    onPress={() => openEditor(routine)}
-                  >
-                    <Ionicons name="create-outline" size={18} color={colors.secondaryText} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.iconAction}
-                    onPress={() => confirmDelete(routine)}
-                  >
-                    <Ionicons name="trash-outline" size={18} color="#EF4444" />
-                  </TouchableOpacity>
+                <View style={styles.orderButtons}>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Move ${routine.name} up`} disabled={index === 0 || !allowed} onPress={() => reorderRoutine(routine.id, -1)}><Ionicons name="chevron-up" size={20} color={index === 0 ? colors.mutedText : colors.secondaryText} /></TouchableOpacity>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Move ${routine.name} down`} disabled={index === activeRoutines.length - 1 || !allowed} onPress={() => reorderRoutine(routine.id, 1)}><Ionicons name="chevron-down" size={20} color={index === activeRoutines.length - 1 ? colors.mutedText : colors.secondaryText} /></TouchableOpacity>
                 </View>
               </View>
-            );
-          })
-        )}
+              {!!routine.description && <Text style={[styles.routineDescription, { color: colors.secondaryText }]}>{routine.description}</Text>}
+              <View style={styles.habitChips}>
+                {linkedHabits.length ? linkedHabits.map(habit => habit && <View key={habit.id} style={[styles.habitChip, { backgroundColor: colors.secondaryBackground }]}><View style={[styles.habitDot, { backgroundColor: habit.color }]} /><Text numberOfLines={1} style={[styles.habitChipText, { color: colors.secondaryText }]}>{habit.name}</Text></View>) : <Text style={[styles.routineDescription, { color: colors.mutedText }]}>No active habits linked yet.</Text>}
+              </View>
+              <View style={styles.progressLine}>
+                <View style={[styles.progressTrack, { backgroundColor: colors.secondaryBackground }]}><View style={[styles.progressFill, { width: `${progress.percentage}%`, backgroundColor: colors.accent }]} /></View>
+                <Text style={[styles.progressLabel, { color: colors.secondaryText }]}>{routineScheduledToday ? `${progress.completedHabits}/${progress.scheduledHabits}` : 'Not today'}</Text>
+              </View>
+              <View style={styles.historyRow}>
+                {routineHistory.map(date => {
+                  const entry = routine.logs.find(log => log.date === date && Boolean(log.completedAt));
+                  const weekday = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 1);
+                  const trackable = isTrackableOnDate(routine, date);
+                  return <TouchableOpacity key={date} accessibilityRole="button" accessibilityLabel={`${weekday}, ${date}: ${entry ? 'routine complete' : 'not completed'}${date === todayDateStr ? ', today' : ''}`} disabled={!allowed || !trackable} onPress={() => { const result = toggleRoutineLog(routine.id, date); if (result.error) Alert.alert('Could not update routine history', result.error); }} style={[styles.historyDay, { borderColor: entry ? colors.accent : colors.border, backgroundColor: entry ? `${colors.accent}22` : colors.secondaryBackground, opacity: trackable ? 1 : 0.5 }]}><Text style={[styles.historyDayText, { color: entry ? colors.accent : colors.secondaryText }]}>{weekday}</Text></TouchableOpacity>;
+                })}
+              </View>
+              <View style={styles.actions}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={logged ? `Undo ${routine.name} completion today` : `Mark ${routine.name} complete today`} disabled={!allowed || !routineScheduledToday} style={[styles.completeButton, { borderColor: logged ? colors.accent : colors.border, backgroundColor: logged ? `${colors.accent}1A` : colors.secondaryBackground, opacity: routineScheduledToday ? 1 : 0.5 }]} onPress={() => { const result = toggleRoutineLog(routine.id, todayDateStr); if (result.error) Alert.alert('Could not log routine', result.error); }}>
+                  <Ionicons name={logged ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={logged ? colors.accent : colors.secondaryText} /><Text style={[styles.completeText, { color: logged ? colors.accent : colors.secondaryText }]}>{logged ? 'Routine complete' : 'Mark routine complete'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Edit ${routine.name}`} onPress={() => openEditor(routine)} disabled={!allowed} style={styles.iconAction}><Ionicons name="create-outline" size={19} color={colors.secondaryText} /></TouchableOpacity>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Delete ${routine.name}`} onPress={() => confirmDelete(routine)} disabled={!allowed} style={styles.iconAction}><Ionicons name="trash-outline" size={18} color={colors.error} /></TouchableOpacity>
+              </View>
+            </View>
+          );
+        })}
       </ScrollView>
 
-      {/* Routine Editor Modal */}
       <Modal visible={editorVisible} animationType="slide" transparent onRequestClose={() => setEditorVisible(false)}>
         <View style={styles.modalBackdrop}>
-          <View
-            style={[
-              styles.editor,
-              {
-                backgroundColor: isDark ? '#1C1E28' : '#FFFFFF',
-                borderColor: colors.border,
-                paddingBottom: insets.bottom + spacing.md,
-              },
-            ]}
-          >
-            <View style={styles.editorHeader}>
-              <View>
-                <Text style={[styles.eyebrow, { color: '#FF5264' }]}>ROUTINE BUILDER</Text>
-                <Text style={[styles.editorTitle, { color: colors.primaryText }]}>
-                  {editingRoutine ? 'Edit Routine' : 'New Routine'}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setEditorVisible(false)}>
-                <Ionicons name="close" size={22} color={colors.secondaryText} />
-              </TouchableOpacity>
-            </View>
-
+          <View style={[styles.editor, { backgroundColor: colors.card, borderColor: colors.border, paddingBottom: insets.bottom + spacing.md }]}>
+            <View style={styles.editorHeader}><View><Text style={[styles.eyebrow, { color: colors.accent }]}>ROUTINE BUILDER</Text><Text style={[styles.editorTitle, { color: colors.primaryText }]}>{editingRoutine ? 'Edit routine' : 'New routine'}</Text></View><TouchableOpacity accessibilityLabel="Close editor" onPress={() => setEditorVisible(false)}><Ionicons name="close" size={22} color={colors.secondaryText} /></TouchableOpacity></View>
             <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={[styles.fieldLabel, { color: colors.secondaryText }]}>NAME</Text>
-              <TextInput
-                value={name}
-                onChangeText={setName}
-                placeholder="Morning Routine"
-                placeholderTextColor={colors.mutedText}
-                maxLength={70}
-                style={[
-                  styles.input,
-                  { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border },
-                ]}
-              />
-
+              <TextInput accessibilityLabel="Routine name" value={name} onChangeText={setName} placeholder="Morning routine" placeholderTextColor={colors.mutedText} maxLength={70} style={[styles.input, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]} />
               <Text style={[styles.fieldLabel, { color: colors.secondaryText }]}>DESCRIPTION</Text>
-              <TextInput
-                value={description}
-                onChangeText={setDescription}
-                placeholder="A short routine description"
-                placeholderTextColor={colors.mutedText}
-                maxLength={500}
-                multiline
-                style={[
-                  styles.input,
-                  styles.descriptionInput,
-                  { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border },
-                ]}
-              />
-
+              <TextInput accessibilityLabel="Routine description" value={description} onChangeText={setDescription} placeholder="A short description (optional)" placeholderTextColor={colors.mutedText} maxLength={500} multiline style={[styles.input, styles.descriptionInput, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]} />
               <Text style={[styles.fieldLabel, { color: colors.secondaryText }]}>SCHEDULE</Text>
-              <View style={styles.scheduleOptions}>
-                {SCHEDULES.map(option => (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[
-                      styles.option,
-                      {
-                        backgroundColor: schedule === option.value ? '#FF5264' : colors.secondaryBackground,
-                        borderColor: schedule === option.value ? '#FF5264' : colors.border,
-                      },
-                    ]}
-                    onPress={() => {
-                      setSchedule(option.value);
-                      setReminders(current => current.map(r => ({ ...r, weekdays: weekdaysFor(option.value) })));
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.optionText,
-                        { color: schedule === option.value ? '#FFFFFF' : colors.secondaryText },
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
+              <View style={styles.scheduleOptions}>{SCHEDULES.map(option => <TouchableOpacity key={option.value} accessibilityRole="radio" accessibilityState={{ selected: schedule === option.value }} style={[styles.option, { backgroundColor: schedule === option.value ? `${colors.accent}18` : colors.secondaryBackground, borderColor: schedule === option.value ? colors.accent : colors.border }]} onPress={() => { setSchedule(option.value); setReminders(current => current.map(reminder => ({ ...reminder, weekdays: weekdaysFor(option.value) }))); }}><Text style={[styles.optionText, { color: schedule === option.value ? colors.accent : colors.secondaryText }]}>{option.label}</Text></TouchableOpacity>)}</View>
+              <Text style={[styles.fieldLabel, { color: colors.secondaryText }]}>REMINDERS</Text>
+              {reminders.map(reminder => <View key={reminder.id} style={styles.reminderRow}><Text style={[styles.reminderLabel, { color: colors.primaryText }]}>{String(reminder.hour).padStart(2, '0')}:{String(reminder.minute).padStart(2, '0')} · {reminder.weekdays.length === 7 ? 'Every day' : schedule === 'weekends' ? 'Weekends' : 'Weekdays'}</Text><TouchableOpacity accessibilityRole="button" accessibilityLabel="Remove routine reminder" onPress={() => setReminders(current => current.filter(item => item.id !== reminder.id))}><Ionicons name="close-circle-outline" size={20} color={colors.secondaryText} /></TouchableOpacity></View>)}
+              <View style={styles.reminderEntry}><TextInput accessibilityLabel="Routine reminder time" value={reminderTime} onChangeText={setReminderTime} keyboardType="numbers-and-punctuation" placeholder="HH:mm" placeholderTextColor={colors.mutedText} style={[styles.input, styles.reminderInput, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]} /><TouchableOpacity style={[styles.option, { borderColor: colors.border }]} onPress={() => { const match = reminderTime.match(/^(\d{1,2}):(\d{2})$/); if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) { setFormError('Enter a reminder time in 24-hour HH:mm format.'); return; } const hour = Number(match[1]); const minute = Number(match[2]); if (reminders.some(item => item.hour === hour && item.minute === minute)) { setFormError('That reminder already exists.'); return; } setFormError(''); setReminders(current => [...current, { id: `routine_reminder_${Date.now()}`, hour, minute, weekdays: weekdaysFor(schedule), enabled: true }]); }}><Text style={[styles.optionText, { color: colors.primaryText }]}>Add</Text></TouchableOpacity></View>
               <Text style={[styles.fieldLabel, { color: colors.secondaryText }]}>INCLUDE HABITS</Text>
-              {habits.length === 0 ? (
-                <Text style={{ color: colors.secondaryText, marginBottom: spacing.md }}>
-                  Create a habit before linking it to a routine.
-                </Text>
-              ) : (
-                habits.map(habit => {
-                  const selected = selectedHabitIds.includes(habit.id);
-                  return (
-                    <TouchableOpacity
-                      key={habit.id}
-                      style={[
-                        styles.habitOption,
-                        {
-                          borderColor: selected ? '#FF5264' : colors.border,
-                          backgroundColor: selected ? 'rgba(255,82,100,0.1)' : colors.secondaryBackground,
-                        },
-                      ]}
-                      onPress={() =>
-                        setSelectedHabitIds(current =>
-                          selected ? current.filter(id => id !== habit.id) : [...current, habit.id]
-                        )
-                      }
-                    >
-                      <Ionicons
-                        name={habit.icon as any}
-                        size={18}
-                        color={habit.color || '#FF5264'}
-                        style={{ marginRight: 8 }}
-                      />
-                      <Text style={[styles.habitOptionText, { color: colors.primaryText }]}>
-                        {habit.name}
-                      </Text>
-                      <Ionicons
-                        name={selected ? 'checkmark-circle' : 'ellipse-outline'}
-                        size={20}
-                        color={selected ? '#FF5264' : colors.mutedText}
-                      />
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-
-              {formError ? <Text style={[styles.formError, { color: colors.error }]}>{formError}</Text> : null}
-
-              <TouchableOpacity
-                style={[styles.primaryButton, { backgroundColor: '#FF5264' }]}
-                onPress={saveRoutine}
-              >
-                <Text style={styles.primaryText}>{editingRoutine ? 'Save Changes' : 'Create Routine'}</Text>
-              </TouchableOpacity>
+              {habits.length === 0 ? <Text style={{ color: colors.secondaryText, marginBottom: spacing.md }}>Create a habit before linking it to a routine.</Text> : habits.map(habit => {
+                const selected = selectedHabitIds.includes(habit.id);
+                return <TouchableOpacity key={habit.id} accessibilityRole="checkbox" accessibilityState={{ checked: selected }} style={[styles.habitOption, { borderColor: selected ? habit.color : colors.border, backgroundColor: selected ? `${habit.color}12` : colors.secondaryBackground }]} onPress={() => setSelectedHabitIds(current => selected ? current.filter(id => id !== habit.id) : [...current, habit.id])}><View style={[styles.habitDot, { backgroundColor: habit.color }]} /><Text style={[styles.habitOptionText, { color: colors.primaryText }]}>{habit.name}</Text><Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={selected ? habit.color : colors.mutedText} /></TouchableOpacity>;
+              })}
+              {formError ? <Text accessibilityRole="alert" style={[styles.formError, { color: colors.error }]}>{formError}</Text> : null}
+              <TouchableOpacity accessibilityRole="button" style={[styles.primaryButton, { backgroundColor: colors.accent }]} onPress={saveRoutine}><Text style={styles.primaryText}>{editingRoutine ? 'Save changes' : 'Create routine'}</Text></TouchableOpacity>
             </ScrollView>
           </View>
         </View>
       </Modal>
-
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 12,
-  },
-  topIconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  addCircleBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#FF5264',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  content: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-  notice: {
-    borderWidth: 1,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    marginBottom: spacing.md,
-  },
-  noticeText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  errorBanner: {
-    fontSize: 12,
-    marginBottom: spacing.md,
-  },
-  loading: {
-    alignItems: 'center',
-    paddingVertical: 70,
-  },
-  empty: {
-    borderWidth: 1,
-    borderRadius: 22,
-    padding: spacing.xl,
-    alignItems: 'center',
-    marginTop: spacing.xl,
-  },
-  emptyIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.md,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  emptyText: {
-    fontSize: 13,
-    lineHeight: 20,
-    textAlign: 'center',
-    marginTop: 8,
-    marginBottom: spacing.lg,
-  },
-  groupCard: {
-    borderRadius: 22,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.05)',
-  },
-  cardHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  cardHeaderEmoji: {
-    fontSize: 18,
-  },
-  cardHeaderTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  membersList: {
-    paddingVertical: 10,
-    gap: 12,
-  },
-  memberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  memberAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  memberProgressBlock: {
-    flex: 1,
-  },
-  memberNameAndPercent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  memberName: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  memberPercent: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  progressBarTrack: {
-    height: 5,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  cheerBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptySubtitle: {
-    fontSize: 12,
-    fontStyle: 'italic',
-    paddingVertical: 8,
-  },
-  overallRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.04)',
-  },
-  progressTrack: {
-    flex: 1,
-    height: 6,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  progressLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  cardActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 12,
-  },
-  completeBtn: {
-    flex: 1,
-    height: 38,
-    borderRadius: 14,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  completeBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  iconAction: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalBackdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.65)',
-  },
-  editor: {
-    maxHeight: '92%',
-    borderTopLeftRadius: radii.xl,
-    borderTopRightRadius: radii.xl,
-    borderWidth: 1,
-    padding: spacing.lg,
-  },
-  editorHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-  },
-  editorTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-  fieldLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    marginTop: spacing.md,
-    marginBottom: 6,
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-    fontSize: 14,
-  },
-  descriptionInput: {
-    minHeight: 70,
-    textAlignVertical: 'top',
-  },
-  scheduleOptions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  option: {
-    borderWidth: 1,
-    borderRadius: radii.md,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-  },
-  optionText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  habitOption: {
-    borderWidth: 1,
-    borderRadius: radii.md,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 7,
-  },
-  habitOptionText: {
-    flex: 1,
-    fontSize: 13,
-  },
-  formError: {
-    fontSize: 12,
-    marginTop: 10,
-  },
-  primaryButton: {
-    borderRadius: radii.md,
-    paddingVertical: 13,
-    alignItems: 'center',
-    marginTop: spacing.md,
-  },
-  primaryText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
-  },
+  screen: { flex: 1 }, content: { paddingHorizontal: spacing.lg },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.md, marginBottom: spacing.lg },
+  headingGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, backButton: { padding: 6 },
+  eyebrow: { fontSize: 11, letterSpacing: 1.4, fontWeight: '800' }, title: { fontSize: 30, fontWeight: '800', marginTop: 2 },
+  addButton: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radii.full, paddingHorizontal: 14, paddingVertical: 9 }, addText: { color: '#000', fontWeight: '800' },
+  notice: { borderWidth: 1, borderRadius: radii.md, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: spacing.md }, noticeText: { flex: 1, fontSize: 12, lineHeight: 17 },
+  errorBanner: { fontSize: 12, marginBottom: spacing.md }, loading: { alignItems: 'center', paddingVertical: 70 },
+  empty: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.xl, alignItems: 'center', marginTop: spacing.xl }, emptyIcon: { width: 54, height: 54, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md }, emptyTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' }, emptyText: { fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 8, marginBottom: spacing.lg },
+  routineCard: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, marginBottom: spacing.md }, routineTop: { flexDirection: 'row', alignItems: 'center' }, routineName: { fontSize: 17, fontWeight: '800' }, routineSchedule: { fontSize: 11, marginTop: 4, textTransform: 'capitalize' }, routineDescription: { fontSize: 12, lineHeight: 18, marginTop: 8 }, orderButtons: { flexDirection: 'row', gap: 8 },
+  habitChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.md }, habitChip: { flexDirection: 'row', alignItems: 'center', borderRadius: radii.full, paddingHorizontal: 9, paddingVertical: 6, maxWidth: '100%' }, habitDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 }, habitChipText: { fontSize: 11, maxWidth: 170 },
+  progressLine: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: spacing.md }, progressTrack: { flex: 1, height: 6, borderRadius: radii.full, overflow: 'hidden' }, progressFill: { height: '100%', borderRadius: radii.full }, progressLabel: { fontSize: 11, fontWeight: '700' },
+  historyRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }, historyDay: { width: 30, height: 30, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, historyDayText: { fontSize: 11, fontWeight: '700' },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.md }, completeButton: { flex: 1, minHeight: 42, borderRadius: radii.md, borderWidth: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 7 }, completeText: { fontSize: 12, fontWeight: '700' }, iconAction: { minWidth: 40, minHeight: 42, alignItems: 'center', justifyContent: 'center' },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.65)' }, editor: { maxHeight: '92%', borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, borderWidth: 1, padding: spacing.lg }, editorHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }, editorTitle: { fontSize: 23, fontWeight: '800', marginTop: 3 }, fieldLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1, marginTop: spacing.md, marginBottom: 6 }, input: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: 12, fontSize: 14 }, descriptionInput: { minHeight: 70, textAlignVertical: 'top' }, scheduleOptions: { flexDirection: 'row', gap: 8 }, option: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 12, paddingVertical: 9 }, optionText: { fontSize: 12, fontWeight: '700' },
+  habitOption: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 10, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', marginBottom: 7 }, habitOptionText: { flex: 1, fontSize: 13 }, reminderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 }, reminderLabel: { flex: 1, fontSize: 12, fontWeight: '600' }, reminderEntry: { flexDirection: 'row', gap: 8, alignItems: 'center' }, reminderInput: { flex: 1 }, formError: { fontSize: 12, marginTop: 10 }, primaryButton: { borderRadius: radii.md, paddingVertical: 13, alignItems: 'center', marginTop: spacing.md }, primaryText: { color: '#000', fontSize: 14, fontWeight: '800' },
 });
