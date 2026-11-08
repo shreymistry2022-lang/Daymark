@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii } from '../theme/tokens';
+import { getHabitPastelTheme } from '../theme/tokens';
 import { useHabits, Habit } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
 import { CreateHabitModal } from '../components/CreateHabitModal';
@@ -22,30 +22,64 @@ import { HABIT_CATEGORIES } from '../constants/categories';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canCreateHabit } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
-import { addLocalDays, calculateCompletionStats, calculateStreakStats, getHabitDayStatus, isPausedOnDate, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
-import { HabitTrackingControl } from '../components/HabitTrackingControl';
+import {
+  addLocalDays,
+  calculateStreakStats,
+  getHabitDayStatus,
+  parseLocalDate,
+} from '../domain/habitEngine';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
 export const HabitsScreen = () => {
-  const { habits, archivedHabits, allHabits, toggleHabit, recordHabitLog, addHabit, updateHabit, archiveHabit, restoreHabit, pauseHabit, resumeHabit, deleteHabit, todayDateStr } = useHabits();
-  const { colors } = useTheme();
+  const {
+    habits,
+    archivedHabits,
+    allHabits,
+    toggleHabit,
+    addHabit,
+    updateHabit,
+    archiveHabit,
+    pauseHabit,
+    resumeHabit,
+    deleteHabit,
+    todayDateStr,
+  } = useHabits();
+  const { colors, isDark } = useTheme();
   const { isPro } = useSubscription();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
 
+  // Modes: 'track' (screen 3 & 12 calendar/stats) or 'list' (catalog)
+  const [viewMode, setViewMode] = useState<'track' | 'list'>('track');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [selectedHabitId, setSelectedHabitId] = useState<string | null>(null);
+  const [selectedHabitId, setSelectedHabitId] = useState<string | null>(habits[0]?.id ?? null);
+  const [showHabitDropdown, setShowHabitDropdown] = useState(false);
+
+  // Month navigation for Track Calendar
+  const todayDate = useMemo(() => parseLocalDate(todayDateStr) ?? new Date(), [todayDateStr]);
+  const [calendarYear, setCalendarYear] = useState<number>(todayDate.getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState<number>(todayDate.getMonth()); // 0-11
+
+  // Modals
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
   const [pauseModalHabit, setPauseModalHabit] = useState<Habit | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const selectedHabit = selectedHabitId ? allHabits.find(habit => habit.id === selectedHabitId) ?? null : null;
   const [paywallVisible, setPaywallVisible] = useState(false);
+
+  const selectedHabit = useMemo(() => {
+    const targetId = selectedHabitId ?? habits[0]?.id;
+    return allHabits.find(h => h.id === targetId) ?? habits[0] ?? null;
+  }, [allHabits, habits, selectedHabitId]);
+
   const requestCreateHabit = () => {
     if (!canCreateHabit(habits.length, isPro)) setPaywallVisible(true);
-    else setCreateModalVisible(true);
+    else {
+      setEditingHabit(null);
+      setCreateModalVisible(true);
+    }
   };
 
   useEffect(() => {
@@ -53,13 +87,16 @@ export const HabitsScreen = () => {
     if (!focusHabitId) return;
     const timeout = setTimeout(() => {
       const habit = allHabits.find(item => item.id === focusHabitId);
-      if (habit) { setShowArchived(Boolean(habit.archivedAt)); setSelectedHabitId(habit.id); }
+      if (habit) {
+        setShowArchived(Boolean(habit.archivedAt));
+        setSelectedHabitId(habit.id);
+        setViewMode('track');
+      }
       navigation.setParams({ focusHabitId: undefined });
     }, 0);
     return () => clearTimeout(timeout);
   }, [route.params?.focusHabitId, allHabits, navigation]);
 
-  // Available categories: 'All' + all 14 standard categories
   const categoriesList = ['All', ...HABIT_CATEGORIES.map(c => c.name)];
   const todayReferenceDate = useMemo(() => parseLocalDate(todayDateStr) ?? new Date(), [todayDateStr]);
 
@@ -68,8 +105,76 @@ export const HabitsScreen = () => {
     const matchesCat = selectedCategory === 'All' || h.category === selectedCategory;
     return matchesSearch && matchesCat;
   });
+
   const selectedHabitStats = selectedHabit ? calculateStreakStats(selectedHabit) : null;
-  const selectedHabitRecentRate = selectedHabit ? calculateCompletionStats(selectedHabit, addLocalDays(todayDateStr, -29), todayDateStr).percentage : 0;
+
+  // Calendar month days calculation
+  const monthName = useMemo(() => {
+    const d = new Date(calendarYear, calendarMonth, 1);
+    return d.toLocaleString('en-US', { month: 'long' });
+  }, [calendarYear, calendarMonth]);
+
+  const calendarDays = useMemo(() => {
+    const firstDayOfMonth = new Date(calendarYear, calendarMonth, 1);
+    const totalDays = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+    const startDayIndex = firstDayOfMonth.getDay(); // 0 is Sunday
+
+    const days: { day: number; dateStr: string; isCurrentMonth: boolean }[] = [];
+
+    // Previous month padding
+    const prevMonthDays = new Date(calendarYear, calendarMonth, 0).getDate();
+    for (let i = startDayIndex - 1; i >= 0; i--) {
+      const dayNum = prevMonthDays - i;
+      const prevMonth = calendarMonth === 0 ? 11 : calendarMonth - 1;
+      const prevYear = calendarMonth === 0 ? calendarYear - 1 : calendarYear;
+      const dateStr = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+      days.push({ day: dayNum, dateStr, isCurrentMonth: false });
+    }
+
+    // Current month days
+    for (let dayNum = 1; dayNum <= totalDays; dayNum++) {
+      const dateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+      days.push({ day: dayNum, dateStr, isCurrentMonth: true });
+    }
+
+    // Next month padding to fill complete weeks (multiples of 7)
+    const remaining = (7 - (days.length % 7)) % 7;
+    for (let dayNum = 1; dayNum <= remaining; dayNum++) {
+      const nextMonth = calendarMonth === 11 ? 0 : calendarMonth + 1;
+      const nextYear = calendarMonth === 11 ? calendarYear + 1 : calendarYear;
+      const dateStr = `${nextYear}-${String(nextMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+      days.push({ day: dayNum, dateStr, isCurrentMonth: false });
+    }
+
+    return days;
+  }, [calendarYear, calendarMonth]);
+
+  const monthSuccessDays = useMemo(() => {
+    if (!selectedHabit) return 0;
+    return calendarDays
+      .filter(d => d.isCurrentMonth)
+      .reduce((count, d) => {
+        return getHabitDayStatus(selectedHabit, d.dateStr) === 'completed' ? count + 1 : count;
+      }, 0);
+  }, [selectedHabit, calendarDays]);
+
+  const prevMonth = () => {
+    if (calendarMonth === 0) {
+      setCalendarMonth(11);
+      setCalendarYear(prev => prev - 1);
+    } else {
+      setCalendarMonth(prev => prev - 1);
+    }
+  };
+
+  const nextMonth = () => {
+    if (calendarMonth === 11) {
+      setCalendarMonth(0);
+      setCalendarYear(prev => prev + 1);
+    } else {
+      setCalendarMonth(prev => prev + 1);
+    }
+  };
 
   const handleDelete = (id: string, name: string) => {
     if (Platform.OS === 'web') {
@@ -79,353 +184,574 @@ export const HabitsScreen = () => {
       }
       return;
     }
-    Alert.alert(
-      'Delete Habit',
-      `Are you sure you want to delete "${name}"? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            deleteHabit(id);
-            setSelectedHabitId(null);
-          },
+    Alert.alert('Delete Habit', `Are you sure you want to delete "${name}"? This cannot be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          deleteHabit(id);
+          setSelectedHabitId(null);
         },
-      ]
-    );
+      },
+    ]);
   };
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 110 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.header}>
-          <View>
-            <Text style={[styles.eyebrow, { color: colors.accent }]}>CATALOG & TRACKING</Text>
-            <Text style={[styles.title, { color: colors.primaryText }]}>All Habits</Text>
-          <TouchableOpacity onPress={() => setShowArchived(value => !value)} accessibilityRole="button" accessibilityLabel={showArchived ? 'Show active habits' : `Show archived habits, ${archivedHabits.length}`}>
-            <Text style={{ color: colors.accent, fontWeight: '600', marginTop: 6 }}>{showArchived ? 'Active' : `Archived (${archivedHabits.length})`}</Text>
-          </TouchableOpacity>
-          </View>
-          <TouchableOpacity
-            style={[styles.newHabitBtn, { backgroundColor: colors.accent }]}
-            activeOpacity={0.7}
-            onPress={requestCreateHabit}
-          >
-            <Ionicons name="add" size={20} color="#000" />
-            <Text style={styles.newHabitBtnText}>New Habit</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Search Bar */}
-        <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Ionicons name="search-outline" size={20} color={colors.secondaryText} />
-          <TextInput
-            style={[styles.searchInput, { color: colors.primaryText }]}
-            placeholder="Search habits by name..."
-            placeholderTextColor={colors.mutedText}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={18} color={colors.secondaryText} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Filter Chips (14 categories) */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
+      {/* Top Header Bar matching screen 3.png */}
+      <View style={styles.topBar}>
+        {/* Left: Mode toggle (List vs Track) */}
+        <TouchableOpacity
+          accessibilityLabel="Toggle view mode"
+          style={[styles.circleActionBtn, { backgroundColor: '#FF526422' }]}
+          onPress={() => setViewMode(prev => (prev === 'track' ? 'list' : 'track'))}
         >
-          {categoriesList.map(cat => {
-            const isActive = selectedCategory === cat;
-            const categoryDef = HABIT_CATEGORIES.find(c => c.name === cat);
-            return (
-              <TouchableOpacity
-                key={cat}
-                style={[
-                  styles.filterChip,
-                  {
-                    backgroundColor: isActive ? colors.primaryText : colors.card,
-                    borderColor: isActive ? colors.primaryText : colors.border,
-                  },
-                ]}
-                onPress={() => setSelectedCategory(cat)}
-                activeOpacity={0.7}
-              >
-                {categoryDef && (
-                  <Ionicons
-                    name={categoryDef.icon}
-                    size={14}
-                    color={isActive ? colors.background : categoryDef.color}
-                    style={{ marginRight: 6 }}
-                  />
-                )}
-                <Text
-                  style={[
-                    styles.filterChipText,
-                    { color: isActive ? colors.background : colors.secondaryText },
-                  ]}
-                >
-                  {cat}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+          <Ionicons
+            name={viewMode === 'track' ? 'reorder-three-outline' : 'calendar-outline'}
+            size={20}
+            color="#FF5264"
+          />
+        </TouchableOpacity>
 
-        {/* Habit Rows */}
-        <View style={styles.habitList}>
-          {filteredHabits.map(habit => {
-            const isCompleted = getHabitDayStatus(habit, todayDateStr, todayReferenceDate) === 'completed';
+        {/* Center: Habit Selector Dropdown e.g. 🤸 Yoga ▾ */}
+        {viewMode === 'track' && selectedHabit ? (
+          <TouchableOpacity
+            style={styles.habitDropdownBtn}
+            onPress={() => setShowHabitDropdown(prev => !prev)}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={selectedHabit.icon as any}
+              size={18}
+              color={selectedHabit.color || '#FF5264'}
+              style={{ marginRight: 6 }}
+            />
+            <Text style={[styles.habitDropdownText, { color: colors.primaryText }]}>
+              {selectedHabit.name}
+            </Text>
+            <Ionicons name="chevron-down" size={14} color={colors.secondaryText} style={{ marginLeft: 4 }} />
+          </TouchableOpacity>
+        ) : (
+          <Text style={[styles.screenTitle, { color: colors.primaryText }]}>
+            {viewMode === 'list' ? 'All Habits' : 'Habit Tracker'}
+          </Text>
+        )}
+
+        {/* Right: + Add habit button */}
+        <TouchableOpacity
+          accessibilityLabel="Add new habit"
+          style={[styles.circleActionBtn, { backgroundColor: '#FF5264' }]}
+          onPress={requestCreateHabit}
+        >
+          <Ionicons name="add" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Habit Dropdown Modal / Picker */}
+      {showHabitDropdown && (
+        <Modal transparent animationType="fade" visible={showHabitDropdown} onRequestClose={() => setShowHabitDropdown(false)}>
+          <TouchableOpacity
+            style={styles.dropdownOverlay}
+            activeOpacity={1}
+            onPress={() => setShowHabitDropdown(false)}
+          >
+            <View
+              style={[
+                styles.dropdownMenu,
+                {
+                  backgroundColor: isDark ? '#1C1E28' : '#FFFFFF',
+                  borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+                  top: insets.top + 50,
+                },
+              ]}
+            >
+              <ScrollView style={{ maxHeight: 280 }}>
+                {habits.map(h => {
+                  const isSelected = h.id === selectedHabit?.id;
+                  return (
+                    <TouchableOpacity
+                      key={h.id}
+                      style={[
+                        styles.dropdownItem,
+                        isSelected && { backgroundColor: `${colors.accent}14` },
+                      ]}
+                      onPress={() => {
+                        setSelectedHabitId(h.id);
+                        setShowHabitDropdown(false);
+                      }}
+                    >
+                      <Ionicons name={h.icon as any} size={18} color={h.color || colors.accent} />
+                      <Text
+                        style={[
+                          styles.dropdownItemText,
+                          { color: colors.primaryText, fontWeight: isSelected ? '700' : '500' },
+                        ]}
+                      >
+                        {h.name}
+                      </Text>
+                      {isSelected && <Ionicons name="checkmark" size={16} color={colors.accent} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
+
+      {/* Horizontal Habit Icon Strip matching screen 3.png */}
+      <View style={styles.iconStripContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.iconStrip}>
+          <TouchableOpacity
+            style={[
+              styles.allChip,
+              viewMode === 'list'
+                ? { backgroundColor: '#FF5264', borderColor: '#FF5264' }
+                : { backgroundColor: isDark ? '#1C1E28' : '#FFFFFF', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' },
+            ]}
+            onPress={() => setViewMode('list')}
+          >
+            <Text
+              style={[
+                styles.allChipText,
+                { color: viewMode === 'list' ? '#FFFFFF' : colors.secondaryText },
+              ]}
+            >
+              All
+            </Text>
+          </TouchableOpacity>
+
+          {habits.map(habit => {
+            const isSelected = viewMode === 'track' && habit.id === selectedHabit?.id;
             return (
               <TouchableOpacity
                 key={habit.id}
                 style={[
-                  styles.habitRow,
+                  styles.habitIconChip,
                   {
-                    backgroundColor: colors.card,
-                    borderColor: isCompleted ? `${colors.accent}40` : colors.border,
+                    backgroundColor: isSelected
+                      ? `${habit.color || colors.accent}25`
+                      : isDark
+                      ? '#1C1E28'
+                      : '#FFFFFF',
+                    borderColor: isSelected
+                      ? habit.color || colors.accent
+                      : isDark
+                      ? 'rgba(255,255,255,0.06)'
+                      : 'rgba(0,0,0,0.05)',
                   },
                 ]}
-                activeOpacity={0.7}
-                onPress={() => setSelectedHabitId(habit.id)}
+                onPress={() => {
+                  setSelectedHabitId(habit.id);
+                  setViewMode('track');
+                }}
               >
-                <View style={[styles.iconCircle, { backgroundColor: `${habit.color}1F` }]}>
-                  <Ionicons name={habit.icon} size={22} color={habit.color} />
-                </View>
-
-                <View style={styles.habitInfo}>
-                  <Text style={[styles.habitName, { color: colors.primaryText }]}>{habit.name}</Text>
-                  <View style={styles.streakBadge}>
-                    <Text style={[styles.categoryBadge, { color: colors.secondaryText }]}>{habit.category}</Text>
-                    <Text style={[styles.scheduleText, { color: colors.accent }]}>• 🔥 {habit.streak}d streak</Text>
-                    <Text style={[styles.scheduleText, { color: colors.mutedText }]}>• {habit.targetFrequency}</Text>
-                  </View>
-                </View>
-
-                {/* Interactive checkmark button */}
-                <TouchableOpacity
-                  style={[
-                    styles.checkButton,
-                    {
-                      borderColor: isCompleted ? habit.color : colors.border,
-                      backgroundColor: isCompleted ? habit.color : colors.secondaryBackground,
-                    },
-                  ]}
-                  activeOpacity={0.6}
-                  onPress={() => toggleHabit(habit.id)}
-                >
-                  <Ionicons
-                    name={isCompleted ? 'checkmark' : 'checkmark-outline'}
-                    size={18}
-                    color={isCompleted ? '#000' : colors.mutedText}
-                  />
-                </TouchableOpacity>
+                <Ionicons
+                  name={habit.icon as any}
+                  size={20}
+                  color={habit.color || colors.accent}
+                />
               </TouchableOpacity>
             );
           })}
+        </ScrollView>
+      </View>
 
-          {filteredHabits.length === 0 && (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="search" size={40} color={colors.secondaryText} />
-              <Text style={[styles.emptyText, { color: colors.secondaryText }]}>No matching habits</Text>
-              <TouchableOpacity
-                style={[styles.emptyAddBtn, { backgroundColor: colors.card, borderColor: colors.accent }]}
-                onPress={() => setCreateModalVisible(true)}
-              >
-                <Text style={[styles.emptyAddBtnText, { color: colors.accent }]}>+ Create New Habit</Text>
+      {/* Main Content Area */}
+      {viewMode === 'track' && selectedHabit ? (
+        /* Track Habits & Calendar View matching screen 3.png & screen 12.png */
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 90 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Monthly Calendar Card with Crowns 👑 */}
+          <View
+            style={[
+              styles.cardBox,
+              {
+                backgroundColor: isDark ? '#1C1E28' : '#FFFFFF',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+              },
+            ]}
+          >
+            {/* Header: < 2025/12 > */}
+            <View style={styles.calendarHeaderRow}>
+              <TouchableOpacity onPress={prevMonth} style={styles.monthNavBtn}>
+                <Ionicons name="chevron-back" size={16} color={colors.primaryText} />
+              </TouchableOpacity>
+              <Text style={[styles.calendarMonthText, { color: colors.primaryText }]}>
+                {calendarYear}/{String(calendarMonth + 1).padStart(2, '0')}
+              </Text>
+              <TouchableOpacity onPress={nextMonth} style={styles.monthNavBtn}>
+                <Ionicons name="chevron-forward" size={16} color={colors.primaryText} />
               </TouchableOpacity>
             </View>
-          )}
-        </View>
-      </ScrollView>
 
-      {/* Floating Action Button */}
-      <TouchableOpacity
-        style={[styles.fab, { backgroundColor: colors.accent, bottom: insets.bottom + 80 }]}
-        activeOpacity={0.8}
-        onPress={() => setCreateModalVisible(true)}
-      >
-        <Ionicons name="add" size={28} color="#000" />
-      </TouchableOpacity>
-
-      {/* Habit Detail Modal */}
-      {selectedHabit && (
-        <Modal
-          animationType="fade"
-          transparent={true}
-          visible={!!selectedHabit}
-          onRequestClose={() => setSelectedHabitId(null)}
-        >
-          <View style={styles.modalBackdrop}>
-            <View style={[styles.modalBody, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailScroll}>
-              <View style={styles.modalHeader}>
-                <View style={[styles.modalIcon, { backgroundColor: `${selectedHabit.color}25` }]}>
-                  <Ionicons name={selectedHabit.icon} size={28} color={selectedHabit.color} />
+            {/* Weekday Labels: S M T W T F S */}
+            <View style={styles.weekdayRow}>
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
+                <View key={idx} style={styles.weekdayCol}>
+                  <Text style={[styles.weekdayText, { color: colors.secondaryText }]}>{day}</Text>
                 </View>
-                <TouchableOpacity onPress={() => setSelectedHabitId(null)}>
-                  <Ionicons name="close" size={24} color={colors.secondaryText} />
-                </TouchableOpacity>
-              </View>
+              ))}
+            </View>
 
-              <Text style={[styles.modalHabitName, { color: colors.primaryText }]}>{selectedHabit.name}</Text>
-              <Text style={[styles.modalCategoryText, { color: colors.secondaryText }]}>
-                Category: <Text style={{ color: selectedHabit.color }}>{selectedHabit.category}</Text>
-                {'  '}•{'  '}Frequency: {selectedHabit.targetFrequency}
-              </Text>
-              {!!selectedHabit.description && <Text style={{ color: colors.secondaryText, marginTop: 8 }}>{selectedHabit.description}</Text>}
-              <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>{selectedHabit.habitKind === 'quit' ? 'Quit habit' : 'Positive habit'} · {selectedHabit.trackingMethod ?? 'yes_no'}{selectedHabit.trackingMethod !== 'yes_no' ? ` · Target ${selectedHabit.targetValue ?? 1} ${selectedHabit.unit ?? ''}` : ''}</Text>
-              <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Since {selectedHabit.startDate ?? '—'}{selectedHabit.endDate ? ` · Ends ${selectedHabit.endDate}` : ''}</Text>
-              {isPausedOnDate(selectedHabit, todayDateStr) && <Text style={{ color: colors.accent, marginTop: 8 }}>Paused today · streaks are protected</Text>}
-              {!!selectedHabit.pausedPeriods?.length && <Text style={{ color: colors.mutedText, marginTop: 6, fontSize: 12 }}>Pause history: {selectedHabit.pausedPeriods.map(period => `${period.startDate}–${period.endDate ?? 'ongoing'}`).join(', ')}</Text>}
+            {/* Calendar Days Matrix */}
+            <View style={styles.daysGrid}>
+              {calendarDays.map((item, idx) => {
+                const status = getHabitDayStatus(selectedHabit, item.dateStr);
+                const isCompleted = status === 'completed';
+                const isToday = item.dateStr === todayDateStr;
 
-              <View style={styles.modalStatsRow}>
-                <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                  <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabit.streak}</Text>
-                  <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Current streak</Text>
-                </View>
-                <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                  <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabitStats?.bestStreak ?? 0}</Text>
-                  <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Best streak</Text>
-                </View>
-                <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                  <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabitRecentRate}%</Text>
-                  <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Last 30 days</Text>
-                </View>
-              </View>
-              <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>{selectedHabitStats?.totalSuccessfulScheduledDays ?? 0} successful scheduled days recorded</Text>
-
-              {isTrackableOnDate(selectedHabit, todayDateStr) ? selectedHabit.habitKind === 'quit' || selectedHabit.trackingMethod === 'count' || selectedHabit.trackingMethod === 'measurable' ? (
-                <HabitTrackingControl habit={selectedHabit} date={todayDateStr} onSave={recordHabitLog} />
-              ) : (
-                (() => {
-                  const isSelectedDone = getHabitDayStatus(selectedHabit, todayDateStr, todayReferenceDate) === 'completed';
-                  return (
-                    <TouchableOpacity
-                      style={[
-                        styles.toggleActionBtn,
-                        { backgroundColor: colors.secondaryBackground },
-                        isSelectedDone && styles.toggleActionBtnDone,
-                      ]}
-                      activeOpacity={0.8}
-                      onPress={() => {
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.dayCol}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      if (item.dateStr === todayDateStr) {
                         toggleHabit(selectedHabit.id);
-                      }}
-                    >
-                      <Ionicons
-                        name={
-                          isSelectedDone
-                            ? 'checkmark-circle'
-                            : 'ellipse-outline'
-                        }
-                        size={20}
-                        color="#FFF"
-                      />
-                      <Text style={styles.toggleActionText}>
-                        {isSelectedDone
-                          ? 'Completed Today'
-                          : 'Mark Completed for Today'}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })()
-              ) : <Text style={[styles.detailMetadata, { color: colors.secondaryText, marginBottom: spacing.md }]}>{selectedHabit.archivedAt ? 'Archived habits are read-only.' : isPausedOnDate(selectedHabit, todayDateStr) ? 'Paused today. Tracking resumes after the pause.' : 'This habit is not scheduled today.'}</Text>}
-              {!!selectedHabit.reminders?.length && <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Reminders: {selectedHabit.reminders.filter(reminder => reminder.enabled).map(reminder => `${String(reminder.hour).padStart(2, '0')}:${String(reminder.minute).padStart(2, '0')}`).join(', ') || 'All disabled'}</Text>}
+                      }
+                    }}
+                  >
+                    {/* Crown 👑 on top if completed */}
+                    <View style={styles.crownContainer}>
+                      {isCompleted ? <Text style={styles.crownIcon}>👑</Text> : null}
+                    </View>
 
-              <TouchableOpacity
-                style={styles.deleteButton}
-                activeOpacity={0.7}
-                onPress={() => handleDelete(selectedHabit.id, selectedHabit.name)}
-              >
-                <Ionicons name="trash-outline" size={18} color={colors.error} />
-                <Text style={[styles.deleteText, { color: colors.error }]}>Delete Habit</Text>
-              </TouchableOpacity>
-              {showArchived ? (
-                <TouchableOpacity style={styles.deleteButton} onPress={() => { restoreHabit(selectedHabit.id); setSelectedHabitId(null); }}>
-                  <Ionicons name="refresh-outline" size={18} color={colors.accent} />
-                  <Text style={[styles.deleteText, { color: colors.accent }]}>Restore Habit</Text>
-                </TouchableOpacity>
-              ) : (
-                <>
-                  {isPausedOnDate(selectedHabit, todayDateStr) ? (
-                    <TouchableOpacity style={styles.deleteButton} onPress={() => { resumeHabit(selectedHabit.id); setSelectedHabitId(null); }}>
-                      <Ionicons name="play-outline" size={18} color={colors.accent} />
-                      <Text style={[styles.deleteText, { color: colors.accent }]}>Resume Habit</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.deleteButton}
-                      activeOpacity={0.7}
-                      onPress={() => setPauseModalHabit(selectedHabit)}
+                    {/* Day circle */}
+                    <View
+                      style={[
+                        styles.dayCircle,
+                        isToday && { borderColor: '#FF5264', borderWidth: 1.5 },
+                        isCompleted && {
+                          backgroundColor: `${selectedHabit.color || '#FF5264'}22`,
+                          borderColor: selectedHabit.color || '#FF5264',
+                        },
+                      ]}
                     >
-                      <Ionicons name="pause-outline" size={18} color={colors.secondaryText} />
-                      <Text style={[styles.deleteText, { color: colors.secondaryText }]}>Pause Habit</Text>
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity style={styles.deleteButton} onPress={() => { setEditingHabit(selectedHabit); setCreateModalVisible(true); }}>
-                    <Ionicons name="create-outline" size={18} color={colors.accent} />
-                    <Text style={[styles.deleteText, { color: colors.accent }]}>Edit Habit</Text>
+                      <Text
+                        style={[
+                          styles.dayNumber,
+                          {
+                            color: !item.isCurrentMonth
+                              ? colors.mutedText
+                              : isToday
+                              ? '#FF5264'
+                              : colors.primaryText,
+                            fontWeight: isToday || isCompleted ? '700' : '400',
+                          },
+                        ]}
+                      >
+                        {item.day}
+                      </Text>
+                    </View>
+
+                    {/* Tiny today dot */}
+                    {isToday && <View style={styles.todayDot} />}
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.deleteButton} onPress={() => { archiveHabit(selectedHabit.id); setSelectedHabitId(null); }}>
-                    <Ionicons name="archive-outline" size={18} color={colors.secondaryText} />
-                    <Text style={[styles.deleteText, { color: colors.secondaryText }]}>Archive Habit</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-              </ScrollView>
+                );
+              })}
             </View>
           </View>
-        </Modal>
+
+          {/* Yearly Status Heatmap Card */}
+          <View
+            style={[
+              styles.cardBox,
+              {
+                backgroundColor: isDark ? '#1C1E28' : '#FFFFFF',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+                marginTop: 14,
+              },
+            ]}
+          >
+            <View style={styles.yearlyHeaderRow}>
+              <Text style={[styles.cardTitle, { color: colors.primaryText }]}>Yearly Status</Text>
+              <View style={styles.yearPill}>
+                <Text style={styles.yearPillText}>{calendarYear} ▾</Text>
+              </View>
+            </View>
+
+            {/* Micro contribution heatmap */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.microHeatmap}>
+                {Array.from({ length: 32 }, (_, colIdx) => (
+                  <View key={colIdx} style={styles.heatmapColumn}>
+                    {Array.from({ length: 7 }, (_, rowIdx) => {
+                      const dayOffset = -(colIdx * 7 + rowIdx);
+                      const dStr = addLocalDays(todayDateStr, dayOffset);
+                      const isDone = selectedHabit.completedDates.includes(dStr);
+                      return (
+                        <View
+                          key={rowIdx}
+                          style={[
+                            styles.heatmapCell,
+                            {
+                              backgroundColor: isDone
+                                ? selectedHabit.color || '#FF5264'
+                                : isDark
+                                ? 'rgba(255,255,255,0.06)'
+                                : '#F1F2F6',
+                            },
+                          ]}
+                        />
+                      );
+                    })}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+
+          {/* Records (4-card metric tiles) matching screen 3.png & screen 12.png */}
+          <View style={styles.recordsGrid}>
+            {/* Tile 1: Days in Month */}
+            <View
+              style={[
+                styles.recordTile,
+                {
+                  backgroundColor: isDark ? '#1C1E28' : '#FFFFFF',
+                  borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                },
+              ]}
+            >
+              <View style={[styles.tileIconCircle, { backgroundColor: '#38BDF820' }]}>
+                <Ionicons name="calendar" size={18} color="#38BDF8" />
+              </View>
+              <Text style={[styles.tileBigNum, { color: colors.primaryText }]}>
+                {monthSuccessDays}{' '}
+                <Text style={[styles.tileUnit, { color: colors.secondaryText }]}>Days</Text>
+              </Text>
+              <Text style={[styles.tileSub, { color: colors.secondaryText }]}>
+                success in {monthName}
+              </Text>
+            </View>
+
+            {/* Tile 2: Total Success */}
+            <View
+              style={[
+                styles.recordTile,
+                {
+                  backgroundColor: isDark ? '#1C1E28' : '#FFFFFF',
+                  borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                },
+              ]}
+            >
+              <View style={[styles.tileIconCircle, { backgroundColor: '#10B98120' }]}>
+                <Ionicons name="checkmark-done" size={18} color="#10B981" />
+              </View>
+              <Text style={[styles.tileBigNum, { color: colors.primaryText }]}>
+                {selectedHabit.completedDates.length}{' '}
+                <Text style={[styles.tileUnit, { color: colors.secondaryText }]}>Days</Text>
+              </Text>
+              <Text style={[styles.tileSub, { color: colors.secondaryText }]}>Total Success</Text>
+            </View>
+
+            {/* Tile 3: Current Streak */}
+            <View
+              style={[
+                styles.recordTile,
+                {
+                  backgroundColor: isDark ? '#1C1E28' : '#FFFFFF',
+                  borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                },
+              ]}
+            >
+              <View style={[styles.tileIconCircle, { backgroundColor: '#A855F720' }]}>
+                <Ionicons name="flame" size={18} color="#A855F7" />
+              </View>
+              <Text style={[styles.tileBigNum, { color: colors.primaryText }]}>
+                {selectedHabit.streak}{' '}
+                <Text style={[styles.tileUnit, { color: colors.secondaryText }]}>Day</Text>
+              </Text>
+              <Text style={[styles.tileSub, { color: colors.secondaryText }]}>Current Streak</Text>
+            </View>
+
+            {/* Tile 4: Best Streak */}
+            <View
+              style={[
+                styles.recordTile,
+                {
+                  backgroundColor: isDark ? '#1C1E28' : '#FFFFFF',
+                  borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                },
+              ]}
+            >
+              <View style={[styles.tileIconCircle, { backgroundColor: '#F59E0B20' }]}>
+                <Ionicons name="trophy" size={18} color="#F59E0B" />
+              </View>
+              <Text style={[styles.tileBigNum, { color: colors.primaryText }]}>
+                {selectedHabitStats?.bestStreak ?? 0}{' '}
+                <Text style={[styles.tileUnit, { color: colors.secondaryText }]}>Days</Text>
+              </Text>
+              <Text style={[styles.tileSub, { color: colors.secondaryText }]}>Best Streak</Text>
+            </View>
+          </View>
+
+          {/* Action buttons for selected habit */}
+          <View style={styles.actionRow}>
+            <TouchableOpacity
+              style={[styles.manageBtn, { backgroundColor: `${colors.accent}15` }]}
+              onPress={() => {
+                setEditingHabit(selectedHabit);
+                setCreateModalVisible(true);
+              }}
+            >
+              <Ionicons name="create-outline" size={16} color={colors.accent} />
+              <Text style={[styles.manageBtnText, { color: colors.accent }]}>Edit</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.manageBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6' }]}
+              onPress={() => setPauseModalHabit(selectedHabit)}
+            >
+              <Ionicons name="pause-outline" size={16} color={colors.secondaryText} />
+              <Text style={[styles.manageBtnText, { color: colors.secondaryText }]}>Pause</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.manageBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6' }]}
+              onPress={() => archiveHabit(selectedHabit.id)}
+            >
+              <Ionicons name="archive-outline" size={16} color={colors.secondaryText} />
+              <Text style={[styles.manageBtnText, { color: colors.secondaryText }]}>Archive</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.manageBtn, { backgroundColor: '#FEE2E2' }]}
+              onPress={() => handleDelete(selectedHabit.id, selectedHabit.name)}
+            >
+              <Ionicons name="trash-outline" size={16} color="#EF4444" />
+              <Text style={[styles.manageBtnText, { color: "#EF4444" }]}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      ) : (
+        /* List Catalog View */
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 90 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Search Bar */}
+          <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons name="search-outline" size={18} color={colors.secondaryText} />
+            <TextInput
+              style={[styles.searchInput, { color: colors.primaryText }]}
+              placeholder="Search habits..."
+              placeholderTextColor={colors.mutedText}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={18} color={colors.secondaryText} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Filter Chips */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+            {categoriesList.map(cat => {
+              const isActive = selectedCategory === cat;
+              return (
+                <TouchableOpacity
+                  key={cat}
+                  style={[
+                    styles.filterChip,
+                    {
+                      backgroundColor: isActive ? '#FF5264' : colors.card,
+                      borderColor: isActive ? '#FF5264' : colors.border,
+                    },
+                  ]}
+                  onPress={() => setSelectedCategory(cat)}
+                >
+                  <Text style={{ color: isActive ? '#FFFFFF' : colors.secondaryText, fontSize: 12, fontWeight: '600' }}>
+                    {cat}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {/* Habits List */}
+          <View style={styles.listStack}>
+            {filteredHabits.map(h => {
+              const pastel = getHabitPastelTheme(h, isDark);
+              const isCompleted = getHabitDayStatus(h, todayDateStr, todayReferenceDate) === 'completed';
+              return (
+                <TouchableOpacity
+                  key={h.id}
+                  style={[
+                    styles.habitListCard,
+                    {
+                      backgroundColor: pastel.bg,
+                      borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                    },
+                  ]}
+                  onPress={() => {
+                    setSelectedHabitId(h.id);
+                    setViewMode('track');
+                  }}
+                >
+                  <View style={[styles.listIconCircle, { backgroundColor: '#FFFFFF' }]}>
+                    <Ionicons name={h.icon as any} size={20} color={h.color || '#FF5264'} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.listCardTitle, { color: pastel.text }]}>{h.name}</Text>
+                    <Text style={[styles.listCardSub, { color: colors.secondaryText }]}>
+                      🔥 {h.streak}d streak · {h.targetFrequency}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.listCheckBtn,
+                      isCompleted ? { backgroundColor: '#10B981' } : { backgroundColor: 'rgba(255,255,255,0.8)' },
+                    ]}
+                    onPress={() => toggleHabit(h.id)}
+                  >
+                    <Ionicons
+                      name={isCompleted ? 'checkmark' : 'add'}
+                      size={18}
+                      color={isCompleted ? '#FFFFFF' : '#8E95A5'}
+                    />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </ScrollView>
       )}
 
-      {/* Pause Habit Modal */}
-      <PauseHabitModal
-        visible={Boolean(pauseModalHabit)}
-        habit={pauseModalHabit}
-        todayDateStr={todayDateStr}
-        onClose={() => setPauseModalHabit(null)}
-        onConfirmPause={(id, startDate, endDate) => {
-          pauseHabit(id, startDate, endDate);
-          setPauseModalHabit(null);
-          setSelectedHabitId(null);
-        }}
-      />
-
       {/* Create / Edit Habit Modal */}
-      {createModalVisible && <CreateHabitModal
-        key={editingHabit ? `edit_${editingHabit.id}` : 'create_habit'}
+      <CreateHabitModal
         visible={createModalVisible}
-        onClose={() => { setCreateModalVisible(false); setEditingHabit(null); }}
+        onClose={() => {
+          setCreateModalVisible(false);
+          setEditingHabit(null);
+        }}
         onAddHabit={addHabit}
         initialHabit={editingHabit}
         onUpdateHabit={updateHabit}
-        onDeleteHabit={id => {
-          deleteHabit(id);
-          setCreateModalVisible(false);
-          setEditingHabit(null);
-          setSelectedHabitId(null);
+        onDeleteHabit={deleteHabit}
+        onPauseHabit={pauseHabit}
+        onResumeHabit={resumeHabit}
+      />
+
+      {/* Pause Habit Modal */}
+      <PauseHabitModal
+        visible={!!pauseModalHabit}
+        habit={pauseModalHabit}
+        todayDateStr={todayDateStr}
+        onClose={() => setPauseModalHabit(null)}
+        onConfirmPause={(id: string, start: string, end: string | null) => {
+          pauseHabit(id, start, end);
+          setPauseModalHabit(null);
         }}
-        onPauseHabit={(id, startDate, endDate) => {
-          pauseHabit(id, startDate, endDate);
-          setCreateModalVisible(false);
-          setEditingHabit(null);
-          setSelectedHabitId(null);
-        }}
-        onResumeHabit={id => {
-          resumeHabit(id);
-          setCreateModalVisible(false);
-          setEditingHabit(null);
-          setSelectedHabitId(null);
-        }}
-      />}
+      />
+
+      {/* Paywall Modal */}
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </View>
   );
@@ -435,234 +761,316 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
   },
-  scrollContent: {
-    paddingHorizontal: spacing.lg,
-  },
-  header: {
+  topBar: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginTop: spacing.md,
-    marginBottom: spacing.lg,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.5,
+  circleActionBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  title: {
-    fontSize: 32,
+  habitDropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 82, 100, 0.08)',
+  },
+  habitDropdownText: {
+    fontSize: 16,
     fontWeight: '800',
-    letterSpacing: -0.5,
-    marginTop: 2,
   },
-  newHabitBtn: {
+  screenTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  dropdownOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+  },
+  dropdownMenu: {
+    position: 'absolute',
+    width: 240,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  dropdownItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: radii.full,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  dropdownItemText: {
+    flex: 1,
+    fontSize: 14,
+  },
+  iconStripContainer: {
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.04)',
+  },
+  iconStrip: {
+    paddingHorizontal: 18,
+    gap: 12,
+    alignItems: 'center',
+  },
+  allChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  allChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  habitIconChip: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  cardBox: {
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  calendarHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 18,
+    marginBottom: 12,
+  },
+  monthNavBtn: {
+    padding: 4,
+  },
+  calendarMonthText: {
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  weekdayRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 8,
+  },
+  weekdayCol: {
+    width: 36,
+    alignItems: 'center',
+  },
+  weekdayText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  daysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-around',
+  },
+  dayCol: {
+    width: 36,
+    alignItems: 'center',
+    marginVertical: 4,
+    position: 'relative',
+  },
+  crownContainer: {
+    height: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  crownIcon: {
+    fontSize: 10,
+    lineHeight: 12,
+  },
+  dayCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dayNumber: {
+    fontSize: 13,
+  },
+  todayDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#FF5264',
+    marginTop: 2,
+  },
+  yearlyHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  yearPill: {
+    backgroundColor: '#FF526418',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  yearPillText: {
+    color: '#FF5264',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  microHeatmap: {
+    flexDirection: 'row',
+    gap: 3,
+    paddingVertical: 4,
+  },
+  heatmapColumn: {
+    gap: 3,
+  },
+  heatmapCell: {
+    width: 9,
+    height: 9,
+    borderRadius: 2,
+  },
+  recordsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 14,
+  },
+  recordTile: {
+    flex: 1,
+    minWidth: '45%',
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+  },
+  tileIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  tileBigNum: {
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  tileUnit: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  tileSub: {
+    fontSize: 12,
+    marginTop: 3,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 18,
+  },
+  manageBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 14,
     gap: 4,
   },
-  newHabitBtnText: {
-    color: '#000',
+  manageBtnText: {
+    fontSize: 12,
     fontWeight: '700',
-    fontSize: 13,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
     borderWidth: 1,
-    marginBottom: spacing.md,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    height: 42,
+    marginBottom: 12,
+    gap: 8,
   },
   searchInput: {
     flex: 1,
-    height: 46,
-    fontSize: 15,
-    marginLeft: spacing.sm,
+    fontSize: 14,
   },
   filterRow: {
     gap: 8,
-    marginBottom: spacing.lg,
+    paddingBottom: 12,
   },
   filterChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: radii.full,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
     borderWidth: 1,
   },
-  filterChipText: {
-    fontSize: 13,
-    fontWeight: '600',
+  listStack: {
+    gap: 10,
   },
-  habitList: {
-    gap: spacing.sm,
-  },
-  habitRow: {
+  habitListCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: radii.lg,
-    padding: spacing.md,
+    padding: 14,
+    borderRadius: 18,
     borderWidth: 1,
-  },
-  iconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: radii.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
-  habitInfo: {
-    flex: 1,
-  },
-  habitName: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  streakBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-    flexWrap: 'wrap',
-    gap: 4,
-  },
-  categoryBadge: {
-    fontSize: 12,
-  },
-  scheduleText: {
-    fontSize: 12,
-  },
-  checkButton: {
-    width: 34,
-    height: 34,
-    borderRadius: radii.sm,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyContainer: {
-    paddingVertical: 48,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-    marginTop: 12,
-  },
-  emptyAddBtn: {
-    marginTop: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: radii.full,
-    borderWidth: 1,
-  },
-  emptyAddBtnText: {
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.lg,
-  },
-  modalBody: {
-    width: '100%',
-    maxWidth: 380,
-    borderRadius: radii.xl,
-    padding: spacing.xl,
-    borderWidth: 1,
-    maxHeight: '90%',
-  },
-  detailScroll: { paddingBottom: spacing.sm },
-  detailMetadata: { fontSize: 12, marginTop: 7, lineHeight: 18 },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  modalIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: radii.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalHabitName: {
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  modalCategoryText: {
-    fontSize: 13,
-    marginBottom: spacing.lg,
-  },
-  modalStatsRow: {
-    flexDirection: 'row',
     gap: 12,
-    marginBottom: spacing.lg,
   },
-  modalStatCard: {
-    flex: 1,
-    borderRadius: radii.md,
-    padding: spacing.md,
+  listIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
   },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: '800',
+  listCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
   },
-  statLabel: {
+  listCardSub: {
     fontSize: 12,
     marginTop: 2,
   },
-  toggleActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  listCheckBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: radii.md,
-    marginBottom: spacing.md,
-  },
-  toggleActionBtnDone: {
-    backgroundColor: '#059669',
-  },
-  toggleActionText: {
-    color: '#FFF',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  deleteButton: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-  },
-  deleteText: {
-    fontSize: 14,
-    fontWeight: '600',
   },
 });

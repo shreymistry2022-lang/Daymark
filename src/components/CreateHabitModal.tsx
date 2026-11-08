@@ -98,6 +98,8 @@ export const CreateHabitModal = ({
   const [endDate, setEndDate] = useState(initialHabit?.endDate ?? '');
   const [reminderTime, setReminderTime] = useState('08:00');
   const [reminders, setReminders] = useState<Habit['reminders']>(initialHabit?.reminders ?? []);
+  const [timeRange, setTimeRange] = useState<'Anytime' | 'Morning' | 'Afternoon' | 'Evening'>('Anytime');
+  const [showMemoAfterCompletion, setShowMemoAfterCompletion] = useState(true);
   const [error, setError] = useState('');
 
   const todayKey = dateKeyInTimezone(new Date(), preferences.timezone);
@@ -363,6 +365,35 @@ export const CreateHabitModal = ({
               </View>
             ) : null}
 
+            {/* Time Range matching screen 5.png */}
+            <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>TIME RANGE</Text>
+            <View style={styles.timeRangeRow}>
+              {(['Anytime', 'Morning', 'Afternoon', 'Evening'] as const).map(range => {
+                const isSelected = timeRange === range;
+                return (
+                  <TouchableOpacity
+                    key={range}
+                    style={[
+                      styles.timeRangePill,
+                      isSelected
+                        ? { backgroundColor: '#FF5264', borderColor: '#FF5264' }
+                        : { backgroundColor: colors.secondaryBackground, borderColor: colors.border },
+                    ]}
+                    onPress={() => setTimeRange(range)}
+                  >
+                    <Text
+                      style={[
+                        styles.timeRangeText,
+                        { color: isSelected ? '#FFFFFF' : colors.secondaryText, fontWeight: isSelected ? '700' : '500' },
+                      ]}
+                    >
+                      {range}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
             <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>ACTIVE DATES</Text>
             <View style={styles.valueFields}>
               <View style={styles.valueField}>
@@ -375,27 +406,56 @@ export const CreateHabitModal = ({
               </View>
             </View>
 
-            <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>REMINDERS</Text>
-            {(reminders ?? []).map(reminder => (
-              <View key={reminder.id} style={styles.reminderRow}>
-                <Ionicons name="notifications-outline" size={16} color={selectedColor} />
-                <Text style={[styles.reminderText, { color: colors.primaryText }]}>{`${String(reminder.hour).padStart(2, '0')}:${String(reminder.minute).padStart(2, '0')}`} · {reminder.weekdays.length === 7 ? 'Every day' : `${reminder.weekdays.length} days/week`}</Text>
-                <Switch accessibilityLabel={`Toggle reminder at ${String(reminder.hour).padStart(2, '0')}:${String(reminder.minute).padStart(2, '0')}`} value={reminder.enabled} onValueChange={enabled => setReminders(current => (current ?? []).map(item => item.id === reminder.id ? { ...item, enabled } : item))} trackColor={{ true: selectedColor }} />
-                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Remove reminder" onPress={() => setReminders(current => (current ?? []).filter(item => item.id !== reminder.id))}><Ionicons name="close-circle-outline" size={20} color={colors.secondaryText} /></TouchableOpacity>
+            <Text style={[styles.sectionTitle, { color: colors.secondaryText }]}>DAILY REMINDERS</Text>
+            {/* Reminder chips in pastel pink matching screen 5.png */}
+            <View style={styles.reminderChipsRow}>
+              {(reminders ?? []).map(reminder => (
+                <View key={reminder.id} style={styles.pinkReminderChip}>
+                  <Text style={styles.pinkReminderText}>
+                    {`${String(reminder.hour).padStart(2, '0')}:${String(reminder.minute).padStart(2, '0')}`}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setReminders(current => (current ?? []).filter(item => item.id !== reminder.id))}
+                    style={{ marginLeft: 6 }}
+                  >
+                    <Ionicons name="close-circle" size={15} color="#FF5264" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <View style={[styles.addReminderPill, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
+                <TextInput
+                  style={[styles.miniReminderInput, { color: colors.primaryText }]}
+                  value={reminderTime}
+                  onChangeText={setReminderTime}
+                  placeholder="HH:mm"
+                  placeholderTextColor={colors.mutedText}
+                />
+                <TouchableOpacity
+                  style={styles.plusPillBtn}
+                  onPress={() => {
+                    const match = reminderTime.match(/^(\d{1,2}):(\d{2})$/);
+                    if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) { setError('Enter a reminder time in 24-hour HH:mm format.'); return; }
+                    const hour = Number(match[1]); const minute = Number(match[2]);
+                    if ((reminders ?? []).some(item => item.hour === hour && item.minute === minute)) { setError('That reminder already exists.'); return; }
+                    if ((reminders ?? []).length >= 1 && !canAccessFeature('unlimited_reminders', isPro)) { setError('Free accounts can set one reminder per habit. Upgrade to Pro for multiple reminders.'); return; }
+                    setError('');
+                    const reminderWeekdays = frequency === 'Daily' ? [1,2,3,4,5,6,7] : frequency === 'Weekdays' ? [1,2,3,4,5] : frequency === 'Weekends' ? [6,7] : selectedWeekdays;
+                    setReminders(current => [...(current ?? []), { id: `reminder_${Date.now()}`, hour, minute, weekdays: reminderWeekdays, enabled: true }]);
+                  }}
+                >
+                  <Ionicons name="add" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
               </View>
-            ))}
-            <View style={styles.addReminderRow}>
-              <TextInput style={[styles.textInput, styles.reminderInput, { backgroundColor: colors.secondaryBackground, borderColor: colors.border, color: colors.primaryText }]} value={reminderTime} onChangeText={setReminderTime} keyboardType="numbers-and-punctuation" placeholder="HH:mm" placeholderTextColor={colors.mutedText} />
-              <TouchableOpacity style={[styles.addReminderButton, { borderColor: colors.border }]} onPress={() => {
-                const match = reminderTime.match(/^(\d{1,2}):(\d{2})$/);
-                if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) { setError('Enter a reminder time in 24-hour HH:mm format.'); return; }
-                const hour = Number(match[1]); const minute = Number(match[2]);
-                if ((reminders ?? []).some(item => item.hour === hour && item.minute === minute)) { setError('That reminder already exists.'); return; }
-                if ((reminders ?? []).length >= 1 && !canAccessFeature('unlimited_reminders', isPro)) { setError('Free accounts can set one reminder per habit. Upgrade to Pro for multiple reminders.'); return; }
-                setError('');
-                const reminderWeekdays = frequency === 'Daily' ? [1,2,3,4,5,6,7] : frequency === 'Weekdays' ? [1,2,3,4,5] : frequency === 'Weekends' ? [6,7] : selectedWeekdays;
-                setReminders(current => [...(current ?? []), { id: `reminder_${Date.now()}`, hour, minute, weekdays: reminderWeekdays, enabled: true }]);
-              }}><Text style={[styles.choiceText, { color: colors.primaryText }]}>Add reminder</Text></TouchableOpacity>
+            </View>
+
+            {/* Show memo after completion toggle matching screen 5.png */}
+            <View style={[styles.toggleOptionRow, { borderTopColor: colors.border, borderBottomColor: colors.border }]}>
+              <Text style={[styles.toggleOptionText, { color: colors.primaryText }]}>Show memo after completion</Text>
+              <Switch
+                value={showMemoAfterCompletion}
+                onValueChange={setShowMemoAfterCompletion}
+                trackColor={{ true: '#FF5264', false: colors.border }}
+              />
             </View>
 
             {/* Color Accent */}
@@ -678,5 +738,78 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 15,
     fontWeight: '800',
+  },
+  timeRangeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: spacing.md,
+  },
+  timeRangePill: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: radii.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  timeRangeText: {
+    fontSize: 13,
+  },
+  reminderChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  pinkReminderChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 82, 100, 0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  pinkReminderText: {
+    color: '#FF5264',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  addReminderPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingLeft: 10,
+    paddingRight: 4,
+    height: 34,
+  },
+  miniReminderInput: {
+    fontSize: 13,
+    width: 52,
+    padding: 0,
+  },
+  plusPillBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#FF5264',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 4,
+  },
+  toggleOptionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  toggleOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

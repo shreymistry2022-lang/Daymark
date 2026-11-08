@@ -6,325 +6,385 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Modal,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii } from '../theme/tokens';
-import { useHabits } from '../services/HabitContext';
+import { getHabitPastelTheme } from '../theme/tokens';
+import { useHabits, Habit } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
 import { CreateHabitModal } from '../components/CreateHabitModal';
-import { HABIT_CATEGORIES } from '../constants/categories';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canCreateHabit } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
-import { HabitTrackingControl } from '../components/HabitTrackingControl';
+import { HabitMemoModal } from '../components/HabitMemoModal';
+import { FocusTimerModal } from '../components/FocusTimerModal';
 import * as Haptics from 'expo-haptics';
 import { usePreferences } from '../services/PreferencesContext';
-import { formatAppDate, getWeekDates } from '../domain/preferencesEngine';
+import { getWeekDates } from '../domain/preferencesEngine';
 import { getHabitDayStatus, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
 import { useNavigation } from '@react-navigation/native';
-import { useAuth } from '../services/AuthProvider';
 
 export const TodayScreen = () => {
-  const { habits, toggleHabit, recordHabitLog, addHabit, moveHabit, todayDateStr, stats, triggerCelebration } = useHabits();
-  const { colors } = useTheme();
+  const { habits, toggleHabit, recordHabitLog, addHabit, todayDateStr, triggerCelebration } = useHabits();
+  const { colors, isDark } = useTheme();
   const { isPro } = useSubscription();
   const { preferences } = usePreferences();
-  const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
+
   const [inspectedDate, setInspectedDate] = useState<string | null>(null);
   const weekDates = useMemo(() => getWeekDates(todayDateStr, preferences.weekStart), [todayDateStr, preferences.weekStart]);
   const selectedDate = inspectedDate && weekDates.includes(inspectedDate) ? inspectedDate : todayDateStr;
   const dateReference = parseLocalDate(todayDateStr) ?? new Date();
+
   const todaysHabits = habits.filter(habit => isTrackableOnDate(habit, selectedDate, dateReference));
   const selectedCompleted = todaysHabits.filter(habit => getHabitDayStatus(habit, selectedDate, dateReference) === 'completed').length;
-  const selectedCompletionRate = todaysHabits.length ? Math.round(selectedCompleted / todaysHabits.length * 100) : 0;
+  const selectedCompletionRate = todaysHabits.length ? Math.round((selectedCompleted / todaysHabits.length) * 100) : 0;
 
-  // Filter state
+  // Filter & Modals
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
+  const [memoHabit, setMemoHabit] = useState<Habit | null>(null);
+  const [timerHabit, setTimerHabit] = useState<Habit | null>(null);
+
   const requestCreateHabit = () => {
     if (!canCreateHabit(habits.length, isPro)) setPaywallVisible(true);
     else setCreateModalVisible(true);
   };
 
-  // Extract unique active categories from existing habits plus popular ones
-  const availableCategories = [
-    'All',
-    ...Array.from(new Set(todaysHabits.map(h => h.category))),
-  ];
+  const availableCategories = ['All', ...Array.from(new Set(todaysHabits.map(h => h.category)))];
 
   const filteredHabits = todaysHabits.filter(h => {
     if (selectedCategory === 'All') return true;
     return h.category === selectedCategory;
   });
 
-  const currentDateFormatted = formatAppDate(new Date(`${selectedDate}T12:00:00Z`), preferences.dateFormat, preferences.timezone).toUpperCase();
-  const currentHour = Number(new Intl.DateTimeFormat('en', { hour: '2-digit', hour12: false, timeZone: preferences.timezone }).format(new Date()));
-  const greeting = currentHour < 12 ? 'Good morning' : currentHour < 18 ? 'Good afternoon' : 'Good evening';
+  const handleTrackAction = (habit: Habit) => {
+    if (preferences.hapticsEnabled) void Haptics.selectionAsync().catch(() => {});
+
+    if (habit.habitKind === 'quit') {
+      const isLapse = habit.logs?.find(log => log.date === selectedDate)?.outcome === 'lapse';
+      const result = recordHabitLog(habit.id, { date: selectedDate, outcome: isLapse ? 'completed' : 'lapse' });
+      if (result.error) Alert.alert('Could not update', result.error);
+      return;
+    }
+
+    if (habit.trackingMethod === 'count' || habit.trackingMethod === 'measurable') {
+      const currentVal = habit.logs?.find(log => log.date === selectedDate)?.value ?? (habit.completedDates.includes(selectedDate) ? (habit.targetValue ?? 1) : 0);
+      const target = habit.targetValue ?? 1;
+      const nextVal = currentVal >= target ? 0 : currentVal + (habit.trackingMethod === 'measurable' && target >= 100 ? 250 : 1);
+      const result = recordHabitLog(habit.id, {
+        date: selectedDate,
+        value: nextVal,
+        outcome: nextVal >= target ? 'completed' : undefined,
+      });
+      if (result.error) Alert.alert('Could not update', result.error);
+      else if (nextVal >= target && selectedCompleted + 1 >= todaysHabits.length) {
+        triggerCelebration();
+      }
+      return;
+    }
+
+    // Standard yes/no toggle
+    toggleHabit(habit.id, selectedDate);
+    const wasCompleted = getHabitDayStatus(habit, selectedDate, dateReference) === 'completed';
+    if (!wasCompleted && selectedCompleted + 1 >= todaysHabits.length) {
+      triggerCelebration();
+    }
+  };
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+    <View style={[styles.screen, { backgroundColor: isDark ? '#101117' : '#FAF9F7', paddingTop: insets.top }]}>
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 110 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 90 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Editorial Top Bar */}
+        {/* Top Bar matching screen 1.png */}
         <View style={styles.topBar}>
-          <View>
-            <Text style={[styles.dateLabel, { color: colors.accent }]}>{currentDateFormatted}</Text>
-            <Text style={[styles.mainTitle, { color: colors.primaryText }]}>{selectedDate === todayDateStr ? 'Today’s Focus' : 'Day Review'}</Text>
-            {user?.fullName ? <Text style={[styles.greeting, { color: colors.secondaryText }]}>{greeting}, {user.fullName.split(' ')[0]}</Text> : null}
-          </View>
-          <View style={styles.topActions}>
-            <View style={styles.iconActions}>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open notification preferences" onPress={() => navigation.navigate('Profile', { openPreferences: true })} style={styles.topIconButton}><Ionicons name="notifications-outline" size={20} color={colors.primaryText} /></TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile" onPress={() => navigation.navigate('Profile')} style={styles.topIconButton}><Ionicons name="person-circle-outline" size={23} color={colors.primaryText} /></TouchableOpacity>
-            </View>
+          <TouchableOpacity
+            style={[styles.categoryPill, { backgroundColor: colors.accent }]}
+            onPress={() => setCategoryPickerVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.categoryPillText}>{selectedCategory}</Text>
+            <Ionicons name="chevron-down" size={14} color="#FFFFFF" style={{ marginLeft: 4 }} />
+          </TouchableOpacity>
+
+          <Text style={[styles.topTitle, { color: colors.primaryText }]}>Today</Text>
+
+          <View style={styles.topRight}>
             <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Create a new habit"
-              style={[styles.addButton, { backgroundColor: colors.accent }]}
-              activeOpacity={0.7}
+              style={[styles.topAddBtn, { backgroundColor: `${colors.accent}1F` }]}
               onPress={requestCreateHabit}
+              activeOpacity={0.7}
             >
-              <Ionicons name="add" size={20} color="#000" />
-              <Text style={styles.addButtonText}>New Habit</Text>
+              <Ionicons name="add" size={20} color={colors.accent} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.mascotBtn}
+              onPress={() => {
+                if (selectedCompletionRate === 100 && todaysHabits.length > 0) {
+                  triggerCelebration();
+                } else {
+                  navigation.navigate('Profile');
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.mascotEmoji}>😊</Text>
+              {selectedCompletionRate === 100 && (
+                <View style={[styles.mascotBadge, { backgroundColor: colors.accent }]} />
+              )}
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Swiss Progress Dashboard Card */}
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel={`${selectedCompletionRate}% complete${selectedDate === todayDateStr ? ', tap to celebrate when all habits are done' : ''}`}
-          style={[
-            styles.heroCard,
-            {
-              backgroundColor: colors.card,
-              borderColor: selectedCompletionRate === 100 ? colors.accent : colors.border,
-            },
-          ]}
-          activeOpacity={selectedCompletionRate === 100 ? 0.75 : 1}
-          onPress={() => {
-            if (selectedDate === todayDateStr && selectedCompletionRate === 100 && todaysHabits.length > 0) {
-              triggerCelebration();
-            }
-          }}
-        >
-          <View style={styles.heroHeader}>
-            <View>
-              <Text style={[styles.heroCategory, { color: colors.secondaryText }]}>DAILY RITUALS</Text>
-              <Text style={[styles.heroStats, { color: colors.primaryText }]}>
-                {todaysHabits.length > 0 ? `${selectedCompleted} of ${todaysHabits.length} completed` : 'No habits scheduled this day'}
-              </Text>
-            </View>
-            <View style={[styles.percentageBadge, { backgroundColor: `${colors.accent}18` }]}>
-              <Text style={[styles.percentageText, { color: colors.accent }]}>{selectedCompletionRate}%</Text>
-            </View>
-          </View>
+        {/* 7-Day Week Strip with Crowns matching screen 1.png */}
+        <View style={styles.weekStripContainer}>
+          {weekDates.map(date => {
+            const parsed = parseLocalDate(date)!;
+            const isSelected = date === selectedDate;
+            const isToday = date === todayDateStr;
+            const weekdayShort = new Intl.DateTimeFormat('en', { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`)).slice(0, 2);
 
-          {/* Precision Progress Bar */}
-          <View style={[styles.progressTrack, { backgroundColor: colors.secondaryBackground }]}>
-            <View
-              style={[
-                styles.progressBar,
-                { width: `${Math.max(5, selectedCompletionRate)}%`, backgroundColor: colors.accent },
-              ]}
-            />
-          </View>
+            const dayTrackable = habits.filter(h => isTrackableOnDate(h, date, dateReference));
+            const dayCompleted = dayTrackable.filter(h => getHabitDayStatus(h, date, dateReference) === 'completed').length;
+            const isAllCompleted = dayTrackable.length > 0 && dayCompleted === dayTrackable.length;
+            const hasCompleted = dayCompleted > 0;
 
-          <View style={styles.heroFooter}>
-            <View style={styles.streakIndicator}>
-              <Ionicons name="flame" size={16} color={colors.accent} />
-              <Text style={[styles.streakText, { color: colors.primaryText }]}>{stats.bestStreak} Day Best Streak</Text>
-            </View>
-            <Text style={[styles.quoteSubtext, { color: colors.mutedText }]}>
-              {selectedDate === todayDateStr ? (selectedCompletionRate === 100 && todaysHabits.length > 0 ? 'All done! 🎉 Tap to celebrate' : `${Math.max(0, todaysHabits.length - selectedCompleted)} remaining today`) : `${selectedCompleted} completed · ${Math.max(0, todaysHabits.length - selectedCompleted)} missed or unfinished`}
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        <View style={[styles.weekCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.weekHeader}>
-            <Text style={[styles.weekTitle, { color: colors.primaryText }]}>{selectedDate === todayDateStr ? 'THIS WEEK' : 'REVIEWING A PAST DAY'}</Text>
-            {selectedDate !== todayDateStr && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Return to today" onPress={() => setInspectedDate(null)} style={styles.todayLink}><Text style={{ color: colors.accent, fontWeight: '700' }}>Today</Text></TouchableOpacity>}
-          </View>
-          <View style={styles.weekRow}>
-            {weekDates.map(date => {
-              const isFuture = date > todayDateStr;
-              const parsed = parseLocalDate(date)!;
-              const weekday = new Intl.DateTimeFormat('en', { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
-              const completed = habits.filter(habit => getHabitDayStatus(habit, date, dateReference) === 'completed').length;
-              const hasMissed = habits.some(habit => getHabitDayStatus(habit, date, dateReference) === 'missed');
-              const active = date === selectedDate;
-              return <TouchableOpacity key={date} accessibilityRole="button" accessibilityLabel={`${weekday}, ${parsed.getDate()}${date === todayDateStr ? ', today' : ''}${isFuture ? ', unavailable' : `, ${completed} completed${hasMissed ? ', missed habits' : ''}`}`} accessibilityState={{ selected: active, disabled: isFuture }} disabled={isFuture} onPress={() => setInspectedDate(date)} style={[styles.weekDay, { backgroundColor: active ? colors.accent : colors.secondaryBackground, opacity: isFuture ? 0.45 : 1 }]}>
-                <Text style={[styles.weekdayLabel, { color: active ? '#000' : colors.mutedText }]}>{weekday}</Text>
-                <Text style={[styles.weekdayDate, { color: active ? '#000' : colors.primaryText }]}>{parsed.getDate()}</Text>
-                <View style={[styles.weekDot, { backgroundColor: active ? '#000' : completed > 0 ? colors.accent : hasMissed ? colors.error : colors.border }]} />
-              </TouchableOpacity>;
-            })}
-          </View>
-          {selectedDate !== todayDateStr && <Text style={[styles.reviewHint, { color: colors.secondaryText }]}>You can correct this day’s habit entries. Future days are unavailable.</Text>}
-        </View>
-
-        {/* Filter Pills with Categories */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
-        >
-          {availableCategories.map(cat => {
-            const isActive = selectedCategory === cat;
-            const categoryDef = HABIT_CATEGORIES.find(c => c.name === cat);
             return (
               <TouchableOpacity
-                key={cat}
-                style={[
-                  styles.filterPill,
-                  {
-                    backgroundColor: isActive ? colors.primaryText : colors.card,
-                    borderColor: isActive ? colors.primaryText : colors.border,
-                  },
-                ]}
+                key={date}
+                onPress={() => setInspectedDate(date)}
+                style={styles.weekDayCol}
                 activeOpacity={0.7}
-                onPress={() => setSelectedCategory(cat)}
               >
-                {categoryDef && (
-                  <Ionicons
-                    name={categoryDef.icon}
-                    size={14}
-                    color={isActive ? colors.background : categoryDef.color}
-                    style={{ marginRight: 6 }}
-                  />
-                )}
-                <Text
-                  style={[
-                    styles.filterPillText,
-                    { color: isActive ? colors.background : colors.secondaryText },
-                  ]}
-                >
-                  {cat}
+                <Text style={[styles.weekDayLabel, { color: isSelected ? colors.accent : colors.secondaryText }]}>
+                  {weekdayShort}
                 </Text>
+
+                <View style={styles.circleContainer}>
+                  {/* Cute Crown atop completed days */}
+                  {isAllCompleted ? (
+                    <Text style={styles.crownEmoji}>👑</Text>
+                  ) : hasCompleted ? (
+                    <Text style={[styles.crownEmoji, { opacity: 0.5 }]}>👑</Text>
+                  ) : (
+                    <View style={{ height: 14 }} />
+                  )}
+
+                  <View
+                    style={[
+                      styles.dayCircle,
+                      {
+                        backgroundColor: isDark ? '#1C1E28' : '#FFFFFF',
+                        borderColor: isSelected ? colors.accent : isToday ? `${colors.accent}66` : isDark ? '#262938' : '#E8EBF2',
+                        borderWidth: isSelected ? 2 : 1.5,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.dayNumberText,
+                        {
+                          color: isSelected ? colors.accent : colors.primaryText,
+                          fontWeight: isSelected ? '800' : '600',
+                        },
+                      ]}
+                    >
+                      {parsed.getDate()}
+                    </Text>
+                  </View>
+                </View>
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
 
-        {/* Habit Cards Section */}
-        <View style={styles.habitsSection}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={[styles.sectionHeader, { color: colors.secondaryText }]}>
-              HABITS ({filteredHabits.length})
-            </Text>
-            <TouchableOpacity onPress={() => setCreateModalVisible(true)}>
-              <Text style={[styles.quickAddLink, { color: colors.accent }]}>+ Create Habit</Text>
-            </TouchableOpacity>
-          </View>
-
-          {filteredHabits.map((habit, habitIndex) => {
+        {/* Habit List Section matching screen 1.png & screen 9.png */}
+        <View style={styles.habitList}>
+          {filteredHabits.map((habit, index) => {
             const isCompleted = getHabitDayStatus(habit, selectedDate, dateReference) === 'completed';
+            const pastel = getHabitPastelTheme(habit, isDark);
+
+            const currentVal = habit.logs?.find(log => log.date === selectedDate)?.value ?? (habit.completedDates.includes(selectedDate) ? (habit.targetValue ?? 1) : 0);
+            const target = habit.targetValue ?? 1;
+
+            let progressRate = isCompleted ? 100 : 0;
+            let subtitle = '1/1';
+            if (habit.trackingMethod === 'count' || habit.trackingMethod === 'measurable') {
+              progressRate = Math.min(100, Math.round((currentVal / target) * 100));
+              subtitle = `${currentVal}/${target} ${habit.unit || ''}`.trim();
+            } else if (habit.habitKind === 'quit') {
+              const isLapse = habit.logs?.find(log => log.date === selectedDate)?.outcome === 'lapse';
+              subtitle = isLapse ? 'Lapse logged' : 'Restraint kept';
+              progressRate = isLapse ? 0 : 100;
+            }
+
             return (
-              <View
+              <TouchableOpacity
                 key={habit.id}
+                activeOpacity={0.85}
+                onPress={() => setMemoHabit(habit)}
                 style={[
                   styles.habitCard,
                   {
-                    backgroundColor: colors.card,
-                    borderColor: isCompleted ? `${colors.accent}40` : colors.border,
+                    backgroundColor: isDark ? '#1A1C26' : pastel.bg,
+                    borderColor: isCompleted ? (isDark ? pastel.fill : pastel.border) : 'transparent',
                   },
                 ]}
               >
+                {/* Horizontal Progress Bar Fill (screen 9.png) */}
                 <View
                   style={[
-                    styles.habitIconBox,
-                    { backgroundColor: `${habit.color}1F` },
-                  ]}
-                >
-                  <Ionicons name={habit.icon} size={22} color={habit.color} />
-                </View>
-
-                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${habit.name} details`} style={styles.habitMeta} onPress={() => navigation.navigate('Habits', { focusHabitId: habit.id })}>
-                  <Text
-                    style={[
-                      styles.habitTitle,
-                      { color: isCompleted ? colors.mutedText : colors.primaryText },
-                      isCompleted && styles.habitTitleCompleted,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {habit.name}
-                  </Text>
-                  <View style={styles.tagRow}>
-                    <Text style={[styles.categoryTag, { color: colors.secondaryText }]}>{habit.category}</Text>
-                    <Text style={[styles.tagDivider, { color: colors.mutedText }]}>•</Text>
-                    <Text style={[styles.streakTag, { color: colors.accent }]}>🔥 {habit.streak}d streak</Text>
-                    <Text style={[styles.tagDivider, { color: colors.mutedText }]}>•</Text>
-                    <Text style={[styles.freqTag, { color: colors.mutedText }]}>{habit.targetFrequency}</Text>
-                  </View>
-                </TouchableOpacity>
-
-                {/* Big Interactive Checkbox */}
-                {habit.habitKind === 'quit' || habit.trackingMethod === 'count' || habit.trackingMethod === 'measurable' ? (
-                  <HabitTrackingControl key={`${habit.id}-${selectedDate}-${habit.logs?.find(log => log.date === selectedDate)?.value ?? 0}-${habit.logs?.find(log => log.date === selectedDate)?.outcome ?? ''}`} habit={habit} date={selectedDate} onSave={recordHabitLog} />
-                ) : <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel={`${habit.completedDates.includes(selectedDate) ? 'Undo' : 'Complete'} ${habit.name} for ${selectedDate}`}
-                  style={[
-                    styles.checkbox,
+                    styles.cardProgressFill,
                     {
-                      borderColor: isCompleted ? habit.color : colors.border,
-                      backgroundColor: isCompleted ? habit.color : colors.secondaryBackground,
+                      width: `${Math.min(100, Math.max(0, progressRate))}%`,
+                      backgroundColor: isDark ? `${pastel.fill}33` : `${pastel.fill}66`,
                     },
                   ]}
-                  activeOpacity={0.6}
-                  onPress={() => { toggleHabit(habit.id, selectedDate); if (preferences.hapticsEnabled) void Haptics.selectionAsync().catch(() => {}); }}
-                >
-                  {isCompleted && (
-                    <Ionicons name="checkmark" size={18} color="#000" />
-                  )}
-                </TouchableOpacity>}
-                {preferences.dashboardSort === 'custom' && selectedCategory === 'All' && <View style={styles.reorderControls}>
-                  <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Move ${habit.name} up`} accessibilityState={{ disabled: habitIndex === 0 }} disabled={habitIndex === 0} onPress={() => moveHabit(habit.id, filteredHabits[habitIndex - 1]?.id ?? '')} style={styles.reorderButton}><Ionicons name="chevron-up" size={18} color={habitIndex === 0 ? colors.mutedText : colors.secondaryText} /></TouchableOpacity>
-                  <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Move ${habit.name} down`} accessibilityState={{ disabled: habitIndex === filteredHabits.length - 1 }} disabled={habitIndex === filteredHabits.length - 1} onPress={() => moveHabit(habit.id, filteredHabits[habitIndex + 1]?.id ?? '')} style={styles.reorderButton}><Ionicons name="chevron-down" size={18} color={habitIndex === filteredHabits.length - 1 ? colors.mutedText : colors.secondaryText} /></TouchableOpacity>
-                </View>}
-              </View>
+                />
+
+                <View style={styles.cardContent}>
+                  {/* Left Habit Icon */}
+                  <View
+                    style={[
+                      styles.iconCircle,
+                      {
+                        backgroundColor: isDark ? '#26293A' : '#FFFFFF',
+                      },
+                    ]}
+                  >
+                    <Ionicons name={habit.icon as any} size={22} color={pastel.text} />
+                  </View>
+
+                  {/* Habit Name & Progress Subtitle */}
+                  <View style={styles.cardInfoCol}>
+                    <Text
+                      style={[
+                        styles.habitTitle,
+                        { color: isDark ? '#FFFFFF' : '#1A1D24' },
+                        isCompleted && styles.habitTitleDone,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {habit.name}
+                    </Text>
+                    <Text style={[styles.habitSubtitle, { color: isDark ? '#9EA5B5' : '#606778' }]}>
+                      {subtitle}
+                    </Text>
+                  </View>
+
+                  {/* Streak Flame Badge */}
+                  <View style={styles.streakBadge}>
+                    <Text style={styles.streakText}>🔥 {habit.streak} {habit.streak === 1 ? 'Day' : 'Days'}</Text>
+                  </View>
+
+                  {/* Right Action Button: + or Green Checkmark */}
+                  <TouchableOpacity
+                    style={[
+                      styles.actionBtn,
+                      isCompleted
+                        ? styles.actionBtnDone
+                        : [
+                            styles.actionBtnIncomplete,
+                            {
+                              backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.85)',
+                            },
+                          ],
+                    ]}
+                    onPress={() => handleTrackAction(habit)}
+                    activeOpacity={0.7}
+                  >
+                    {isCompleted ? (
+                      <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+                    ) : (
+                      <Ionicons name="add" size={20} color={isDark ? '#FFFFFF' : '#333333'} />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
             );
           })}
 
           {filteredHabits.length === 0 && (
-            <View style={styles.emptyState}>
-              <Ionicons name="leaf-outline" size={40} color={colors.secondaryText} />
-              <Text style={[styles.emptyTitle, { color: colors.primaryText }]}>{selectedDate === todayDateStr ? 'No habits scheduled today' : 'No habits scheduled this day'}</Text>
+            <View style={[styles.emptyBox, { backgroundColor: isDark ? '#1A1C26' : '#FFFFFF' }]}>
+              <Ionicons name="sparkles-outline" size={36} color={colors.accent} />
+              <Text style={[styles.emptyTitle, { color: colors.primaryText }]}>No habits scheduled</Text>
+              <Text style={[styles.emptySubtitle, { color: colors.secondaryText }]}>
+                Tap the + button above to create a new habit.
+              </Text>
               <TouchableOpacity
-                style={[styles.emptyButton, { backgroundColor: colors.card, borderColor: colors.accent }]}
-                onPress={() => setCreateModalVisible(true)}
+                style={[styles.emptyAddBtn, { backgroundColor: colors.accent }]}
+                onPress={requestCreateHabit}
               >
-                <Text style={[styles.emptyButtonText, { color: colors.accent }]}>+ Create New Habit</Text>
+                <Text style={styles.emptyAddText}>+ Create First Habit</Text>
               </TouchableOpacity>
             </View>
           )}
         </View>
       </ScrollView>
 
-      {/* Floating Action Button for Quick Habit Creation */}
-      <TouchableOpacity
-        style={[styles.fab, { backgroundColor: colors.accent, bottom: insets.bottom + 80 }]}
-        activeOpacity={0.8}
-        onPress={requestCreateHabit}
-      >
-        <Ionicons name="add" size={28} color="#000" />
-      </TouchableOpacity>
+      {/* Category Picker Modal */}
+      <Modal visible={categoryPickerVisible} transparent animationType="fade" onRequestClose={() => setCategoryPickerVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setCategoryPickerVisible(false)}>
+          <View style={[styles.pickerCard, { backgroundColor: isDark ? '#1C1E2A' : '#FFFFFF' }]}>
+            <Text style={[styles.pickerTitle, { color: colors.primaryText }]}>Filter by Category</Text>
+            {availableCategories.map(cat => {
+              const isActive = selectedCategory === cat;
+              return (
+                <TouchableOpacity
+                  key={cat}
+                  style={[styles.categoryOption, isActive && { backgroundColor: `${colors.accent}1A` }]}
+                  onPress={() => {
+                    setSelectedCategory(cat);
+                    setCategoryPickerVisible(false);
+                  }}
+                >
+                  <Text style={[styles.categoryOptionText, { color: isActive ? colors.accent : colors.primaryText }]}>
+                    {cat}
+                  </Text>
+                  {isActive && <Ionicons name="checkmark" size={18} color={colors.accent} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
-      {/* 14 Categories Creation Modal */}
-      {createModalVisible && <CreateHabitModal
-        key={createModalVisible ? 'open' : 'closed'}
+      {/* Habit Memo / Diary Modal (screen 7.png) */}
+      <HabitMemoModal
+        visible={Boolean(memoHabit)}
+        habit={memoHabit}
+        date={selectedDate}
+        initialNote={memoHabit?.logs?.find(l => l.date === selectedDate)?.note ?? ''}
+        onClose={() => setMemoHabit(null)}
+        onSave={(habitId, date, note, mood) => {
+          const formattedNote = mood ? `[Mood: ${mood}] ${note}`.trim() : note;
+          recordHabitLog(habitId, { date, note: formattedNote });
+        }}
+      />
+
+      {/* Focus Timer Modal (screen 6.png) */}
+      <FocusTimerModal
+        visible={Boolean(timerHabit)}
+        habit={timerHabit}
+        onClose={() => setTimerHabit(null)}
+        onCompleteSession={(habitId, mins) => {
+          recordHabitLog(habitId, { date: selectedDate, value: mins, outcome: 'completed' });
+        }}
+      />
+
+      <CreateHabitModal
         visible={createModalVisible}
         onClose={() => setCreateModalVisible(false)}
         onAddHabit={addHabit}
-      />}
+      />
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </View>
   );
@@ -335,233 +395,255 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 20,
+    paddingTop: 10,
   },
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginTop: spacing.md,
-    marginBottom: spacing.lg,
+    alignItems: 'center',
+    marginVertical: 12,
   },
-  dateLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-  },
-  greeting: { fontSize: 13, fontWeight: '600', marginTop: 5 },
-  topActions: { alignItems: 'flex-end', gap: 8 },
-  iconActions: { flexDirection: 'row', gap: 2 },
-  topIconButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  mainTitle: {
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    marginTop: 2,
-  },
-  addButton: {
+  categoryPill: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: radii.full,
-    gap: 4,
+    paddingVertical: 7,
+    borderRadius: 20,
+    shadowColor: '#FF5264',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  addButtonText: {
-    color: '#000',
+  categoryPillText: {
+    color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 13,
   },
-  heroCard: {
-    borderRadius: radii.lg,
-    padding: spacing.xl,
-    borderWidth: 1,
-    marginBottom: spacing.lg,
-  },
-  weekCard: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, marginBottom: spacing.lg },
-  weekHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
-  weekTitle: { fontSize: 10, fontWeight: '800', letterSpacing: 1.1 },
-  todayLink: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 10 },
-  weekRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 6 },
-  weekDay: { flex: 1, minHeight: 68, borderRadius: radii.md, justifyContent: 'center', alignItems: 'center', paddingVertical: 7 },
-  weekdayLabel: { fontSize: 10, fontWeight: '700' },
-  weekdayDate: { fontSize: 16, fontWeight: '800', marginTop: 2 },
-  weekDot: { width: 5, height: 5, borderRadius: 3, marginTop: 4 },
-  reviewHint: { fontSize: 11, marginTop: spacing.sm },
-  heroHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: spacing.md,
-  },
-  heroCategory: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-  },
-  heroStats: {
-    fontSize: 22,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  percentageBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radii.full,
-  },
-  percentageText: {
+  topTitle: {
+    fontSize: 20,
     fontWeight: '800',
-    fontSize: 16,
+    letterSpacing: -0.3,
   },
-  progressTrack: {
-    height: 10,
-    borderRadius: radii.full,
-    overflow: 'hidden',
-    marginVertical: spacing.sm,
-  },
-  progressBar: {
-    height: '100%',
-    borderRadius: radii.full,
-  },
-  heroFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: spacing.md,
-  },
-  streakIndicator: {
+  topRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 10,
   },
-  streakText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  quoteSubtext: {
-    fontSize: 12,
-  },
-  filterRow: {
-    gap: 8,
-    marginBottom: spacing.lg,
-  },
-  filterPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: radii.full,
-    borderWidth: 1,
-  },
-  filterPillText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  habitsSection: {
-    marginTop: spacing.xs,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  sectionHeader: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-  },
-  quickAddLink: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  habitCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-  },
-  habitIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: radii.md,
-    alignItems: 'center',
+  topAddBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     justifyContent: 'center',
-    marginRight: spacing.md,
+    alignItems: 'center',
   },
-  habitMeta: {
+  mascotBtn: {
+    position: 'relative',
+    padding: 2,
+  },
+  mascotEmoji: {
+    fontSize: 26,
+  },
+  mascotBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  weekStripContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 14,
+    paddingVertical: 8,
+  },
+  weekDayCol: {
+    alignItems: 'center',
     flex: 1,
   },
-  reorderControls: { justifyContent: 'center', marginLeft: 4 },
-  reorderButton: { minWidth: 40, minHeight: 34, alignItems: 'center', justifyContent: 'center' },
-  habitTitle: {
-    fontSize: 16,
+  weekDayLabel: {
+    fontSize: 12,
     fontWeight: '600',
+    marginBottom: 4,
   },
-  habitTitleCompleted: {
-    textDecorationLine: 'line-through',
+  circleContainer: {
+    alignItems: 'center',
   },
-  tagRow: {
+  crownEmoji: {
+    fontSize: 12,
+    height: 14,
+    lineHeight: 14,
+  },
+  dayCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  dayNumberText: {
+    fontSize: 14,
+  },
+  habitList: {
+    gap: 12,
+    marginTop: 8,
+  },
+  habitCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardProgressFill: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 18,
+  },
+  cardContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
-    flexWrap: 'wrap',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    gap: 12,
   },
-  categoryTag: {
-    fontSize: 12,
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  tagDivider: {
-    marginHorizontal: 5,
+  cardInfoCol: {
+    flex: 1,
   },
-  streakTag: {
+  habitTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    marginBottom: 2,
+  },
+  habitTitleDone: {
+    opacity: 0.85,
+  },
+  habitSubtitle: {
     fontSize: 12,
     fontWeight: '500',
   },
-  freqTag: {
+  streakBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 122, 0, 0.12)',
+  },
+  streakText: {
     fontSize: 11,
+    fontWeight: '700',
+    color: '#FF7A00',
   },
-  checkbox: {
-    width: 32,
-    height: 32,
-    borderRadius: radii.sm,
-    borderWidth: 2,
-    alignItems: 'center',
+  actionBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
-  },
-  emptyState: {
-    paddingVertical: 48,
     alignItems: 'center',
+  },
+  actionBtnIncomplete: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  actionBtnDone: {
+    backgroundColor: '#4CAF50',
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  emptyBox: {
+    padding: 36,
+    borderRadius: 20,
+    alignItems: 'center',
+    marginTop: 20,
+    gap: 10,
   },
   emptyTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  emptyAddBtn: {
     marginTop: 12,
-  },
-  emptyButton: {
-    marginTop: 14,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 10,
-    borderRadius: radii.full,
-    borderWidth: 1,
+    borderRadius: 20,
   },
-  emptyButtonText: {
+  emptyAddText: {
+    color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 13,
   },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'center',
-    elevation: 8,
+    alignItems: 'center',
+    padding: 24,
+  },
+  pickerCard: {
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: 20,
+    padding: 20,
+    gap: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  pickerTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  categoryOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+  },
+  categoryOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
