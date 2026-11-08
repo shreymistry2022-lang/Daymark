@@ -227,7 +227,6 @@ export const AuthScreen = () => {
                 ]}
               >
                 Create Account
-                Create Free Account
               </Text>
             </TouchableOpacity>
           </View>
@@ -238,7 +237,7 @@ export const AuthScreen = () => {
               <Ionicons name="alert-circle" size={18} color={colors.error} style={{ marginTop: 2 }} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.errorText, { color: colors.error }]}>{errorMessage}</Text>
-                {authMode === 'signup' && (
+                {authMode === 'signup' ? (
                   <TouchableOpacity
                     onPress={() => {
                       setAuthMode('signin');
@@ -247,9 +246,27 @@ export const AuthScreen = () => {
                     style={{ marginTop: 8 }}
                   >
                     <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 13, textDecorationLine: 'underline' }}>
-                      Switch to Sign In tab
+                      Already have an account? Sign In
                     </Text>
                   </TouchableOpacity>
+                ) : (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setAuthMode('signup');
+                        setErrorMessage(null);
+                      }}
+                    >
+                      <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 13, textDecorationLine: 'underline' }}>
+                        Create Free Account
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleForgotPassword}>
+                      <Text style={{ color: colors.secondaryText, fontWeight: '700', fontSize: 13, textDecorationLine: 'underline' }}>
+                        Forgot Password?
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
             </View>

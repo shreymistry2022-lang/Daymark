@@ -161,6 +161,48 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 'Email not confirmed yet! To log in instantly without email verification, turn OFF "Confirm email" in your Supabase Dashboard (Authentication -> Providers -> Email).',
             };
           }
+
+          // Check if local credentials exist for this account (e.g. offline or previously saved)
+          const localRecord = await getLocalCredential(trimmedEmail);
+          if (localRecord) {
+            if (localRecord.password === trimmedPassword) {
+              const appUser: AppUser = {
+                id: localRecord.id,
+                email: localRecord.email,
+                fullName: localRecord.fullName,
+                isGuest: false,
+              };
+              setUser(appUser);
+              setIsGuest(false);
+              await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
+              await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+
+              // Attempt background sync to Supabase so cloud account is also synced
+              supabase.auth
+                .signUp({
+                  email: trimmedEmail,
+                  password: trimmedPassword,
+                  options: { data: { full_name: localRecord.fullName } },
+                })
+                .catch(() => {});
+
+              return {};
+            } else {
+              return { error: 'Incorrect password. Please try again or tap "Forgot?" to reset.' };
+            }
+          }
+
+          if (
+            lower.includes('invalid login credentials') ||
+            lower.includes('invalid grant') ||
+            lower.includes('user not found')
+          ) {
+            return {
+              error:
+                'Invalid email or password. If you have not created an account yet, tap "Create Account" above. If you already have an account, tap "Forgot?" to reset your password.',
+            };
+          }
+
           return { error: error.message };
         }
 
@@ -178,6 +220,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setIsGuest(false);
           await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
           await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+          await saveLocalCredential({
+            id: appUser.id,
+            email: trimmedEmail,
+            password: trimmedPassword,
+            fullName: appUser.fullName,
+          });
           return {};
         }
       } catch (err: unknown) {
@@ -280,6 +328,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setIsGuest(false);
           await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
           await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+          await saveLocalCredential({
+            id: appUser.id,
+            email: trimmedEmail,
+            password: trimmedPassword,
+            fullName: trimmedName,
+          });
           return {};
         }
       } catch (err: unknown) {
