@@ -19,6 +19,10 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png"
       },
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "SCHEDULE_EXACT_ALARM"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -34,6 +38,19 @@
       "expo-font",
       "expo-sharing",
       "expo-system-ui",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/splash-icon.png",
+          "color": "#10B981",
+          "defaultChannel": {
+            "name": "Habit reminders",
+            "importance": "max",
+            "vibrationPattern": [0, 250, 200, 250],
+            "lightColor": "#10B981"
+          }
+        }
+      ],
       [
         "expo-widgets",
         {

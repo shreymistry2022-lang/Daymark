@@ -35,8 +35,9 @@ export const ensureLocalReminderPermission = async (): Promise<boolean> => {
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('habit-reminders', {
         name: 'Habit reminders',
-        importance: AndroidImportance.DEFAULT,
+        importance: AndroidImportance.MAX,
         vibrationPattern: [0, 250, 200, 250],
+        enableVibrate: true,
       });
     }
     return permission.granted || permission.ios?.status === IosAuthorizationStatus.PROVISIONAL;

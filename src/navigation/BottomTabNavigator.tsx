@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
 import { TodayScreen } from '../screens/TodayScreen';
 import { HabitsScreen } from '../screens/HabitsScreen';
-import { InsightsScreen } from '../screens/InsightsScreen';
+import { FocusTimerScreen } from '../screens/FocusTimerScreen';
 import { CalendarScreen } from '../screens/CalendarScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { useTheme } from '../theme/ThemeProvider';
@@ -25,8 +25,8 @@ export default function BottomTabNavigator() {
             iconName = focused ? 'today' : 'today-outline';
           } else if (route.name === 'Habits') {
             iconName = focused ? 'list' : 'list-outline';
-          } else if (route.name === 'Insights') {
-            iconName = focused ? 'analytics' : 'analytics-outline';
+          } else if (route.name === 'Timer') {
+            iconName = focused ? 'timer' : 'timer-outline';
           } else if (route.name === 'Calendar') {
             iconName = focused ? 'calendar' : 'calendar-outline';
           } else if (route.name === 'Profile') {
@@ -57,7 +57,7 @@ export default function BottomTabNavigator() {
     >
       <Tab.Screen name="Today" component={TodayScreen} />
       <Tab.Screen name="Habits" component={HabitsScreen} />
-      <Tab.Screen name="Insights" component={InsightsScreen} />
+      <Tab.Screen name="Timer" component={FocusTimerScreen} />
       <Tab.Screen name="Calendar" component={CalendarScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>

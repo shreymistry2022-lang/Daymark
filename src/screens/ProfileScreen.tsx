@@ -30,6 +30,7 @@ import { AchievementsScreen } from './AchievementsScreen';
 import { ReportsScreen } from './ReportsScreen';
 import { SearchScreen } from './SearchScreen';
 import { PreferencesScreen } from './PreferencesScreen';
+import { InsightsScreen } from './InsightsScreen';
 import { usePreferences } from '../services/PreferencesContext';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { buildDaymarkCsv, buildDaymarkJson, DaymarkExport } from '../domain/exportEngine';
@@ -59,6 +60,7 @@ export const ProfileScreen = () => {
   const [reportsVisible, setReportsVisible] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
   const [preferencesVisible, setPreferencesVisible] = useState(false);
+  const [insightsVisible, setInsightsVisible] = useState(false);
   const [initialRoutineId, setInitialRoutineId] = useState<string | null>(null);
   const [initialGoalId, setInitialGoalId] = useState<string | null>(null);
   const [initialJournalId, setInitialJournalId] = useState<string | null>(null);
@@ -359,6 +361,11 @@ export const ProfileScreen = () => {
             <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Reports</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
           </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionButton, { borderBottomColor: colors.border }]} onPress={() => setInsightsVisible(true)} activeOpacity={0.7}>
+            <Ionicons name="analytics-outline" size={20} color={colors.accent} />
+            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Insights & Trends</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
+          </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionButton, { borderBottomColor: colors.border }]}
             onPress={restartOnboarding}
@@ -464,6 +471,17 @@ export const ProfileScreen = () => {
       </Modal>
       <Modal visible={preferencesVisible || Boolean(route.params?.openPreferences)} animationType="slide" presentationStyle="fullScreen" onRequestClose={closePreferences}>
         <PreferencesScreen onClose={closePreferences} />
+      </Modal>
+      <Modal visible={insightsVisible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setInsightsVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: insets.top + 8, paddingBottom: 8 }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: colors.primaryText }}>Insights</Text>
+            <TouchableOpacity onPress={() => setInsightsVisible(false)} style={{ padding: 4 }}>
+              <Ionicons name="close" size={24} color={colors.primaryText} />
+            </TouchableOpacity>
+          </View>
+          <InsightsScreen />
+        </View>
       </Modal>
     </View>
   );
