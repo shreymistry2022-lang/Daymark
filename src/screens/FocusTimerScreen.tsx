@@ -31,25 +31,26 @@ export const FocusTimerScreen = () => {
   const { colors, isDark } = useTheme();
   const { habits, recordHabitLog, todayDateStr, triggerCelebration } = useHabits();
 
-  // Mode: Stopwatch vs Countdown (matching screenshot)
+  // Mode: Stopwatch vs Countdown
   const [timerMode, setTimerMode] = useState<TimerMode>('Countdown');
 
   // Selected Habit
   const [selectedHabitId, setSelectedHabitId] = useState<string | null>(habits[0]?.id ?? null);
   const [habitPickerVisible, setHabitPickerVisible] = useState(false);
 
-  // Countdown timer settings
+  // Target minutes for countdown
   const [targetMinutes, setTargetMinutes] = useState<number>(30);
-  const [secondsRemaining, setSecondsRemaining] = useState<number>(30 * 60);
 
-  // Stopwatch timer settings
-  const [stopwatchSeconds, setStopwatchSeconds] = useState<number>(0);
+  // High-precision Milliseconds state
+  const [countdownRemainingMs, setCountdownRemainingMs] = useState<number>(30 * 60 * 1000);
+  const [stopwatchElapsedMs, setStopwatchElapsedMs] = useState<number>(0);
 
-  // Timer running state
+  // Timer running state & timing reference
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastTickRef = useRef<number>(0);
 
-  // Session Event Log (matching screenshot timeline)
+  // Session Event Log
   const [sessionEvents, setSessionEvents] = useState<SessionEvent[]>([]);
 
   // Selected habit object
@@ -120,29 +121,38 @@ export const FocusTimerScreen = () => {
     if (h?.targetValue && h.targetValue > 0 && h.targetValue <= 180) {
       setTargetMinutes(h.targetValue);
       if (!isRunning && timerMode === 'Countdown') {
-        setSecondsRemaining(h.targetValue * 60);
+        setCountdownRemainingMs(h.targetValue * 60 * 1000);
       }
     }
   };
 
-  // Timer execution tick
+  // High-frequency tick loop (~30fps for smooth millisecond/microsecond display)
   useEffect(() => {
     if (isRunning) {
+      lastTickRef.current = Date.now();
       intervalRef.current = setInterval(() => {
+        const now = Date.now();
+        const delta = now - lastTickRef.current;
+        lastTickRef.current = now;
+
         if (timerMode === 'Countdown') {
-          setSecondsRemaining(prev => {
-            if (prev <= 1) {
-              clearInterval(intervalRef.current as any);
+          setCountdownRemainingMs(prev => {
+            const next = prev - delta;
+            if (next <= 0) {
+              if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+              }
               setIsRunning(false);
               countdownFinishedRef.current();
               return 0;
             }
-            return prev - 1;
+            return next;
           });
         } else {
-          setStopwatchSeconds(prev => prev + 1);
+          setStopwatchElapsedMs(prev => prev + delta);
         }
-      }, 1000);
+      }, 35);
     } else {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -153,15 +163,17 @@ export const FocusTimerScreen = () => {
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
     };
   }, [isRunning, timerMode]);
 
   const handleStartResume = () => {
     if (!isRunning) {
-      if (timerMode === 'Countdown' && secondsRemaining === 0) {
-        setSecondsRemaining(targetMinutes * 60);
+      if (timerMode === 'Countdown' && countdownRemainingMs === 0) {
+        setCountdownRemainingMs(targetMinutes * 60 * 1000);
       }
+      lastTickRef.current = Date.now();
       setIsRunning(true);
       if (sessionEvents.length === 0 || sessionEvents[0].action === 'Stop' || sessionEvents[0].action === 'Completed') {
         addEvent('Start');
@@ -185,13 +197,13 @@ export const FocusTimerScreen = () => {
   };
 
   const handleStop = () => {
-    if (isRunning || secondsRemaining !== targetMinutes * 60 || stopwatchSeconds !== 0) {
+    if (isRunning || countdownRemainingMs !== targetMinutes * 60 * 1000 || stopwatchElapsedMs !== 0) {
       setIsRunning(false);
       addEvent('Stop');
       if (timerMode === 'Countdown') {
-        setSecondsRemaining(targetMinutes * 60);
+        setCountdownRemainingMs(targetMinutes * 60 * 1000);
       } else {
-        setStopwatchSeconds(0);
+        setStopwatchElapsedMs(0);
       }
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -202,46 +214,53 @@ export const FocusTimerScreen = () => {
   const handleSelectPresetMinutes = (mins: number) => {
     if (!isRunning) {
       setTargetMinutes(mins);
-      setSecondsRemaining(mins * 60);
+      setCountdownRemainingMs(mins * 60 * 1000);
     }
   };
 
-  // Format MM:SS or HH:MM:SS
-  const formatTime = (totalSec: number) => {
-    const mins = Math.floor(totalSec / 60);
-    const secs = totalSec % 60;
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  };
+  // Format time with minutes, seconds, and centiseconds (fractional seconds)
+  const activeMs = timerMode === 'Countdown' ? countdownRemainingMs : stopwatchElapsedMs;
+  const totalSec = Math.floor(activeMs / 1000);
+  const displayMins = Math.floor(totalSec / 60);
+  const displaySecs = totalSec % 60;
+  // Hundredths of a second (00 - 99)
+  const displayCentis = Math.floor((activeMs % 1000) / 10);
 
-  const currentDisplayTime = timerMode === 'Countdown' ? formatTime(secondsRemaining) : formatTime(stopwatchSeconds);
+  const minsSecsStr = `${String(displayMins).padStart(2, '0')}:${String(displaySecs).padStart(2, '0')}`;
+  const microStr = String(displayCentis).padStart(2, '0');
 
   // Progress fraction for dial
   const progressRatio = useMemo(() => {
     if (timerMode === 'Countdown') {
-      const totalSec = targetMinutes * 60;
-      return totalSec > 0 ? (totalSec - secondsRemaining) / totalSec : 0;
+      const totalMs = targetMinutes * 60 * 1000;
+      return totalMs > 0 ? (totalMs - countdownRemainingMs) / totalMs : 0;
     } else {
-      const cycle = 3600; // 1 hour cycle
-      return (stopwatchSeconds % cycle) / cycle;
+      const cycleMs = 60 * 1000; // 1 full rotation per minute
+      return (stopwatchElapsedMs % cycleMs) / cycleMs;
     }
-  }, [timerMode, targetMinutes, secondsRemaining, stopwatchSeconds]);
+  }, [timerMode, targetMinutes, countdownRemainingMs, stopwatchElapsedMs]);
+
+  // Accent button contrast color
+  const buttonTextColor = isDark ? '#000000' : '#FFFFFF';
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      {/* Top Header Banner matching screenshot */}
+      {/* Top Header Banner matching Daymark Palette */}
       <View
         style={[
           styles.headerBanner,
           {
-            backgroundColor: isDark ? '#1C202F' : '#9EAFDE',
+            backgroundColor: colors.secondaryBackground,
+            borderBottomColor: colors.border,
           },
         ]}
       >
         <View style={styles.headerTitleRow}>
-          <Text style={[styles.headerTitle, { color: '#FFFFFF' }]}>Timer</Text>
+          <Ionicons name="timer-outline" size={20} color={colors.accent} style={{ marginRight: 6 }} />
+          <Text style={[styles.headerTitle, { color: colors.primaryText }]}>Focus Timer</Text>
         </View>
 
-        {/* Stopwatch | Countdown Segmented Tabs matching screenshot */}
+        {/* Stopwatch | Countdown Segmented Tabs matching App Design */}
         <View style={styles.tabContainer}>
           <TouchableOpacity
             style={styles.tabButton}
@@ -255,12 +274,16 @@ export const FocusTimerScreen = () => {
             <Text
               style={[
                 styles.tabText,
-                timerMode === 'Stopwatch' ? styles.activeTabText : styles.inactiveTabText,
+                timerMode === 'Stopwatch'
+                  ? [styles.activeTabText, { color: colors.accent }]
+                  : [styles.inactiveTabText, { color: colors.secondaryText }],
               ]}
             >
               Stopwatch
             </Text>
-            {timerMode === 'Stopwatch' && <View style={styles.tabIndicator} />}
+            {timerMode === 'Stopwatch' && (
+              <View style={[styles.tabIndicator, { backgroundColor: colors.accent }]} />
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -275,12 +298,16 @@ export const FocusTimerScreen = () => {
             <Text
               style={[
                 styles.tabText,
-                timerMode === 'Countdown' ? styles.activeTabText : styles.inactiveTabText,
+                timerMode === 'Countdown'
+                  ? [styles.activeTabText, { color: colors.accent }]
+                  : [styles.inactiveTabText, { color: colors.secondaryText }],
               ]}
             >
               Countdown
             </Text>
-            {timerMode === 'Countdown' && <View style={styles.tabIndicator} />}
+            {timerMode === 'Countdown' && (
+              <View style={[styles.tabIndicator, { backgroundColor: colors.accent }]} />
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -289,7 +316,7 @@ export const FocusTimerScreen = () => {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 90 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Focus ? & Habit Selector Dropdown matching screenshot */}
+        {/* Focus ? & Habit Selector Dropdown matching App Theme */}
         <View style={styles.focusSelectRow}>
           <TouchableOpacity
             style={styles.focusHelp}
@@ -301,8 +328,16 @@ export const FocusTimerScreen = () => {
             }
           >
             <Text style={[styles.focusLabel, { color: colors.primaryText }]}>Focus</Text>
-            <View style={[styles.helpCircle, { backgroundColor: isDark ? '#2D3245' : '#E0E4F0' }]}>
-              <Text style={[styles.helpText, { color: colors.primaryText }]}>?</Text>
+            <View
+              style={[
+                styles.helpCircle,
+                {
+                  backgroundColor: colors.secondaryBackground,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <Text style={[styles.helpText, { color: colors.secondaryText }]}>?</Text>
             </View>
           </TouchableOpacity>
 
@@ -310,54 +345,64 @@ export const FocusTimerScreen = () => {
             style={[
               styles.habitDropdownPill,
               {
-                backgroundColor: isDark ? '#2B314C' : '#9EAFDE',
+                backgroundColor: colors.card,
+                borderColor: colors.border,
               },
             ]}
             onPress={() => setHabitPickerVisible(true)}
             activeOpacity={0.8}
           >
-            <Text style={styles.habitDropdownText} numberOfLines={1}>
+            <View style={[styles.habitDot, { backgroundColor: colors.accent }]} />
+            <Text style={[styles.habitDropdownText, { color: colors.primaryText }]} numberOfLines={1}>
               {selectedHabit ? selectedHabit.name : 'Choose Habit'}
             </Text>
-            <Ionicons name="chevron-down" size={14} color="#FFFFFF" style={{ marginLeft: 6 }} />
+            <Ionicons name="chevron-down" size={14} color={colors.accent} style={{ marginLeft: 6 }} />
           </TouchableOpacity>
         </View>
 
-        {/* Circular Timer Ring Dial matching screenshot */}
+        {/* Circular Timer Ring Dial with Microseconds */}
         <View style={styles.dialContainer}>
           <View
             style={[
               styles.outerDialRing,
               {
-                borderColor: isDark ? 'rgba(158, 175, 222, 0.25)' : '#D7DEEF',
+                borderColor: colors.border,
+                backgroundColor: colors.card,
               },
             ]}
           >
-            {/* Active Progress Ring Indicator */}
+            {/* Active Progress Ring Arc in Accent Color */}
             <View
               style={[
                 styles.activeProgressArc,
                 {
-                  borderColor: isDark ? '#9EAFDE' : '#8B9ECF',
+                  borderColor: colors.accent,
                   transform: [{ rotate: `${progressRatio * 360}deg` }],
                 },
               ]}
             />
 
             <View style={styles.dialInner}>
-              <Text style={[styles.timerDigits, { color: colors.primaryText }]}>
-                {currentDisplayTime}
-              </Text>
+              {/* Digital Time with Microseconds/Centiseconds */}
+              <View style={styles.timeWithMicroRow}>
+                <Text style={[styles.timerDigits, { color: colors.primaryText }]}>
+                  {minsSecsStr}
+                </Text>
+                <Text style={[styles.timerMicroDigits, { color: colors.accent }]}>
+                  .{microStr}
+                </Text>
+              </View>
+
               {timerMode === 'Countdown' ? (
                 <View style={styles.durationSubRow}>
-                  <Ionicons name="stopwatch-outline" size={15} color={colors.secondaryText} style={{ marginRight: 4 }} />
+                  <Ionicons name="stopwatch-outline" size={15} color={colors.accent} style={{ marginRight: 4 }} />
                   <Text style={[styles.durationSubText, { color: colors.secondaryText }]}>
-                    {targetMinutes}m
+                    {targetMinutes}m target
                   </Text>
                 </View>
               ) : (
                 <View style={styles.durationSubRow}>
-                  <Ionicons name="infinite-outline" size={16} color={colors.secondaryText} style={{ marginRight: 4 }} />
+                  <Ionicons name="infinite-outline" size={16} color={colors.accent} style={{ marginRight: 4 }} />
                   <Text style={[styles.durationSubText, { color: colors.secondaryText }]}>
                     Stopwatch
                   </Text>
@@ -370,53 +415,57 @@ export const FocusTimerScreen = () => {
         {/* Preset Minutes Chips (Countdown mode only) */}
         {timerMode === 'Countdown' && !isRunning && (
           <View style={styles.presetsRow}>
-            {DURATION_PRESETS.map(mins => (
-              <TouchableOpacity
-                key={mins}
-                style={[
-                  styles.presetChip,
-                  targetMinutes === mins
-                    ? { backgroundColor: '#9EAFDE', borderColor: '#9EAFDE' }
-                    : { backgroundColor: colors.card, borderColor: colors.border },
-                ]}
-                onPress={() => handleSelectPresetMinutes(mins)}
-              >
-                <Text
+            {DURATION_PRESETS.map(mins => {
+              const isSelected = targetMinutes === mins;
+              return (
+                <TouchableOpacity
+                  key={mins}
                   style={[
-                    styles.presetChipText,
-                    { color: targetMinutes === mins ? '#FFFFFF' : colors.primaryText },
+                    styles.presetChip,
+                    isSelected
+                      ? { backgroundColor: colors.accent, borderColor: colors.accent }
+                      : { backgroundColor: colors.card, borderColor: colors.border },
                   ]}
+                  onPress={() => handleSelectPresetMinutes(mins)}
                 >
-                  {mins}m
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text
+                    style={[
+                      styles.presetChipText,
+                      { color: isSelected ? buttonTextColor : colors.primaryText },
+                    ]}
+                  >
+                    {mins}m
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
 
-        {/* Action Buttons matching screenshot: Stop | Pause/Start */}
+        {/* Action Buttons: Stop | Pause/Start in Theme Colors */}
         <View style={styles.actionButtonsRow}>
           {/* Stop Button */}
           <TouchableOpacity
             style={[
               styles.stopButton,
               {
-                backgroundColor: isDark ? '#272B38' : '#D6DAE3',
+                backgroundColor: colors.card,
+                borderColor: colors.border,
               },
             ]}
             activeOpacity={0.7}
             onPress={handleStop}
           >
-            <View style={styles.stopIconSquare} />
-            <Text style={[styles.stopButtonText, { color: isDark ? '#E5E7EB' : '#1F2430' }]}>Stop</Text>
+            <View style={[styles.stopIconSquare, { backgroundColor: colors.secondaryText }]} />
+            <Text style={[styles.stopButtonText, { color: colors.primaryText }]}>Stop</Text>
           </TouchableOpacity>
 
-          {/* Pause / Start Button */}
+          {/* Pause / Start / Resume Button with Accent Theme */}
           <TouchableOpacity
             style={[
               styles.playPauseButton,
               {
-                backgroundColor: isDark ? '#111318' : '#1F222A',
+                backgroundColor: colors.accent,
               },
             ]}
             activeOpacity={0.8}
@@ -425,26 +474,55 @@ export const FocusTimerScreen = () => {
             <Ionicons
               name={isRunning ? 'pause' : 'play'}
               size={18}
-              color="#FFFFFF"
+              color={buttonTextColor}
               style={{ marginRight: 8 }}
             />
-            <Text style={styles.playPauseButtonText}>
-              {isRunning ? 'Pause' : sessionEvents.length > 0 && sessionEvents[0].action === 'Pause' ? 'Resume' : 'Start'}
+            <Text style={[styles.playPauseButtonText, { color: buttonTextColor }]}>
+              {isRunning
+                ? 'Pause'
+                : sessionEvents.length > 0 && sessionEvents[0].action === 'Pause'
+                ? 'Resume'
+                : 'Start'}
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Session Event Log matching screenshot */}
-        <View style={styles.historySection}>
+        {/* Session Event Log matching Daymark styling */}
+        <View
+          style={[
+            styles.historySection,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+            },
+          ]}
+        >
+          <View style={styles.historyHeaderRow}>
+            <Text style={[styles.historyHeaderTitle, { color: colors.secondaryText }]}>
+              SESSION TIMELINE
+            </Text>
+            {sessionEvents.length > 0 && (
+              <TouchableOpacity onPress={() => setSessionEvents([])}>
+                <Text style={{ fontSize: 12, color: colors.mutedText, fontWeight: '600' }}>Clear</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
           {sessionEvents.length === 0 ? (
             <View style={styles.emptyEventsBox}>
-              <Text style={[styles.emptyEventsText, { color: colors.secondaryText }]}>
-                Timer timeline log will appear here when you start.
+              <Text style={[styles.emptyEventsText, { color: colors.mutedText }]}>
+                Timer session timeline events will appear here.
               </Text>
             </View>
           ) : (
             sessionEvents.slice(0, 10).map(evt => (
-              <View key={evt.id} style={styles.eventRow}>
+              <View
+                key={evt.id}
+                style={[
+                  styles.eventRow,
+                  { borderBottomColor: colors.border },
+                ]}
+              >
                 <Text style={[styles.eventTimestamp, { color: colors.secondaryText }]}>
                   {evt.timestamp}
                 </Text>
@@ -460,17 +538,15 @@ export const FocusTimerScreen = () => {
                         ? 'pause'
                         : evt.action === 'Completed'
                         ? 'checkmark-circle'
-                        : 'stop'
+                        : 'square'
                     }
-                    size={12}
+                    size={13}
                     color={
                       evt.action === 'Completed'
                         ? '#10B981'
-                        : evt.action === 'Pause'
-                        ? '#F59E0B'
-                        : colors.primaryText
+                        : colors.accent
                     }
-                    style={{ marginLeft: 6 }}
+                    style={{ marginLeft: 5 }}
                   />
                 </View>
               </View>
@@ -479,73 +555,74 @@ export const FocusTimerScreen = () => {
         </View>
       </ScrollView>
 
-      {/* Habit Selection Modal Sheet */}
+      {/* Habit Selector Modal Sheet */}
       <Modal
         visible={habitPickerVisible}
-        transparent
-        animationType="fade"
+        animationType="slide"
+        transparent={true}
         onRequestClose={() => setHabitPickerVisible(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setHabitPickerVisible(false)}
-        >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={() => setHabitPickerVisible(false)}
+          />
           <View
             style={[
-              styles.pickerCard,
+              styles.modalSheet,
               {
                 backgroundColor: colors.card,
                 borderColor: colors.border,
+                paddingBottom: insets.bottom + 16,
               },
             ]}
           >
-            <View style={styles.pickerHeader}>
-              <Text style={[styles.pickerTitle, { color: colors.primaryText }]}>Select Focus Habit</Text>
-              <TouchableOpacity onPress={() => setHabitPickerVisible(false)}>
-                <Ionicons name="close" size={22} color={colors.secondaryText} />
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.primaryText }]}>
+                Select Habit to Focus
+              </Text>
+              <TouchableOpacity
+                onPress={() => setHabitPickerVisible(false)}
+                style={styles.modalCloseBtn}
+              >
+                <Ionicons name="close" size={20} color={colors.primaryText} />
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 320 }}>
+            <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
               {habits.map(h => {
-                const isSelected = h.id === selectedHabit?.id;
+                const isChosen = h.id === selectedHabit?.id;
                 return (
                   <TouchableOpacity
                     key={h.id}
                     style={[
-                      styles.habitOptionRow,
-                      isSelected && { backgroundColor: `${colors.accent}16` },
+                      styles.habitOptionItem,
+                      {
+                        backgroundColor: isChosen ? `${colors.accent}18` : 'transparent',
+                        borderColor: isChosen ? colors.accent : colors.border,
+                      },
                     ]}
                     onPress={() => {
                       onSelectHabit(h.id);
                       setHabitPickerVisible(false);
                     }}
                   >
-                    <Ionicons
-                      name={h.icon as any}
-                      size={20}
-                      color={h.color || colors.accent}
-                      style={{ marginRight: 12 }}
-                    />
-                    <Text
-                      style={[
-                        styles.habitOptionName,
-                        {
-                          color: colors.primaryText,
-                          fontWeight: isSelected ? '700' : '500',
-                        },
-                      ]}
-                    >
-                      {h.name}
-                    </Text>
-                    {isSelected && <Ionicons name="checkmark" size={18} color={colors.accent} />}
+                    <View style={styles.habitOptionLeft}>
+                      <View style={[styles.habitOptionDot, { backgroundColor: colors.accent }]} />
+                      <Text style={[styles.habitOptionText, { color: colors.primaryText }]}>
+                        {h.name}
+                      </Text>
+                    </View>
+                    {isChosen && (
+                      <Ionicons name="checkmark-circle" size={18} color={colors.accent} />
+                    )}
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
     </View>
   );
@@ -559,6 +636,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 0,
+    borderBottomWidth: 1,
   },
   headerTitleRow: {
     flexDirection: 'row',
@@ -575,7 +653,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 40,
-    marginTop: 6,
+    marginTop: 4,
   },
   tabButton: {
     paddingVertical: 10,
@@ -587,11 +665,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   activeTabText: {
-    color: '#0A0C14',
     fontWeight: '800',
   },
   inactiveTabText: {
-    color: 'rgba(255, 255, 255, 0.85)',
     fontWeight: '500',
   },
   tabIndicator: {
@@ -600,7 +676,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 3,
-    backgroundColor: '#0A0C14',
     borderTopLeftRadius: 2,
     borderTopRightRadius: 2,
   },
@@ -612,7 +687,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 26,
+    marginBottom: 24,
   },
   focusHelp: {
     flexDirection: 'row',
@@ -627,6 +702,7 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
+    borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -637,36 +713,42 @@ const styles = StyleSheet.create({
   habitDropdownPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 8,
-    maxWidth: 180,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    maxWidth: 200,
+  },
+  habitDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
   },
   habitDropdownText: {
-    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
   },
   dialContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 14,
+    marginVertical: 12,
   },
   outerDialRing: {
-    width: 230,
-    height: 230,
-    borderRadius: 115,
-    borderWidth: 6,
+    width: 236,
+    height: 236,
+    borderRadius: 118,
+    borderWidth: 5,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
   activeProgressArc: {
     position: 'absolute',
-    width: 230,
-    height: 230,
-    borderRadius: 115,
-    borderWidth: 6,
+    width: 236,
+    height: 236,
+    borderRadius: 118,
+    borderWidth: 5,
     borderRightColor: 'transparent',
     borderBottomColor: 'transparent',
   },
@@ -674,10 +756,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  timeWithMicroRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+  },
   timerDigits: {
-    fontSize: 44,
-    fontWeight: '400',
-    letterSpacing: 1,
+    fontSize: 42,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    fontVariant: ['tabular-nums'],
+  },
+  timerMicroDigits: {
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginLeft: 2,
+    fontVariant: ['tabular-nums'],
   },
   durationSubRow: {
     flexDirection: 'row',
@@ -685,45 +780,45 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   durationSubText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
   },
   presetsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 10,
+    gap: 8,
     marginBottom: 16,
     marginTop: 4,
   },
   presetChip: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: 14,
     borderWidth: 1,
   },
   presetChipText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   actionButtonsRow: {
     flexDirection: 'row',
     gap: 14,
-    marginTop: 18,
-    marginBottom: 28,
+    marginTop: 16,
+    marginBottom: 24,
   },
   stopButton: {
     flex: 1,
-    height: 52,
-    borderRadius: 10,
+    height: 50,
+    borderRadius: 12,
+    borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
   stopIconSquare: {
-    width: 10,
-    height: 10,
-    backgroundColor: '#1F2430',
+    width: 11,
+    height: 11,
     borderRadius: 2,
   },
   stopButtonText: {
@@ -732,31 +827,50 @@ const styles = StyleSheet.create({
   },
   playPauseButton: {
     flex: 1,
-    height: 52,
-    borderRadius: 10,
+    height: 50,
+    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   playPauseButtonText: {
-    color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   historySection: {
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.06)',
-    paddingTop: 16,
-    gap: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    gap: 10,
+  },
+  historyHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  historyHeaderTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  emptyEventsBox: {
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  emptyEventsText: {
+    fontSize: 13,
   },
   eventRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   eventTimestamp: {
-    fontSize: 13,
+    fontSize: 12,
+    fontWeight: '500',
   },
   eventActionWrap: {
     flexDirection: 'row',
@@ -766,51 +880,55 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  emptyEventsBox: {
-    paddingVertical: 18,
-    alignItems: 'center',
-  },
-  emptyEventsText: {
-    fontSize: 13,
-  },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
-  pickerCard: {
-    width: '100%',
-    maxWidth: 360,
-    borderRadius: 18,
+  modalBackdrop: {
+    flex: 1,
+  },
+  modalSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     borderWidth: 1,
-    padding: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
+    padding: 20,
   },
-  pickerHeader: {
+  modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 16,
   },
-  pickerTitle: {
+  modalTitle: {
     fontSize: 17,
     fontWeight: '800',
   },
-  habitOptionRow: {
+  modalCloseBtn: {
+    padding: 4,
+  },
+  habitOptionItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  habitOptionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: 12,
   },
-  habitOptionName: {
-    flex: 1,
+  habitOptionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 10,
+  },
+  habitOptionText: {
     fontSize: 15,
+    fontWeight: '600',
   },
 });

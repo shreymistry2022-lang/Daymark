@@ -6,6 +6,7 @@ import { Platform } from 'react-native';
 import { TodayScreen } from '../screens/TodayScreen';
 import { HabitsScreen } from '../screens/HabitsScreen';
 import { FocusTimerScreen } from '../screens/FocusTimerScreen';
+import { InsightsScreen } from '../screens/InsightsScreen';
 import { CalendarScreen } from '../screens/CalendarScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { useTheme } from '../theme/ThemeProvider';
@@ -27,13 +28,15 @@ export default function BottomTabNavigator() {
             iconName = focused ? 'list' : 'list-outline';
           } else if (route.name === 'Timer') {
             iconName = focused ? 'timer' : 'timer-outline';
+          } else if (route.name === 'Insights') {
+            iconName = focused ? 'analytics' : 'analytics-outline';
           } else if (route.name === 'Calendar') {
             iconName = focused ? 'calendar' : 'calendar-outline';
           } else if (route.name === 'Profile') {
             iconName = focused ? 'person' : 'person-outline';
           }
 
-          return <Ionicons name={iconName} size={size} color={color} />;
+          return <Ionicons name={iconName} size={size - 1} color={color} />;
         },
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.secondaryText,
@@ -42,11 +45,11 @@ export default function BottomTabNavigator() {
           borderTopColor: colors.border,
           borderTopWidth: 1,
           height: Platform.OS === 'ios' ? 88 : 64,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 10,
-          paddingTop: 8,
+          paddingBottom: Platform.OS === 'ios' ? 28 : 8,
+          paddingTop: 6,
         },
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: '600',
         },
         headerShown: false,
@@ -58,6 +61,7 @@ export default function BottomTabNavigator() {
       <Tab.Screen name="Today" component={TodayScreen} />
       <Tab.Screen name="Habits" component={HabitsScreen} />
       <Tab.Screen name="Timer" component={FocusTimerScreen} />
+      <Tab.Screen name="Insights" component={InsightsScreen} />
       <Tab.Screen name="Calendar" component={CalendarScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
