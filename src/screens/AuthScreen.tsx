@@ -226,7 +226,7 @@ export const AuthScreen = () => {
                   authMode === 'signup' && styles.tabTextActive,
                 ]}
               >
-                Create Account
+                Create Free Account
               </Text>
             </TouchableOpacity>
           </View>
@@ -437,7 +437,7 @@ export const AuthScreen = () => {
                       color="#000"
                     />
                     <Text style={styles.primaryBtnText}>
-                      {authMode === 'signin' ? 'Sign In to Daymark' : 'Create Daymark Account'}
+                      {authMode === 'signin' ? 'Sign In to Daymark' : 'Create Free Account'}
                     </Text>
                   </>
                 )}

@@ -199,7 +199,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           ) {
             return {
               error:
-                'Invalid email or password. If you have not created an account yet, tap "Create Account" above. If you already have an account, tap "Forgot?" to reset your password.',
+                'Invalid email or password. If you have not created an account yet, tap "Create Free Account" above. If you already have an account, tap "Forgot?" to reset your password.',
             };
           }
 
@@ -256,7 +256,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // If user hasn't created account locally yet, provide helpful message
       return {
         error:
-          'No account found with this email. Switch to "Create Account" above to register.',
+          'No account found with this email. Switch to "Create Free Account" above to register.',
       };
     } catch {
       return { error: 'Failed to authenticate. Please try again.' };
