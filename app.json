@@ -3,7 +3,7 @@
     "name": "Daymark",
     "slug": "Daymark",
     "scheme": "daymark",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
@@ -13,7 +13,7 @@
     },
     "android": {
       "package": "com.daymark.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
         "backgroundColor": "#1B1D22",
         "foregroundImage": "./assets/android-icon-foreground.png",

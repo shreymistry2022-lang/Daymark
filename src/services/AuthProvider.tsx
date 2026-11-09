@@ -106,11 +106,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // Supabase auth subscription
     let subscription: { unsubscribe: () => void } | null = null;
     if (isSupabaseConfigured) {
-      const { data } = supabase.auth.onAuthStateChange((event, sess) => {
+      const { data } = supabase.auth.onAuthStateChange(async (event, sess) => {
         if (!isMounted) return;
         if (event === 'PASSWORD_RECOVERY') setPasswordRecoveryRequested(true);
-        setSession(sess);
-        if (sess?.user) {
+        if (event === 'SIGNED_OUT') {
+          setSession(null);
+          setUser(null);
+          setIsGuest(false);
+          await AsyncStorage.removeItem(STORAGE_KEYS.LOCAL_USER);
+        } else if (sess?.user) {
+          setSession(sess);
           setUser({
             id: sess.user.id,
             email: sess.user.email || '',
@@ -120,9 +125,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               'Daymark Member',
             isGuest: false,
           });
-          setIsGuest(false);
-        } else if (event === 'SIGNED_OUT' || !sess) {
-          setUser(null);
           setIsGuest(false);
         }
       });
@@ -155,14 +157,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         if (error) {
           const lower = error.message.toLowerCase();
-          if (lower.includes('email not confirmed')) {
-            return {
-              error:
-                'Email not confirmed yet! To log in instantly without email verification, turn OFF "Confirm email" in your Supabase Dashboard (Authentication -> Providers -> Email).',
-            };
-          }
+          const isNetworkError =
+            error.status === 0 ||
+            lower.includes('fetch') ||
+            lower.includes('network') ||
+            lower.includes('timeout') ||
+            lower.includes('connection');
 
-          // Check if local credentials exist for this account (e.g. offline or previously saved)
+          // Check if local credentials exist for this account (e.g. offline, local account, or fallback)
           const localRecord = await getLocalCredential(trimmedEmail);
           if (localRecord) {
             if (localRecord.password === trimmedPassword) {
@@ -177,19 +179,50 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
               await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
 
-              // Attempt background sync to Supabase so cloud account is also synced
-              supabase.auth
-                .signUp({
-                  email: trimmedEmail,
-                  password: trimmedPassword,
-                  options: { data: { full_name: localRecord.fullName } },
-                })
-                .catch(() => {});
+              if (!isNetworkError) {
+                // Background cloud sync
+                supabase.auth
+                  .signUp({
+                    email: trimmedEmail,
+                    password: trimmedPassword,
+                    options: { data: { full_name: localRecord.fullName } },
+                  })
+                  .catch(() => {});
+              }
 
               return {};
             } else {
               return { error: 'Incorrect password. Please try again or tap "Forgot?" to reset.' };
             }
+          }
+
+          if (isNetworkError) {
+            return {
+              error:
+                'Network connection failed. Please check your internet connection or register locally by tapping "Create Free Account".',
+            };
+          }
+
+          if (lower.includes('email not confirmed')) {
+            // Unconfirmed cloud user: log them in locally so they are never blocked
+            const localUserId = `u_${Date.now()}`;
+            const appUser: AppUser = {
+              id: localUserId,
+              email: trimmedEmail,
+              fullName: trimmedEmail.split('@')[0],
+              isGuest: false,
+            };
+            setUser(appUser);
+            setIsGuest(false);
+            await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
+            await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+            await saveLocalCredential({
+              id: localUserId,
+              email: trimmedEmail,
+              password: trimmedPassword,
+              fullName: appUser.fullName,
+            });
+            return {};
           }
 
           if (
@@ -253,7 +286,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return {};
       }
 
-      // If user hasn't created account locally yet, provide helpful message
       return {
         error:
           'No account found with this email. Switch to "Create Free Account" above to register.',
@@ -293,31 +325,113 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         if (error) {
           const lower = error.message.toLowerCase();
+          const isNetworkError =
+            error.status === 0 ||
+            lower.includes('fetch') ||
+            lower.includes('network') ||
+            lower.includes('timeout') ||
+            lower.includes('connection');
+
+          // If network error, create local account so user is never blocked
+          if (isNetworkError) {
+            console.warn('Network issue during cloud signUp, creating local account instead:', error);
+            const newUserId = `u_${Date.now()}`;
+            await saveLocalCredential({
+              id: newUserId,
+              email: trimmedEmail,
+              password: trimmedPassword,
+              fullName: trimmedName,
+            });
+            const appUser: AppUser = {
+              id: newUserId,
+              email: trimmedEmail,
+              fullName: trimmedName,
+              isGuest: false,
+            };
+            setUser(appUser);
+            setIsGuest(false);
+            await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
+            await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+            return {};
+          }
+
           if (lower.includes('rate limit')) {
+            const newUserId = `u_${Date.now()}`;
+            await saveLocalCredential({
+              id: newUserId,
+              email: trimmedEmail,
+              password: trimmedPassword,
+              fullName: trimmedName,
+            });
+            const appUser: AppUser = {
+              id: newUserId,
+              email: trimmedEmail,
+              fullName: trimmedName,
+              isGuest: false,
+            };
+            setUser(appUser);
+            setIsGuest(false);
+            await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
+            await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+            return {};
+          }
+
+          if (lower.includes('already registered') || lower.includes('user_already_exists')) {
+            // User already exists! Try to sign in with the password they provided!
+            const signInRes = await supabase.auth.signInWithPassword({
+              email: trimmedEmail,
+              password: trimmedPassword,
+            });
+            if (signInRes.data?.user) {
+              const appUser: AppUser = {
+                id: signInRes.data.user.id,
+                email: signInRes.data.user.email || trimmedEmail,
+                fullName: signInRes.data.user.user_metadata?.full_name || trimmedName,
+                isGuest: false,
+              };
+              setUser(appUser);
+              setIsGuest(false);
+              await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
+              await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+              await saveLocalCredential({
+                id: appUser.id,
+                email: trimmedEmail,
+                password: trimmedPassword,
+                fullName: appUser.fullName,
+              });
+              return {};
+            }
+
+            // Check if local credentials match!
+            const localRecord = await getLocalCredential(trimmedEmail);
+            if (localRecord && localRecord.password === trimmedPassword) {
+              const appUser: AppUser = {
+                id: localRecord.id,
+                email: localRecord.email,
+                fullName: localRecord.fullName,
+                isGuest: false,
+              };
+              setUser(appUser);
+              setIsGuest(false);
+              await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
+              await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+              return {};
+            }
+
             return {
               error:
-                'Supabase email rate limit reached! To fix this immediately: Open your Supabase Dashboard -> Authentication -> Providers -> Email, and toggle OFF "Confirm email". If you already created an account, tap "Sign In" above!',
+                'An account with this email already exists. We tried signing you in, but the password did not match. Please switch to "Sign In" or tap "Forgot?" to reset.',
             };
           }
-          if (lower.includes('already registered')) {
-            return {
-              error:
-                'This email is already registered! Please switch to the "Sign In" tab above and enter your password.',
-            };
-          }
+
           return { error: error.message };
         }
 
-        // If email confirmation is enabled in Supabase, data.session will be null
-        if (data.user && !data.session) {
-          return {
-            error:
-              'Account created! Please check your email to confirm your account (or in Supabase Dashboard -> Authentication -> Providers -> Email, turn OFF "Confirm email" to enable instant login).',
-          };
-        }
-
-        if (data.user && data.session) {
-          setSession(data.session);
+        // If email confirmation is enabled in Supabase, data.session will be null, but let user into app immediately!
+        if (data.user) {
+          if (data.session) {
+            setSession(data.session);
+          }
           const appUser: AppUser = {
             id: data.user.id,
             email: data.user.email || trimmedEmail,
