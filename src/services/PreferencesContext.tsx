@@ -49,7 +49,13 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
         dashboard_sort: next.dashboardSort, accent_color: next.accentColor || null,
         theme_mode: next.themeMode, updated_at: next.updatedAt,
       }, { onConflict: 'user_id' });
-      if (syncError) { console.warn('Preferences saved locally; cloud sync failed:', syncError); setError('Settings are saved on this device, but cloud sync failed.'); }
+      if (syncError) {
+        console.warn('Preferences saved locally; cloud sync status:', syncError.message);
+        const isMissingTable = syncError.code === 'PGRST205' || syncError.message?.includes('schema cache');
+        if (!isMissingTable) {
+          setError('Settings are saved on this device, but cloud sync failed.');
+        }
+      }
     }
   }, [key, session, user]);
 
@@ -62,8 +68,10 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
       if (session && user && !user.isGuest && isSupabaseConfigured) {
         try {
           const { data, error: queryError } = await supabase.from('user_preferences').select('*').eq('user_id', user.id).maybeSingle();
-          if (queryError) throw queryError;
-          if (data) {
+          if (queryError) {
+            const isMissingTable = queryError.code === 'PGRST205' || queryError.message?.includes('schema cache');
+            if (!isMissingTable) throw queryError;
+          } else if (data) {
             const cloudTime = data.updated_at ?? new Date(0).toISOString();
             if (local.updatedAt > cloudTime) await persist(local);
             else local = {
@@ -75,7 +83,11 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
               wakeTime: data.wake_time ?? null, sleepTime: data.sleep_time ?? null, updatedAt: cloudTime,
             };
           } else if (local.updatedAt > new Date(0).toISOString()) await persist(local);
-        } catch (syncError) { console.warn('Preferences cloud sync unavailable:', syncError); if (mounted) setError('Cloud sync is unavailable. Settings remain saved locally.'); }
+        } catch (syncError: any) {
+          console.warn('Preferences cloud sync unavailable:', syncError);
+          const isMissingTable = syncError?.code === 'PGRST205' || syncError?.message?.includes('schema cache');
+          if (mounted && !isMissingTable) setError('Cloud sync is unavailable. Settings remain saved locally.');
+        }
       }
       if (!mounted) return;
       setPreferences(local);

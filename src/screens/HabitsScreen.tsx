@@ -23,6 +23,7 @@ import { useSubscription } from '../services/SubscriptionProvider';
 import { canCreateHabit } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
 import { addLocalDays, calculateCompletionStats, calculateStreakStats, getHabitDayStatus, isPausedOnDate, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
+import { formatReminderTime } from '../services/localReminders';
 import { HabitTrackingControl } from '../components/HabitTrackingControl';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
@@ -338,7 +339,7 @@ export const HabitsScreen = () => {
                   );
                 })()
               ) : <Text style={[styles.detailMetadata, { color: colors.secondaryText, marginBottom: spacing.md }]}>{selectedHabit.archivedAt ? 'Archived habits are read-only.' : isPausedOnDate(selectedHabit, todayDateStr) ? 'Paused today. Tracking resumes after the pause.' : 'This habit is not scheduled today.'}</Text>}
-              {!!selectedHabit.reminders?.length && <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Reminders: {selectedHabit.reminders.filter(reminder => reminder.enabled).map(reminder => `${String(reminder.hour).padStart(2, '0')}:${String(reminder.minute).padStart(2, '0')}`).join(', ') || 'All disabled'}</Text>}
+              {!!selectedHabit.reminders?.length && <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Reminders: {selectedHabit.reminders.filter(reminder => reminder.enabled).map(reminder => formatReminderTime(reminder.hour, reminder.minute)).join(', ') || 'All disabled'}</Text>}
 
               <TouchableOpacity
                 style={styles.deleteButton}
