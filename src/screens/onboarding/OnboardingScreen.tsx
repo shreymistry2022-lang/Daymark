@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radii } from '../../theme/tokens';
 import { useHabits, Habit } from '../../services/HabitContext';
+import { ensureLocalReminderPermission } from '../../services/localReminders';
 
 interface OnboardingScreenProps {
   onComplete: () => void;
@@ -74,11 +75,14 @@ export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {
     );
   };
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
     // Add selected starter habits
     const habitsToAdd = selectedHabits.map(idx => SUGGESTED_HABITS[idx]);
     if (habitsToAdd.length > 0) {
       addMultipleHabits(habitsToAdd);
+    }
+    if (reminderActive) {
+      await ensureLocalReminderPermission();
     }
     onComplete();
   };
@@ -350,7 +354,13 @@ export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {
               </View>
               <TouchableOpacity
                 style={[styles.switchTrack, reminderActive && styles.switchTrackActive]}
-                onPress={() => setReminderActive(!reminderActive)}
+                onPress={async () => {
+                  const next = !reminderActive;
+                  setReminderActive(next);
+                  if (next) {
+                    await ensureLocalReminderPermission();
+                  }
+                }}
               >
                 <View style={[styles.switchThumb, reminderActive && styles.switchThumbActive]} />
               </TouchableOpacity>

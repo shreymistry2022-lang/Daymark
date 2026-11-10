@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, THEME_OPTIONS, ThemeMode } from '../theme/tokens';
@@ -8,13 +8,18 @@ import { DEFAULT_ACCENTS, DashboardSort, DateFormat, usePreferences } from '../s
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canAccessFeature } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
-import { sendTestNotificationAsync } from '../services/localReminders';
+import { checkNotificationPermissionStatus, sendTestNotificationAsync } from '../services/localReminders';
 
 interface Props { onClose?: () => void }
 const TIMEZONES = ['UTC', 'Asia/Kolkata', 'Asia/Dubai', 'Asia/Singapore', 'Asia/Tokyo', 'Europe/London', 'Europe/Paris', 'America/New_York', 'America/Los_Angeles', 'Australia/Sydney'];
 export const PreferencesScreen = ({ onClose }: Props) => {
   const insets = useSafeAreaInsets(); const { colors, mode, setMode } = useTheme(); const { preferences, updatePreferences, error } = usePreferences(); const { isPro } = useSubscription();
   const [timezoneDraft, setTimezoneDraft] = useState(preferences.timezone); const [wakeDraft, setWakeDraft] = useState(preferences.wakeTime ?? ''); const [sleepDraft, setSleepDraft] = useState(preferences.sleepTime ?? ''); const [paywallVisible, setPaywallVisible] = useState(false);
+  const [notiGranted, setNotiGranted] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void checkNotificationPermissionStatus().then(res => setNotiGranted(res.granted));
+  }, []);
   // Sync local text drafts when preferences finish loading or change on another screen.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setTimezoneDraft(preferences.timezone); setWakeDraft(preferences.wakeTime ?? ''); setSleepDraft(preferences.sleepTime ?? ''); }, [preferences.timezone, preferences.wakeTime, preferences.sleepTime]);
@@ -24,6 +29,7 @@ export const PreferencesScreen = ({ onClose }: Props) => {
   const handleTestReminder = async () => {
     try {
       const scheduled = await sendTestNotificationAsync();
+      setNotiGranted(scheduled);
       if (scheduled) {
         Alert.alert('Test Reminder Scheduled', 'Look for your test habit notification on your phone in about 2 seconds.');
       } else {
@@ -42,6 +48,21 @@ export const PreferencesScreen = ({ onClose }: Props) => {
       <Section title="DAILY RHYTHM" colors={colors}><Text style={[styles.caption, { color: colors.secondaryText }]}>Optional times for future planning and reminder suggestions.</Text><View style={styles.timeRow}><View style={{ flex: 1 }}><Text style={[styles.label, { color: colors.secondaryText }]}>WAKE UP</Text><TextInput accessibilityLabel="Wake up time" value={wakeDraft} onChangeText={setWakeDraft} onBlur={() => commitTime('wakeTime', wakeDraft)} onSubmitEditing={() => commitTime('wakeTime', wakeDraft)} placeholder="07:00" placeholderTextColor={colors.mutedText} style={[styles.input, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]} /></View><View style={{ flex: 1 }}><Text style={[styles.label, { color: colors.secondaryText }]}>SLEEP</Text><TextInput accessibilityLabel="Sleep time" value={sleepDraft} onChangeText={setSleepDraft} onBlur={() => commitTime('sleepTime', sleepDraft)} onSubmitEditing={() => commitTime('sleepTime', sleepDraft)} placeholder="22:00" placeholderTextColor={colors.mutedText} style={[styles.input, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]} /></View></View></Section>
       <Section title="DASHBOARD" colors={colors}><Text style={[styles.label, { color: colors.secondaryText }]}>DEFAULT HABIT ORDER</Text><View style={styles.choiceWrap}>{([{ label: 'Custom', value: 'custom' }, { label: 'Alphabetical', value: 'alphabetical' }, { label: 'Consistency', value: 'consistency' }, { label: 'Completion', value: 'completion' }] as { label: string; value: DashboardSort }[]).map(item => <Choice key={item.value} label={item.label} active={preferences.dashboardSort === item.value} onPress={() => updatePreferences({ dashboardSort: item.value })} colors={colors} />)}</View></Section>
       <Section title="FEEDBACK AND REMINDERS" colors={colors}>
+        {notiGranted === false && (
+          <View style={[styles.permBanner, { backgroundColor: `${colors.error}14`, borderColor: colors.error }]}>
+            <Ionicons name="notifications-off-outline" size={18} color={colors.error} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.permBannerTitle, { color: colors.primaryText }]}>Notifications are disabled</Text>
+              <Text style={[styles.permBannerSub, { color: colors.secondaryText }]}>Enable notifications in device settings so your habit reminders can sound on time.</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.openSettingsBtn, { backgroundColor: colors.accent }]}
+              onPress={() => Linking.openSettings()}
+            >
+              <Text style={styles.openSettingsText}>Settings</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         <Toggle label="Haptic feedback" detail="Vibrate for small confirmations" value={preferences.hapticsEnabled} onChange={value => updatePreferences({ hapticsEnabled: value })} colors={colors} />
         <Toggle label="Sound" detail="Allow notification sounds" value={preferences.soundEnabled} onChange={value => updatePreferences({ soundEnabled: value })} colors={colors} />
         <Toggle label="Habit reminders" detail="Enable scheduled habit notifications" value={preferences.notifications.daily} onChange={value => updatePreferences({ notifications: { daily: value } })} colors={colors} />
@@ -67,4 +88,9 @@ const Toggle = ({ label, detail, value, onChange, colors }: { label: string; det
 const styles = StyleSheet.create({ screen: { flex: 1 }, header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.md }, eyebrow: { fontSize: 10, fontWeight: '800', letterSpacing: 1.3 }, title: { fontSize: 29, fontWeight: '800', marginTop: 3 }, close: { padding: 8 }, content: { paddingHorizontal: spacing.lg, gap: spacing.md }, section: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md }, sectionTitle: { fontSize: 10, letterSpacing: 1.1, fontWeight: '800', marginBottom: spacing.sm }, caption: { fontSize: 11, lineHeight: 17 }, choiceWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: spacing.sm }, choice: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 10, paddingVertical: 8 }, label: { fontSize: 9, letterSpacing: 1, fontWeight: '800', marginTop: spacing.md }, swatches: { flexDirection: 'row', gap: 12, paddingTop: spacing.sm }, swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, alignItems: 'center', justifyContent: 'center' }, input: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: 10, marginTop: 6 }, timeRow: { flexDirection: 'row', gap: spacing.md }, toggle: { flexDirection: 'row', alignItems: 'center', minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth }, toggleMeta: { flex: 1 }, toggleTitle: { fontSize: 13, fontWeight: '700' }, footer: { textAlign: 'center', fontSize: 10, padding: spacing.sm }, notice: { borderWidth: 1, borderRadius: radii.md, padding: spacing.md, flexDirection: 'row', gap: 8 }, noticeText: { flex: 1 },
   testReminderBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: radii.md, borderWidth: 1, marginTop: spacing.md },
   testReminderText: { fontSize: 13, fontWeight: '700' },
+  permBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: spacing.md, borderRadius: radii.md, borderWidth: 1, marginBottom: spacing.md },
+  permBannerTitle: { fontSize: 12, fontWeight: '700', marginBottom: 2 },
+  permBannerSub: { fontSize: 11, lineHeight: 15 },
+  openSettingsBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radii.sm },
+  openSettingsText: { color: '#000', fontSize: 11, fontWeight: '800' },
 });

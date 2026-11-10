@@ -81,6 +81,26 @@ Notifications.setNotificationHandler({
   }),
 });
 
+export const checkNotificationPermissionStatus = async (): Promise<{
+  granted: boolean;
+  canAskAgain: boolean;
+}> => {
+  try {
+    const permission = await Notifications.getPermissionsAsync();
+    const granted = permission.granted || permission.ios?.status === IosAuthorizationStatus.PROVISIONAL;
+    return {
+      granted,
+      canAskAgain: permission.canAskAgain,
+    };
+  } catch (error) {
+    console.warn('Could not check notification permission status:', error);
+    return {
+      granted: false,
+      canAskAgain: true,
+    };
+  }
+};
+
 export const ensureLocalReminderPermission = async (): Promise<boolean> => {
   try {
     let permission = await Notifications.getPermissionsAsync();
