@@ -1,6 +1,6 @@
 // App.tsx
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { Alert, View, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
@@ -14,7 +14,7 @@ import { OnboardingScreen } from './src/screens/onboarding/OnboardingScreen';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { CelebrationOverlay } from './src/components/CelebrationOverlay';
 import { NotificationPermissionModal } from './src/components/NotificationPermissionModal';
-import { checkNotificationPermissionStatus } from './src/services/localReminders';
+import { checkNotificationPermissionStatus, subscribeToReminderAlerts } from './src/services/localReminders';
 import { SubscriptionProvider } from './src/services/SubscriptionProvider';
 import { RoutinesProvider } from './src/services/RoutinesContext';
 import { GoalsProvider } from './src/services/GoalsContext';
@@ -37,6 +37,16 @@ function RootNavigator() {
   } = useHabits();
   const { isDark, colors } = useTheme();
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
+
+  useEffect(() => {
+    return subscribeToReminderAlerts(alert => {
+      Alert.alert(
+        `🔔 ${alert.title}`,
+        `${alert.body}\n\nTime to check off this habit!`,
+        [{ text: 'OK' }]
+      );
+    });
+  }, []);
 
   useEffect(() => {
     let active = true;

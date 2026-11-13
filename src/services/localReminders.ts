@@ -31,21 +31,25 @@ export const formatReminderTime = (hour: number, minute: number): string => {
 
 /**
  * Parse an entered time string (supports 12-hour AM/PM and 24-hour format)
- * e.g. "8:00 AM", "8:30pm", "8 PM", "14:30", "08:00"
+ * e.g. "8:00 AM", "8:30pm", "8 PM", "9.50pm", "9.50", "9:50", "14:30", "08:00", "9"
  */
 export const parseTimeString = (input: string, fallbackAmPm?: 'AM' | 'PM'): { hour: number; minute: number } | null => {
-  const clean = input.trim();
+  if (!input) return null;
+  let clean = input.trim().toLowerCase();
   if (!clean) return null;
 
-  // 1. Check 12-hour AM/PM string explicitly: e.g. "8:30 AM", "8:30PM", "8pm", "12:00 am"
-  const match12 = clean.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  // Normalize dots and spaces between hour and minute digits: e.g. "9.50" -> "9:50", "9 50" -> "9:50"
+  clean = clean.replace(/(\d{1,2})[.\s](\d{2})/, (_, h, m) => `${h}:${m}`);
+
+  // 1. Check 12-hour AM/PM string explicitly: e.g. "8:30 am", "8:30pm", "8pm", "12:00 am", "9:50pm"
+  const match12 = clean.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/);
   if (match12) {
     let hour = Number(match12[1]);
     const minute = match12[2] ? Number(match12[2]) : 0;
-    const ampm = match12[3].toUpperCase();
+    const ampm = match12[3];
     if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
-    if (ampm === 'PM' && hour < 12) hour += 12;
-    if (ampm === 'AM' && hour === 12) hour = 0;
+    if (ampm === 'pm' && hour < 12) hour += 12;
+    if (ampm === 'am' && hour === 12) hour = 0;
     return { hour, minute };
   }
 
@@ -57,10 +61,11 @@ export const parseTimeString = (input: string, fallbackAmPm?: 'AM' | 'PM'): { ho
     if (minute < 0 || minute > 59) return null;
 
     if (fallbackAmPm) {
-      if (hour < 1 || hour > 12) return null;
-      if (fallbackAmPm === 'PM' && hour < 12) hour += 12;
-      if (fallbackAmPm === 'AM' && hour === 12) hour = 0;
-      return { hour, minute };
+      if (hour >= 1 && hour <= 12) {
+        if (fallbackAmPm.toUpperCase() === 'PM' && hour < 12) hour += 12;
+        if (fallbackAmPm.toUpperCase() === 'AM' && hour === 12) hour = 0;
+        return { hour, minute };
+      }
     }
 
     if (hour >= 0 && hour <= 23) {
@@ -81,6 +86,34 @@ Notifications.setNotificationHandler({
   }),
 });
 
+let webAudioCtx: any = null;
+const getOrCreateAudioContext = () => {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!webAudioCtx) {
+      webAudioCtx = new AudioCtx();
+    }
+    if (webAudioCtx.state === 'suspended') {
+      webAudioCtx.resume().catch(() => {});
+    }
+    return webAudioCtx;
+  } catch {
+    return null;
+  }
+};
+
+// Auto-unlock Web Audio on first user interaction so scheduled chimes play freely
+if (Platform.OS === 'web' && typeof window !== 'undefined') {
+  const unlockEvents = ['touchstart', 'touchend', 'mousedown', 'keydown', 'click'];
+  const unlock = () => {
+    getOrCreateAudioContext();
+    unlockEvents.forEach(evt => window.removeEventListener(evt, unlock));
+  };
+  unlockEvents.forEach(evt => window.addEventListener(evt, unlock, { passive: true }));
+}
+
 /**
  * Web Audio chime for browsers where native notification sounds or scheduling are unavailable.
  * Plays a pleasant two-tone chime (D5 -> A5).
@@ -88,16 +121,15 @@ Notifications.setNotificationHandler({
 export const playWebNotificationChime = () => {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
+    const ctx = getOrCreateAudioContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const osc1 = ctx.createOscillator();
     const gain1 = ctx.createGain();
     osc1.type = 'sine';
     osc1.frequency.setValueAtTime(587.33, now); // D5
-    gain1.gain.setValueAtTime(0.3, now);
+    gain1.gain.setValueAtTime(0.35, now);
     gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
     osc1.connect(gain1);
     gain1.connect(ctx.destination);
@@ -108,7 +140,7 @@ export const playWebNotificationChime = () => {
     const gain2 = ctx.createGain();
     osc2.type = 'sine';
     osc2.frequency.setValueAtTime(880, now + 0.15); // A5
-    gain2.gain.setValueAtTime(0.35, now + 0.15);
+    gain2.gain.setValueAtTime(0.4, now + 0.15);
     gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
     osc2.connect(gain2);
     gain2.connect(ctx.destination);
@@ -117,6 +149,26 @@ export const playWebNotificationChime = () => {
   } catch (e) {
     console.warn('Could not play web audio reminder chime:', e);
   }
+};
+
+export interface ReminderAlertEvent {
+  ownerId: string;
+  title: string;
+  body: string;
+}
+
+type ReminderAlertListener = (event: ReminderAlertEvent) => void;
+const reminderAlertListeners = new Set<ReminderAlertListener>();
+
+export const subscribeToReminderAlerts = (listener: ReminderAlertListener): (() => void) => {
+  reminderAlertListeners.add(listener);
+  return () => { reminderAlertListeners.delete(listener); };
+};
+
+const dispatchReminderAlert = (event: ReminderAlertEvent) => {
+  reminderAlertListeners.forEach(listener => {
+    try { listener(event); } catch (e) { console.warn('Reminder listener error:', e); }
+  });
 };
 
 interface ActiveWebReminder {
@@ -158,16 +210,27 @@ const runWebReminderCheck = () => {
       if (reminder.soundEnabled) {
         playWebNotificationChime();
       }
+      // Vibrate mobile device if supported
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        try { navigator.vibrate([400, 200, 400]); } catch { /* Ignore */ }
+      }
+      // Native web notification
       if ('Notification' in window && window.Notification.permission === 'granted') {
         try {
           new window.Notification(reminder.ownerName, {
-            body: reminder.ownerDescription || 'Time for your habit routine!',
+            body: reminder.ownerDescription || 'Time for your daily habit routine!',
             icon: '/assets/icon.png',
           });
         } catch {
-          // Ignore browser restriction errors
+          // Mobile Chrome blocks `new Notification` without service worker; dispatch in-app alert
         }
       }
+      // In-app alert dispatch
+      dispatchReminderAlert({
+        ownerId: reminder.ownerId,
+        title: reminder.ownerName,
+        body: reminder.ownerDescription || 'A small step keeps your progress moving.',
+      });
     }
   }
 };
@@ -175,7 +238,7 @@ const runWebReminderCheck = () => {
 const ensureWebWatcherStarted = () => {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
   if (!webWatcherTimer) {
-    webWatcherTimer = setInterval(runWebReminderCheck, 15000);
+    webWatcherTimer = setInterval(runWebReminderCheck, 3000);
     // Run an immediate check in case it's on the exact minute
     runWebReminderCheck();
   }
