@@ -400,7 +400,11 @@ export const CreateHabitModal = ({
             ))}
 
             {/* Quick preset chips */}
-            <View style={styles.reminderPresetRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.reminderPresetRow}
+            >
               {(['8:00 AM', '12:00 PM', '6:00 PM', '9:00 PM'] as const).map(preset => {
                 const [time, period] = preset.split(' ');
                 const isActive = reminderTime === time && reminderAmPm === period;
@@ -425,12 +429,11 @@ export const CreateHabitModal = ({
                   </TouchableOpacity>
                 );
               })}
-            </View>
+            </ScrollView>
 
             <View style={styles.addReminderRow}>
               <TextInput
                 style={[
-                  styles.textInput,
                   styles.reminderInput,
                   { backgroundColor: colors.secondaryBackground, borderColor: colors.border, color: colors.primaryText },
                 ]}
@@ -483,7 +486,8 @@ export const CreateHabitModal = ({
                   setReminders(current => [...(current ?? []), { id: `reminder_${Date.now()}`, hour, minute, weekdays: reminderWeekdays, enabled: true }]);
                 }}
               >
-                <Text style={[styles.choiceText, { color: selectedColor, fontWeight: '700' }]}>Add</Text>
+                <Ionicons name="add" size={16} color={selectedColor} />
+                <Text style={[styles.addReminderButtonText, { color: selectedColor }]}>Add</Text>
               </TouchableOpacity>
             </View>
 
@@ -679,15 +683,16 @@ const styles = StyleSheet.create({
   weekdayPill: { flex: 1, paddingVertical: 8, borderRadius: radii.md, borderWidth: 1, alignItems: 'center' },
   reminderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
   reminderText: { fontSize: 13, fontWeight: '500' },
-  reminderPresetRow: { flexDirection: 'row', gap: 6, marginTop: 8, flexWrap: 'wrap' },
+  reminderPresetRow: { flexDirection: 'row', gap: 6, marginTop: 8, paddingVertical: 2 },
   reminderPresetChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radii.md, borderWidth: 1 },
   reminderPresetText: { fontSize: 11, fontWeight: '600' },
-  addReminderRow: { flexDirection: 'row', gap: 8, marginTop: 8, alignItems: 'center' },
-  reminderInput: { flex: 1, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 10, paddingVertical: 8 },
-  ampmToggle: { flexDirection: 'row', borderWidth: 1, borderRadius: radii.md, overflow: 'hidden' },
-  ampmBtn: { paddingHorizontal: 10, paddingVertical: 8, justifyContent: 'center', alignItems: 'center', minWidth: 38 },
+  addReminderRow: { flexDirection: 'row', gap: 8, marginTop: 8, alignItems: 'center', width: '100%' },
+  reminderInput: { width: 78, height: 40, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 8, textAlign: 'center', fontSize: 14, fontWeight: '600' },
+  ampmToggle: { height: 40, flexDirection: 'row', borderWidth: 1, borderRadius: radii.md, overflow: 'hidden' },
+  ampmBtn: { height: '100%', paddingHorizontal: 10, justifyContent: 'center', alignItems: 'center', minWidth: 36 },
   ampmBtnText: { fontSize: 12, fontWeight: '700' },
-  addReminderButton: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radii.md, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
+  addReminderButton: { flex: 1, height: 40, paddingHorizontal: 10, borderRadius: radii.md, borderWidth: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4 },
+  addReminderButtonText: { fontSize: 13, fontWeight: '700' },
   errorText: { fontSize: 12, marginTop: 6 },
   categoryHeaderRow: {
     flexDirection: 'row',

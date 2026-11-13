@@ -187,7 +187,7 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
                   keyboardType="numbers-and-punctuation"
                   placeholder="8:00"
                   placeholderTextColor={colors.mutedText}
-                  style={[styles.input, styles.reminderInput, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
+                  style={[styles.reminderInput, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
                 />
                 <View style={[styles.ampmToggle, { borderColor: colors.border }]}>
                   {(['AM', 'PM'] as const).map(p => {
@@ -204,7 +204,7 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
                   })}
                 </View>
                 <TouchableOpacity
-                  style={[styles.option, { borderColor: colors.accent, backgroundColor: `${colors.accent}1A` }]}
+                  style={[styles.addReminderButton, { borderColor: colors.accent, backgroundColor: `${colors.accent}1A` }]}
                   onPress={() => {
                     const parsed = parseTimeString(reminderTime, reminderAmPm);
                     if (!parsed) {
@@ -220,7 +220,8 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
                     setReminders(current => [...current, { id: `routine_reminder_${Date.now()}`, hour, minute, weekdays: weekdaysFor(schedule), enabled: true }]);
                   }}
                 >
-                  <Text style={[styles.optionText, { color: colors.accent, fontWeight: '700' }]}>Add</Text>
+                  <Ionicons name="add" size={16} color={colors.accent} />
+                  <Text style={[styles.addReminderButtonText, { color: colors.accent }]}>Add</Text>
                 </TouchableOpacity>
               </View>
               <Text style={[styles.fieldLabel, { color: colors.secondaryText }]}>INCLUDE HABITS</Text>
@@ -254,9 +255,13 @@ const styles = StyleSheet.create({
   historyRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }, historyDay: { width: 30, height: 30, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, historyDayText: { fontSize: 11, fontWeight: '700' },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.md }, completeButton: { flex: 1, minHeight: 42, borderRadius: radii.md, borderWidth: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 7 }, completeText: { fontSize: 12, fontWeight: '700' }, iconAction: { minWidth: 40, minHeight: 42, alignItems: 'center', justifyContent: 'center' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.65)' }, editor: { maxHeight: '92%', borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, borderWidth: 1, padding: spacing.lg }, editorHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }, editorTitle: { fontSize: 23, fontWeight: '800', marginTop: 3 }, fieldLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1, marginTop: spacing.md, marginBottom: 6 }, input: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: 12, fontSize: 14 }, descriptionInput: { minHeight: 70, textAlignVertical: 'top' }, scheduleOptions: { flexDirection: 'row', gap: 8 }, option: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 12, paddingVertical: 9 }, optionText: { fontSize: 12, fontWeight: '700' },
-  habitOption: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 10, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', marginBottom: 7 }, habitOptionText: { flex: 1, fontSize: 13 }, reminderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 }, reminderLabel: { flex: 1, fontSize: 12, fontWeight: '600' }, reminderEntry: { flexDirection: 'row', gap: 8, alignItems: 'center' }, reminderInput: { flex: 1 },
-  ampmToggle: { flexDirection: 'row', borderWidth: 1, borderRadius: radii.md, overflow: 'hidden' },
-  ampmBtn: { paddingHorizontal: 10, paddingVertical: 10, justifyContent: 'center', alignItems: 'center', minWidth: 38 },
+  habitOption: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 10, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', marginBottom: 7 }, habitOptionText: { flex: 1, fontSize: 13 }, reminderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 }, reminderLabel: { flex: 1, fontSize: 12, fontWeight: '600' },
+  reminderEntry: { flexDirection: 'row', gap: 8, alignItems: 'center', width: '100%', marginTop: 6 },
+  reminderInput: { width: 78, height: 40, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 8, textAlign: 'center', fontSize: 14, fontWeight: '600' },
+  ampmToggle: { height: 40, flexDirection: 'row', borderWidth: 1, borderRadius: radii.md, overflow: 'hidden' },
+  ampmBtn: { height: '100%', paddingHorizontal: 10, justifyContent: 'center', alignItems: 'center', minWidth: 36 },
   ampmBtnText: { fontSize: 12, fontWeight: '700' },
+  addReminderButton: { flex: 1, height: 40, borderWidth: 1, borderRadius: radii.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 10 },
+  addReminderButtonText: { fontSize: 13, fontWeight: '700' },
   formError: { fontSize: 12, marginTop: 10 }, primaryButton: { borderRadius: radii.md, paddingVertical: 13, alignItems: 'center', marginTop: spacing.md }, primaryText: { color: '#000', fontSize: 14, fontWeight: '800' },
 });
