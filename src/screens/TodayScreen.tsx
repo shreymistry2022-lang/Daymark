@@ -24,6 +24,7 @@ import { formatAppDate, getWeekDates } from '../domain/preferencesEngine';
 import { getHabitDayStatus, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../services/AuthProvider';
+import { formatReminderTime } from '../services/localReminders';
 
 export const TodayScreen = () => {
   const { habits, toggleHabit, recordHabitLog, addHabit, moveHabit, todayDateStr, stats, triggerCelebration } = useHabits();
@@ -226,6 +227,7 @@ export const TodayScreen = () => {
 
           {filteredHabits.map((habit, habitIndex) => {
             const isCompleted = getHabitDayStatus(habit, selectedDate, dateReference) === 'completed';
+            const enabledReminders = (habit.reminders ?? []).filter(r => r.enabled);
             return (
               <View
                 key={habit.id}
@@ -264,6 +266,14 @@ export const TodayScreen = () => {
                     <Text style={[styles.tagDivider, { color: colors.mutedText }]}>•</Text>
                     <Text style={[styles.freqTag, { color: colors.mutedText }]}>{habit.targetFrequency}</Text>
                   </View>
+                  {enabledReminders.length > 0 && (
+                    <View style={[styles.reminderPill, { backgroundColor: `${habit.color}18`, opacity: isCompleted ? 0.6 : 1 }]}>
+                      <Ionicons name="notifications-outline" size={11} color={habit.color} />
+                      <Text style={[styles.reminderText, { color: habit.color }]}>
+                        {enabledReminders.map(r => formatReminderTime(r.hour, r.minute)).join(', ')}
+                      </Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
 
                 {/* Big Interactive Checkbox */}
@@ -521,6 +531,20 @@ const styles = StyleSheet.create({
   },
   freqTag: {
     fontSize: 11,
+  },
+  reminderPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    marginTop: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: radii.sm,
+  },
+  reminderText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   checkbox: {
     width: 32,

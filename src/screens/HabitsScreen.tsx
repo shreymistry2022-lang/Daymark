@@ -185,6 +185,7 @@ export const HabitsScreen = () => {
         <View style={styles.habitList}>
           {filteredHabits.map(habit => {
             const isCompleted = getHabitDayStatus(habit, todayDateStr, todayReferenceDate) === 'completed';
+            const enabledReminders = (habit.reminders ?? []).filter(r => r.enabled);
             return (
               <TouchableOpacity
                 key={habit.id}
@@ -209,6 +210,14 @@ export const HabitsScreen = () => {
                     <Text style={[styles.scheduleText, { color: colors.accent }]}>• 🔥 {habit.streak}d streak</Text>
                     <Text style={[styles.scheduleText, { color: colors.mutedText }]}>• {habit.targetFrequency}</Text>
                   </View>
+                  {enabledReminders.length > 0 && (
+                    <View style={[styles.reminderPill, { backgroundColor: `${habit.color}18`, opacity: isCompleted ? 0.6 : 1 }]}>
+                      <Ionicons name="notifications-outline" size={11} color={habit.color} />
+                      <Text style={[styles.reminderText, { color: habit.color }]}>
+                        {enabledReminders.map(r => formatReminderTime(r.hour, r.minute)).join(', ')}
+                      </Text>
+                    </View>
+                  )}
                 </View>
 
                 {/* Interactive checkmark button */}
@@ -537,6 +546,20 @@ const styles = StyleSheet.create({
   },
   scheduleText: {
     fontSize: 12,
+  },
+  reminderPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    marginTop: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: radii.sm,
+  },
+  reminderText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   checkButton: {
     width: 34,
