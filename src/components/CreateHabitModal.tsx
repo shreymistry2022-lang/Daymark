@@ -152,9 +152,24 @@ export const CreateHabitModal = ({
     if (!parseLocalDate(startDate) || (endDate && !parseLocalDate(endDate))) { setError('Use valid dates in YYYY-MM-DD format.'); return; }
     if (endDate && endDate < startDate) { setError('End date must be on or after the start date.'); return; }
     if (frequency === 'Selected days' && selectedWeekdays.length === 0) { setError('Choose at least one weekday.'); return; }
-    if ((reminders ?? []).some(reminder => reminder.enabled) && !(await ensureLocalReminderPermission())) {
-      setError('Allow notifications in device settings to use habit reminders. Your habit can still be saved without reminders.');
-      return;
+    
+    let finalReminders = [...(reminders ?? [])];
+    if (finalReminders.length === 0 && reminderTime.trim()) {
+      const parsed = parseTimeString(reminderTime, reminderAmPm);
+      if (parsed) {
+        const reminderWeekdays = frequency === 'Daily' ? [1,2,3,4,5,6,7] : frequency === 'Weekdays' ? [1,2,3,4,5] : frequency === 'Weekends' ? [6,7] : selectedWeekdays;
+        finalReminders = [{ id: `reminder_${Date.now()}`, hour: parsed.hour, minute: parsed.minute, weekdays: reminderWeekdays, enabled: true }];
+      }
+    }
+
+    if (finalReminders.some(reminder => reminder.enabled)) {
+      const permGranted = await ensureLocalReminderPermission();
+      if (!permGranted && Platform.OS !== 'web') {
+        Alert.alert(
+          'Notifications are off',
+          'Habit reminder saved. To receive reminders on your phone, enable notifications for Daymark in device settings.'
+        );
+      }
     }
     const schedule: HabitSchedule = frequency === 'Weekdays'
       ? { frequency: 'weekdays' }
@@ -175,11 +190,11 @@ export const CreateHabitModal = ({
       habitKind,
       trackingMethod,
       targetValue: trackingMethod === 'yes_no' ? 1 : numericTarget,
-      unit: unit.trim(),
+      unit: trackingMethod === 'yes_no' ? undefined : unit.trim() || undefined,
       schedule,
       startDate,
       endDate: endDate || null,
-      reminders: reminders ?? [],
+      reminders: finalReminders,
     };
     const result = initialHabit && onUpdateHabit
       ? onUpdateHabit(initialHabit.id, values)
@@ -407,7 +422,11 @@ export const CreateHabitModal = ({
             >
               {(['8:00 AM', '12:00 PM', '6:00 PM', '9:00 PM'] as const).map(preset => {
                 const [time, period] = preset.split(' ');
-                const isActive = reminderTime === time && reminderAmPm === period;
+                const parsed = parseTimeString(time, period as 'AM' | 'PM');
+                const isSavedInReminders = Boolean(
+                  parsed && (reminders ?? []).some(r => r.hour === parsed.hour && r.minute === parsed.minute)
+                );
+                const isActive = isSavedInReminders || (reminderTime === time && reminderAmPm === period);
                 return (
                   <TouchableOpacity
                     key={preset}
@@ -421,6 +440,21 @@ export const CreateHabitModal = ({
                     onPress={() => {
                       setReminderTime(time);
                       setReminderAmPm(period as 'AM' | 'PM');
+                      setError('');
+                      if (!parsed) return;
+                      const alreadyExists = (reminders ?? []).some(r => r.hour === parsed.hour && r.minute === parsed.minute);
+                      if (alreadyExists) {
+                        setReminders(current => (current ?? []).filter(r => !(r.hour === parsed.hour && r.minute === parsed.minute)));
+                      } else {
+                        const reminderWeekdays = frequency === 'Daily' ? [1,2,3,4,5,6,7] : frequency === 'Weekdays' ? [1,2,3,4,5] : frequency === 'Weekends' ? [6,7] : selectedWeekdays;
+                        const newReminder = { id: `reminder_${Date.now()}`, hour: parsed.hour, minute: parsed.minute, weekdays: reminderWeekdays, enabled: true };
+                        if ((reminders ?? []).length >= 1 && !canAccessFeature('unlimited_reminders', isPro)) {
+                          // Free users get 1 reminder: cleanly replace so they don't hit an error
+                          setReminders([newReminder]);
+                        } else {
+                          setReminders(current => [...(current ?? []), newReminder]);
+                        }
+                      }
                     }}
                   >
                     <Text style={[styles.reminderPresetText, { color: isActive ? selectedColor : colors.secondaryText }]}>
@@ -686,12 +720,12 @@ const styles = StyleSheet.create({
   reminderPresetRow: { flexDirection: 'row', gap: 6, marginTop: 8, paddingVertical: 2 },
   reminderPresetChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radii.md, borderWidth: 1 },
   reminderPresetText: { fontSize: 11, fontWeight: '600' },
-  addReminderRow: { flexDirection: 'row', gap: 8, marginTop: 8, alignItems: 'center', width: '100%' },
-  reminderInput: { width: 78, height: 40, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 8, textAlign: 'center', fontSize: 14, fontWeight: '600' },
-  ampmToggle: { height: 40, flexDirection: 'row', borderWidth: 1, borderRadius: radii.md, overflow: 'hidden' },
-  ampmBtn: { height: '100%', paddingHorizontal: 10, justifyContent: 'center', alignItems: 'center', minWidth: 36 },
+  addReminderRow: { flexDirection: 'row', gap: 6, marginTop: 8, alignItems: 'center', width: '100%', flexWrap: 'nowrap' },
+  reminderInput: { width: 72, height: 40, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 6, textAlign: 'center', fontSize: 14, fontWeight: '600', flexShrink: 0 },
+  ampmToggle: { height: 40, flexDirection: 'row', borderWidth: 1, borderRadius: radii.md, overflow: 'hidden', flexShrink: 0 },
+  ampmBtn: { height: '100%', paddingHorizontal: 8, justifyContent: 'center', alignItems: 'center', minWidth: 34 },
   ampmBtnText: { fontSize: 12, fontWeight: '700' },
-  addReminderButton: { flex: 1, height: 40, paddingHorizontal: 10, borderRadius: radii.md, borderWidth: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4 },
+  addReminderButton: { flex: 1, minWidth: 64, height: 40, paddingHorizontal: 8, borderRadius: radii.md, borderWidth: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4 },
   addReminderButtonText: { fontSize: 13, fontWeight: '700' },
   errorText: { fontSize: 12, marginTop: 6 },
   categoryHeaderRow: {

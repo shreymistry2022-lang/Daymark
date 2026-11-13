@@ -81,10 +81,119 @@ Notifications.setNotificationHandler({
   }),
 });
 
+/**
+ * Web Audio chime for browsers where native notification sounds or scheduling are unavailable.
+ * Plays a pleasant two-tone chime (D5 -> A5).
+ */
+export const playWebNotificationChime = () => {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(587.33, now); // D5
+    gain1.gain.setValueAtTime(0.3, now);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.35);
+
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(880, now + 0.15); // A5
+    gain2.gain.setValueAtTime(0.35, now + 0.15);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(now + 0.15);
+    osc2.stop(now + 0.65);
+  } catch (e) {
+    console.warn('Could not play web audio reminder chime:', e);
+  }
+};
+
+interface ActiveWebReminder {
+  ownerId: string;
+  ownerName: string;
+  ownerDescription?: string;
+  soundEnabled: boolean;
+  reminderId: string;
+  hour: number;
+  minute: number;
+  weekdays: number[];
+}
+
+const activeWebReminders: Map<string, ActiveWebReminder> = new Map();
+let webWatcherTimer: any = null;
+let lastTriggeredMinuteKey = '';
+
+const runWebReminderCheck = () => {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+  const jsDay = now.getDay();
+  const isoWeekday = jsDay === 0 ? 7 : jsDay;
+  const minuteKey = `${now.toDateString()}_${currentHour}_${currentMinute}`;
+
+  if (lastTriggeredMinuteKey === minuteKey) return;
+
+  const due: ActiveWebReminder[] = [];
+  activeWebReminders.forEach(reminder => {
+    if (reminder.hour === currentHour && reminder.minute === currentMinute && reminder.weekdays.includes(isoWeekday)) {
+      due.push(reminder);
+    }
+  });
+
+  if (due.length > 0) {
+    lastTriggeredMinuteKey = minuteKey;
+    for (const reminder of due) {
+      if (reminder.soundEnabled) {
+        playWebNotificationChime();
+      }
+      if ('Notification' in window && window.Notification.permission === 'granted') {
+        try {
+          new window.Notification(reminder.ownerName, {
+            body: reminder.ownerDescription || 'Time for your habit routine!',
+            icon: '/assets/icon.png',
+          });
+        } catch {
+          // Ignore browser restriction errors
+        }
+      }
+    }
+  }
+};
+
+const ensureWebWatcherStarted = () => {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+  if (!webWatcherTimer) {
+    webWatcherTimer = setInterval(runWebReminderCheck, 15000);
+    // Run an immediate check in case it's on the exact minute
+    runWebReminderCheck();
+  }
+};
+
 export const checkNotificationPermissionStatus = async (): Promise<{
   granted: boolean;
   canAskAgain: boolean;
 }> => {
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return {
+        granted: window.Notification.permission === 'granted',
+        canAskAgain: window.Notification.permission !== 'denied',
+      };
+    }
+    return { granted: true, canAskAgain: false };
+  }
   try {
     const permission = await Notifications.getPermissionsAsync();
     const granted = permission.granted || permission.ios?.status === IosAuthorizationStatus.PROVISIONAL;
@@ -102,6 +211,21 @@ export const checkNotificationPermissionStatus = async (): Promise<{
 };
 
 export const ensureLocalReminderPermission = async (): Promise<boolean> => {
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (window.Notification.permission === 'granted') return true;
+      if (window.Notification.permission !== 'denied') {
+        try {
+          const res = await window.Notification.requestPermission();
+          return res === 'granted';
+        } catch {
+          return true;
+        }
+      }
+      return false;
+    }
+    return true;
+  }
   try {
     let permission = await Notifications.getPermissionsAsync();
     if (!permission.granted && permission.ios?.status !== IosAuthorizationStatus.PROVISIONAL) {
@@ -132,6 +256,26 @@ export const ensureLocalReminderPermission = async (): Promise<boolean> => {
 };
 
 export const sendTestNotificationAsync = async (): Promise<boolean> => {
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (window.Notification.permission !== 'granted' && window.Notification.permission !== 'denied') {
+        try { await window.Notification.requestPermission(); } catch { /* Ignore */ }
+      }
+    }
+    setTimeout(() => {
+      playWebNotificationChime();
+      if (typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission === 'granted') {
+        try {
+          new window.Notification('Daymark Reminder Test 🔔', {
+            body: 'Habit reminders are active and working!',
+            icon: '/assets/icon.png',
+          });
+        } catch { /* Ignore */ }
+      }
+    }, 2000);
+    return true;
+  }
+
   const granted = await ensureLocalReminderPermission();
   if (!granted) return false;
   try {
@@ -159,11 +303,18 @@ export const sendTestNotificationAsync = async (): Promise<boolean> => {
 
 export const replaceLocalReminders = async (owner: LocalReminderOwner, previousReminders: HabitReminder[] = []): Promise<HabitReminder[]> => {
   const reminders = owner.reminders ?? [];
-  const oldIds = [...reminders, ...previousReminders].flatMap(reminder => reminder.notificationIds ?? []);
-  await Promise.all(oldIds.map(async id => {
-    try { await Notifications.cancelScheduledNotificationAsync(id); }
-    catch (error) { console.warn('Could not cancel previous habit reminder:', error); }
-  }));
+
+  // 1. Cancel previous notifications
+  if (Platform.OS === 'web') {
+    const oldReminderIds = new Set([...reminders, ...previousReminders].map(r => r.id));
+    oldReminderIds.forEach(id => activeWebReminders.delete(id));
+  } else {
+    const oldIds = [...reminders, ...previousReminders].flatMap(reminder => reminder.notificationIds ?? []);
+    await Promise.all(oldIds.map(async id => {
+      try { await Notifications.cancelScheduledNotificationAsync(id); }
+      catch (error) { console.warn('Could not cancel previous habit reminder:', error); }
+    }));
+  }
 
   const today = toLocalDateString(new Date());
   if (owner.archivedAt || (owner.startDate && owner.startDate > today) || (owner.endDate && owner.endDate < today)
@@ -172,8 +323,39 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
   }
   const enabled = owner.notificationsEnabled === false ? [] : reminders.filter(reminder => reminder.enabled);
   if (enabled.length === 0) return reminders.map(reminder => ({ ...reminder, notificationIds: [] }));
-  if (!(await ensureLocalReminderPermission())) throw new Error('Notification permission is not enabled. Allow notifications in device settings to schedule reminders.');
 
+  // Check permission
+  const hasPermission = await ensureLocalReminderPermission();
+  if (!hasPermission && Platform.OS !== 'web') {
+    throw new Error('Notification permission is not enabled. Allow notifications in device settings to schedule reminders.');
+  }
+
+  // 2. Schedule for Web
+  if (Platform.OS === 'web') {
+    const idsByReminder = new Map<string, string[]>();
+    for (const reminder of enabled) {
+      if (!Number.isInteger(reminder.hour) || reminder.hour < 0 || reminder.hour > 23 || !Number.isInteger(reminder.minute) || reminder.minute < 0 || reminder.minute > 59) {
+        continue;
+      }
+      const weekdays = [...new Set(reminder.weekdays)].filter(day => Number.isInteger(day) && day >= 1 && day <= 7);
+      const generatedId = `web_notif_${reminder.id}_${Date.now()}`;
+      activeWebReminders.set(reminder.id, {
+        ownerId: owner.id,
+        ownerName: owner.name,
+        ownerDescription: owner.description,
+        soundEnabled: owner.soundEnabled !== false,
+        reminderId: reminder.id,
+        hour: reminder.hour,
+        minute: reminder.minute,
+        weekdays: weekdays.length ? weekdays : [1, 2, 3, 4, 5, 6, 7],
+      });
+      idsByReminder.set(reminder.id, [generatedId]);
+    }
+    ensureWebWatcherStarted();
+    return reminders.map(reminder => ({ ...reminder, notificationIds: idsByReminder.get(reminder.id) ?? [] }));
+  }
+
+  // 3. Schedule for Native (Android & iOS)
   const idsByReminder = new Map<string, string[]>();
   for (const reminder of enabled) {
     if (!Number.isInteger(reminder.hour) || reminder.hour < 0 || reminder.hour > 23 || !Number.isInteger(reminder.minute) || reminder.minute < 0 || reminder.minute > 59) {
@@ -182,6 +364,15 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
     const weekdays = [...new Set(reminder.weekdays)].filter(day => Number.isInteger(day) && day >= 1 && day <= 7);
     const scheduledIds: string[] = [];
     if (weekdays.length === 7) {
+      const triggerInput: any = {
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
+        hour: reminder.hour,
+        minute: reminder.minute,
+        channelId: 'habit-reminders',
+      };
+      if (Platform.OS === 'android') {
+        triggerInput.delivery = 'alarmClock';
+      }
       scheduledIds.push(await Notifications.scheduleNotificationAsync({
         content: {
           title: owner.name,
@@ -190,16 +381,21 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
           sound: owner.soundEnabled !== false,
           color: '#10B981',
         },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DAILY,
-          hour: reminder.hour,
-          minute: reminder.minute,
-          channelId: 'habit-reminders',
-        },
+        trigger: triggerInput,
       }));
     } else {
       for (const isoWeekday of weekdays) {
         const expoWeekday = (isoWeekday % 7) + 1; // Expo: Sunday=1, ISO: Monday=1.
+        const triggerInput: any = {
+          type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+          weekday: expoWeekday,
+          hour: reminder.hour,
+          minute: reminder.minute,
+          channelId: 'habit-reminders',
+        };
+        if (Platform.OS === 'android') {
+          triggerInput.delivery = 'alarmClock';
+        }
         scheduledIds.push(await Notifications.scheduleNotificationAsync({
           content: {
             title: owner.name,
@@ -208,13 +404,7 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
             sound: owner.soundEnabled !== false,
             color: '#10B981',
           },
-          trigger: {
-            type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-            weekday: expoWeekday,
-            hour: reminder.hour,
-            minute: reminder.minute,
-            channelId: 'habit-reminders',
-          },
+          trigger: triggerInput,
         }));
       }
     }

@@ -444,12 +444,16 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const lastReminderSettingsRef = useRef({ enabled: preferences.notifications.daily, sound: preferences.soundEnabled });
+  const hasInitializedRemindersRef = useRef(false);
   useEffect(() => {
     if (isLoadingData) return;
     const previous = lastReminderSettingsRef.current;
-    if (previous.enabled === preferences.notifications.daily && previous.sound === preferences.soundEnabled) return;
-    lastReminderSettingsRef.current = { enabled: preferences.notifications.daily, sound: preferences.soundEnabled };
-    habits.filter(habit => !habit.archivedAt && habit.reminders?.length).forEach(habit => { void refreshReminderSchedule(habit, habits, habit); });
+    const prefChanged = previous.enabled !== preferences.notifications.daily || previous.sound !== preferences.soundEnabled;
+    if (!hasInitializedRemindersRef.current || prefChanged) {
+      hasInitializedRemindersRef.current = true;
+      lastReminderSettingsRef.current = { enabled: preferences.notifications.daily, sound: preferences.soundEnabled };
+      habits.filter(habit => !habit.archivedAt && habit.reminders?.length).forEach(habit => { void refreshReminderSchedule(habit, habits, habit); });
+    }
   // refreshReminderSchedule uses the current preference values and latest habit snapshot.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferences.notifications.daily, preferences.soundEnabled, isLoadingData]);

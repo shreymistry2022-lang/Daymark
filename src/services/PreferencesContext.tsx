@@ -21,12 +21,29 @@ export interface DaymarkPreferences {
   updatedAt: string;
 }
 export type PreferencesChanges = Partial<Omit<DaymarkPreferences, 'updatedAt' | 'notifications'>> & { notifications?: Partial<DaymarkPreferences['notifications']> };
-interface PreferencesValue { preferences: DaymarkPreferences; isLoading: boolean; error: string | null; updatePreferences: (changes: PreferencesChanges) => void }
+interface PreferencesValue { preferences: DaymarkPreferences; isLoading: boolean; error: string | null; updatePreferences: (changes: PreferencesChanges) => void; clearError: () => void; }
 const PreferencesContext = createContext<PreferencesValue | null>(null);
 const storageKey = (id?: string) => `@daymark_preferences_v1:${id ?? 'guest'}`;
 export const DEFAULT_ACCENTS = ['#4169E1', '#5C7CFA', '#14B8A6', '#38BDF8', '#FF7A00', '#E879F9', '#F43F5E'];
 const defaultPreferences = (): DaymarkPreferences => ({ themeMode: 'automatic', weekStart: 1, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', dateFormat: 'system', hapticsEnabled: true, soundEnabled: true, notifications: { daily: true, routine: true }, dashboardSort: 'custom', accentColor: DEFAULT_ACCENTS[0], wakeTime: null, sleepTime: null, updatedAt: new Date(0).toISOString() });
 const validTheme = (value: unknown): value is ThemeMode => value === 'midnight' || value === 'pure' || value === 'light' || value === 'automatic';
+
+const isMissingOrOffline = (err: any): boolean => {
+  if (!err) return false;
+  const msg = String(err.message || '').toLowerCase();
+  const code = String(err.code || '');
+  return (
+    code === 'PGRST205' ||
+    code === '42P01' ||
+    err.status === 404 ||
+    msg.includes('schema cache') ||
+    msg.includes('could not find the table') ||
+    msg.includes('does not exist') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('network request failed') ||
+    msg.includes('load failed')
+  );
+};
 
 export const usePreferences = () => { const value = useContext(PreferencesContext); if (!value) throw new Error('usePreferences must be used within PreferencesProvider'); return value; };
 
@@ -37,22 +54,30 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
   const [error, setError] = useState<string | null>(null);
   const ownerId = user?.id ?? undefined;
   const key = storageKey(ownerId);
+  const clearError = useCallback(() => setError(null), []);
+
   const persist = useCallback(async (next: DaymarkPreferences, sync = true) => {
     setPreferences(next);
     try { await AsyncStorage.setItem(key, JSON.stringify(next)); }
     catch { setError('Settings could not be saved on this device.'); }
     if (sync && session && user && !user.isGuest && isSupabaseConfigured) {
-      const { error: syncError } = await supabase.from('user_preferences').upsert({
-        user_id: user.id, wake_time: next.wakeTime, sleep_time: next.sleepTime, week_start: next.weekStart,
-        timezone: next.timezone, date_format: next.dateFormat, haptics_enabled: next.hapticsEnabled,
-        sound_enabled: next.soundEnabled, notification_preferences: next.notifications,
-        dashboard_sort: next.dashboardSort, accent_color: next.accentColor || null,
-        theme_mode: next.themeMode, updated_at: next.updatedAt,
-      }, { onConflict: 'user_id' });
-      if (syncError) {
-        console.warn('Preferences saved locally; cloud sync status:', syncError.message);
-        const isMissingTable = syncError.code === 'PGRST205' || syncError.message?.includes('schema cache');
-        if (!isMissingTable) {
+      try {
+        const { error: syncError } = await supabase.from('user_preferences').upsert({
+          user_id: user.id, wake_time: next.wakeTime, sleep_time: next.sleepTime, week_start: next.weekStart,
+          timezone: next.timezone, date_format: next.dateFormat, haptics_enabled: next.hapticsEnabled,
+          sound_enabled: next.soundEnabled, notification_preferences: next.notifications,
+          dashboard_sort: next.dashboardSort, accent_color: next.accentColor || null,
+          theme_mode: next.themeMode, updated_at: next.updatedAt,
+        }, { onConflict: 'user_id' });
+        if (syncError) {
+          console.warn('Preferences saved locally; cloud sync status:', syncError.message);
+          if (!isMissingOrOffline(syncError)) {
+            setError('Settings are saved on this device, but cloud sync failed.');
+          }
+        }
+      } catch (e) {
+        console.warn('Preferences cloud sync error:', e);
+        if (!isMissingOrOffline(e)) {
           setError('Settings are saved on this device, but cloud sync failed.');
         }
       }
@@ -69,8 +94,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
         try {
           const { data, error: queryError } = await supabase.from('user_preferences').select('*').eq('user_id', user.id).maybeSingle();
           if (queryError) {
-            const isMissingTable = queryError.code === 'PGRST205' || queryError.message?.includes('schema cache');
-            if (!isMissingTable) throw queryError;
+            if (!isMissingOrOffline(queryError)) throw queryError;
           } else if (data) {
             const cloudTime = data.updated_at ?? new Date(0).toISOString();
             if (local.updatedAt > cloudTime) await persist(local);
@@ -85,8 +109,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
           } else if (local.updatedAt > new Date(0).toISOString()) await persist(local);
         } catch (syncError: any) {
           console.warn('Preferences cloud sync unavailable:', syncError);
-          const isMissingTable = syncError?.code === 'PGRST205' || syncError?.message?.includes('schema cache');
-          if (mounted && !isMissingTable) setError('Cloud sync is unavailable. Settings remain saved locally.');
+          if (mounted && !isMissingOrOffline(syncError)) setError('Cloud sync is unavailable. Settings remain saved locally.');
         }
       }
       if (!mounted) return;
@@ -101,5 +124,5 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     const next: DaymarkPreferences = { ...preferences, ...changes, notifications: { ...preferences.notifications, ...(changes.notifications ?? {}) }, updatedAt: new Date().toISOString() };
     setError(null); void persist(next);
   };
-  return <PreferencesContext.Provider value={{ preferences, isLoading, error, updatePreferences }}>{children}</PreferencesContext.Provider>;
+  return <PreferencesContext.Provider value={{ preferences, isLoading, error, updatePreferences, clearError }}>{children}</PreferencesContext.Provider>;
 };

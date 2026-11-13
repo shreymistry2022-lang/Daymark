@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useHabits } from '../services/HabitContext';
@@ -68,11 +68,20 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
   }, [initialRoutineId, isLoadingRoutines, routines, onInitialRoutineHandled, openEditor]);
 
   const saveRoutine = async () => {
-    if (reminders.some(reminder => reminder.enabled) && !(await ensureLocalReminderPermission())) {
-      setFormError('Notification permission is off. Allow notifications in device settings, or remove the routine reminders.');
-      return;
+    let finalReminders = [...reminders];
+    if (finalReminders.length === 0 && reminderTime.trim()) {
+      const parsed = parseTimeString(reminderTime, reminderAmPm);
+      if (parsed) {
+        finalReminders = [{ id: `routine_reminder_${Date.now()}`, hour: parsed.hour, minute: parsed.minute, weekdays: weekdaysFor(schedule), enabled: true }];
+      }
     }
-    const values = { name, description, schedule: { frequency: schedule } as HabitSchedule, habitIds: selectedHabitIds, reminders };
+    if (finalReminders.some(reminder => reminder.enabled)) {
+      const permOk = await ensureLocalReminderPermission();
+      if (!permOk && Platform.OS !== 'web') {
+        Alert.alert('Notifications are off', 'Routine reminder saved. To receive reminders on your phone, enable notifications for Daymark in device settings.');
+      }
+    }
+    const values = { name, description, schedule: { frequency: schedule } as HabitSchedule, habitIds: selectedHabitIds, reminders: finalReminders };
     const result = editingRoutine
       ? updateRoutine(editingRoutine.id, values)
       : createRoutine(values);
@@ -256,12 +265,12 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.md }, completeButton: { flex: 1, minHeight: 42, borderRadius: radii.md, borderWidth: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 7 }, completeText: { fontSize: 12, fontWeight: '700' }, iconAction: { minWidth: 40, minHeight: 42, alignItems: 'center', justifyContent: 'center' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.65)' }, editor: { maxHeight: '92%', borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, borderWidth: 1, padding: spacing.lg }, editorHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }, editorTitle: { fontSize: 23, fontWeight: '800', marginTop: 3 }, fieldLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1, marginTop: spacing.md, marginBottom: 6 }, input: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: 12, fontSize: 14 }, descriptionInput: { minHeight: 70, textAlignVertical: 'top' }, scheduleOptions: { flexDirection: 'row', gap: 8 }, option: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 12, paddingVertical: 9 }, optionText: { fontSize: 12, fontWeight: '700' },
   habitOption: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 10, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', marginBottom: 7 }, habitOptionText: { flex: 1, fontSize: 13 }, reminderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 }, reminderLabel: { flex: 1, fontSize: 12, fontWeight: '600' },
-  reminderEntry: { flexDirection: 'row', gap: 8, alignItems: 'center', width: '100%', marginTop: 6 },
-  reminderInput: { width: 78, height: 40, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 8, textAlign: 'center', fontSize: 14, fontWeight: '600' },
-  ampmToggle: { height: 40, flexDirection: 'row', borderWidth: 1, borderRadius: radii.md, overflow: 'hidden' },
-  ampmBtn: { height: '100%', paddingHorizontal: 10, justifyContent: 'center', alignItems: 'center', minWidth: 36 },
+  reminderEntry: { flexDirection: 'row', gap: 6, alignItems: 'center', width: '100%', marginTop: 6, flexWrap: 'nowrap' },
+  reminderInput: { width: 72, height: 40, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 6, textAlign: 'center', fontSize: 14, fontWeight: '600', flexShrink: 0 },
+  ampmToggle: { height: 40, flexDirection: 'row', borderWidth: 1, borderRadius: radii.md, overflow: 'hidden', flexShrink: 0 },
+  ampmBtn: { height: '100%', paddingHorizontal: 8, justifyContent: 'center', alignItems: 'center', minWidth: 34 },
   ampmBtnText: { fontSize: 12, fontWeight: '700' },
-  addReminderButton: { flex: 1, height: 40, borderWidth: 1, borderRadius: radii.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 10 },
+  addReminderButton: { flex: 1, minWidth: 64, height: 40, borderWidth: 1, borderRadius: radii.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 8 },
   addReminderButtonText: { fontSize: 13, fontWeight: '700' },
   formError: { fontSize: 12, marginTop: 10 }, primaryButton: { borderRadius: radii.md, paddingVertical: 13, alignItems: 'center', marginTop: spacing.md }, primaryText: { color: '#000', fontSize: 14, fontWeight: '800' },
 });

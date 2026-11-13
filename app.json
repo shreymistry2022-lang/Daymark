@@ -24,6 +24,7 @@
         "ACCESS_NETWORK_STATE",
         "POST_NOTIFICATIONS",
         "SCHEDULE_EXACT_ALARM",
+        "USE_EXACT_ALARM",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE"
       ],
