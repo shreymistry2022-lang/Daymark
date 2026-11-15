@@ -3,7 +3,7 @@ import { AppState, Platform } from 'react-native';
 import Constants from 'expo-constants';
 import Purchases, { CustomerInfo, PurchasesEntitlementInfo, PurchasesPackage } from 'react-native-purchases';
 import { useAuth } from './AuthProvider';
-import { PRO_ENTITLEMENT_ID, isWhitelistedProEmail } from './subscriptionEntitlements';
+import { PRO_ENTITLEMENT_ID, SUBSCRIPTIONS_ENABLED, isWhitelistedProEmail } from './subscriptionEntitlements';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 type SubscriptionContextValue = {
@@ -62,7 +62,7 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
   }, [user]);
 
   const loadStoreData = useCallback(async () => {
-    const isSpecialPro = await checkCloudOrWhitelistedPro();
+    const isSpecialPro = !SUBSCRIPTIONS_ENABLED || (await checkCloudOrWhitelistedPro());
     if (isSpecialPro) {
       setIsPro(true);
       setIsLoading(false);
@@ -96,7 +96,7 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     const initialize = async () => {
       if (isAuthLoading) return;
 
-      const isSpecialPro = await checkCloudOrWhitelistedPro();
+      const isSpecialPro = !SUBSCRIPTIONS_ENABLED || (await checkCloudOrWhitelistedPro());
       if (isSpecialPro) {
         if (active) {
           setIsPro(true);

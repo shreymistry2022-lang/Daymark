@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Linking, Modal, Platform, ScrollView, StyleSh
 import { Ionicons } from '@expo/vector-icons';
 import Purchases, { PurchasesPackage } from 'react-native-purchases';
 import { useSubscription } from '../services/SubscriptionProvider';
+import { SUBSCRIPTIONS_ENABLED } from '../services/subscriptionEntitlements';
 
 type Props = { visible: boolean; onClose: () => void };
 const BLUE = '#315CFF';
@@ -30,6 +31,25 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
   const trialStart = entitlement?.originalPurchaseDate
     ? new Date(entitlement.originalPurchaseDate).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
     : undefined;
+
+  if (!SUBSCRIPTIONS_ENABLED) {
+    return (
+      <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+        <View style={styles.promoBackdrop}>
+          <View style={styles.promoCard}>
+            <Ionicons name="sparkles" size={44} color={LIME} />
+            <Text style={[styles.title, { fontSize: 26, textAlign: 'center', marginTop: 14 }]}>All Features Included</Text>
+            <Text style={[styles.subtitle, { textAlign: 'center', marginTop: 8 }]}>
+              Welcome to Daymark! You have complete complimentary access to all habits, custom themes, analytics, routines, and daily rhythm reminders.
+            </Text>
+            <TouchableOpacity style={styles.promoBtn} onPress={onClose}>
+              <Text style={styles.continueText}>Continue</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
 
   const buy = async (item?: PurchasesPackage) => {
     if (!canPurchase) {
@@ -137,6 +157,9 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
 };
 
 const styles = StyleSheet.create({
+  promoBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  promoCard: { backgroundColor: '#171920', borderRadius: 20, padding: 24, alignItems: 'center', width: '100%', maxWidth: 360, borderWidth: 1, borderColor: '#363944' },
+  promoBtn: { backgroundColor: BLUE, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 28, marginTop: 20, width: '100%', alignItems: 'center' },
   root: { flex: 1, backgroundColor: '#101116' },
   close: { alignSelf: 'flex-end', marginTop: 16, marginRight: 18, padding: 8 },
   content: { paddingHorizontal: 24, paddingBottom: 32 },

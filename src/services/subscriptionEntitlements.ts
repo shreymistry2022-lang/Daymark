@@ -35,11 +35,18 @@ const PRO_FEATURES = new Set<SubscriptionFeature>([
   'advanced_widgets', 'advanced_export',
 ]);
 
+/**
+ * Global switch for monetized subscriptions:
+ * - false: Launch v1.0 as 100% Free with all features unlocked for Google Play review and initial testers.
+ * - true: Turn on RevenueCat paywall and store subscriptions for v1.1+.
+ */
+export const SUBSCRIPTIONS_ENABLED = false;
+
 export const canAccessFeature = (feature: SubscriptionFeature, isPro: boolean): boolean =>
-  !PRO_FEATURES.has(feature) || isPro;
+  !SUBSCRIPTIONS_ENABLED || !PRO_FEATURES.has(feature) || isPro;
 
 export const canCreateHabit = (activeHabitCount: number, isPro: boolean): boolean =>
-  isPro || activeHabitCount < FREE_ACTIVE_HABIT_LIMIT;
+  !SUBSCRIPTIONS_ENABLED || isPro || activeHabitCount < FREE_ACTIVE_HABIT_LIMIT;
 
 export const PRO_WHITELISTED_EMAILS: string[] = [
   'smsm44186@gmail.com',

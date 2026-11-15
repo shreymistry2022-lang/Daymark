@@ -21,7 +21,7 @@ import { useHabits } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAuth } from '../services/AuthProvider';
 import { useSubscription } from '../services/SubscriptionProvider';
-import { canAccessFeature } from '../services/subscriptionEntitlements';
+import { canAccessFeature, SUBSCRIPTIONS_ENABLED } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
 import { RoutinesScreen } from './RoutinesScreen';
 import { GoalsScreen } from './GoalsScreen';
@@ -287,10 +287,22 @@ export const ProfileScreen = () => {
           </View>
         </View>
 
-        <TouchableOpacity style={[styles.actionButton, styles.proButton]} onPress={() => setPaywallVisible(true)} activeOpacity={0.75}>
-          <Ionicons name={isPro ? 'star' : 'sparkles'} size={20} color={isPro ? '#C8F169' : '#315CFF'} />
-          <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>{isPro ? 'Daymark Pro — Manage plan' : 'Explore Daymark Pro'}</Text>
-          <Ionicons name="chevron-forward" size={18} color={colors.secondaryText} />
+        <TouchableOpacity
+          style={[styles.actionButton, styles.proButton]}
+          onPress={() => {
+            if (SUBSCRIPTIONS_ENABLED) {
+              setPaywallVisible(true);
+            } else {
+              Alert.alert('Daymark Full Edition', 'You have full complimentary access to all habits, custom themes, analytics, routines, and daily rhythm reminders!');
+            }
+          }}
+          activeOpacity={0.75}
+        >
+          <Ionicons name="sparkles" size={20} color="#C8F169" />
+          <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>
+            {SUBSCRIPTIONS_ENABLED ? (isPro ? 'Daymark Pro — Manage plan' : 'Explore Daymark Pro') : 'Daymark Full Edition — All Features Unlocked'}
+          </Text>
+          <Ionicons name={SUBSCRIPTIONS_ENABLED ? 'chevron-forward' : 'checkmark-circle'} size={18} color={SUBSCRIPTIONS_ENABLED ? colors.secondaryText : '#C8F169'} />
         </TouchableOpacity>
 
         {/* Notifications & Toggles */}
