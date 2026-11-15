@@ -35,14 +35,17 @@ const isMissingOrOffline = (err: any): boolean => {
   const code = String(err.code || '');
   return (
     code === 'PGRST205' ||
+    code === 'PGRST204' ||
     code === '42P01' ||
+    code === '42703' ||
     err.status === 404 ||
     msg.includes('schema cache') ||
     msg.includes('could not find the table') ||
     msg.includes('does not exist') ||
     msg.includes('failed to fetch') ||
     msg.includes('network request failed') ||
-    msg.includes('load failed')
+    msg.includes('load failed') ||
+    msg.includes('column')
   );
 };
 
@@ -64,13 +67,40 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     catch { setError('Settings could not be saved on this device.'); }
     if (sync && session && user && !user.isGuest && isSupabaseConfigured) {
       try {
-        const { error: syncError } = await supabase.from('user_preferences').upsert({
-          user_id: user.id, wake_time: next.wakeTime, sleep_time: next.sleepTime, week_start: next.weekStart,
-          timezone: next.timezone, date_format: next.dateFormat, haptics_enabled: next.hapticsEnabled,
-          sound_enabled: next.soundEnabled, notification_preferences: next.notifications,
-          dashboard_sort: next.dashboardSort, accent_color: next.accentColor || null,
-          theme_mode: next.themeMode, updated_at: next.updatedAt,
+        let { error: syncError } = await supabase.from('user_preferences').upsert({
+          user_id: user.id,
+          wake_time: next.wakeTime || null,
+          sleep_time: next.sleepTime || null,
+          week_start: next.weekStart,
+          timezone: next.timezone,
+          date_format: next.dateFormat,
+          haptics_enabled: next.hapticsEnabled,
+          sound_enabled: next.soundEnabled,
+          notification_preferences: next.notifications,
+          dashboard_sort: next.dashboardSort,
+          accent_color: next.accentColor || null,
+          theme_mode: next.themeMode,
+          updated_at: next.updatedAt,
         }, { onConflict: 'user_id' });
+
+        // Fallback if user's remote Supabase database does not yet have wake_time/sleep_time columns
+        if (syncError && (syncError.code === '42703' || syncError.code === 'PGRST204' || String(syncError.message).includes('column'))) {
+          const fallback = await supabase.from('user_preferences').upsert({
+            user_id: user.id,
+            week_start: next.weekStart,
+            timezone: next.timezone,
+            date_format: next.dateFormat,
+            haptics_enabled: next.hapticsEnabled,
+            sound_enabled: next.soundEnabled,
+            notification_preferences: next.notifications,
+            dashboard_sort: next.dashboardSort,
+            accent_color: next.accentColor || null,
+            theme_mode: next.themeMode,
+            updated_at: next.updatedAt,
+          }, { onConflict: 'user_id' });
+          syncError = fallback.error;
+        }
+
         if (syncError) {
           console.warn('Preferences saved locally; cloud sync status:', syncError.message);
           if (!isMissingOrOffline(syncError)) {
@@ -106,7 +136,9 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
               soundEnabled: data.sound_enabled ?? local.soundEnabled, notifications: { ...local.notifications, ...(data.notification_preferences ?? {}) },
               dashboardSort: data.dashboard_sort ?? local.dashboardSort, accentColor: data.accent_color ?? local.accentColor,
               themeMode: validTheme(data.theme_mode) ? data.theme_mode : local.themeMode,
-              wakeTime: data.wake_time ?? null, sleepTime: data.sleep_time ?? null, updatedAt: cloudTime,
+              wakeTime: (data.wake_time ? String(data.wake_time).slice(0, 5) : null) ?? local.wakeTime,
+              sleepTime: (data.sleep_time ? String(data.sleep_time).slice(0, 5) : null) ?? local.sleepTime,
+              updatedAt: cloudTime,
             };
           } else if (local.updatedAt > new Date(0).toISOString()) await persist(local);
         } catch (syncError: any) {
