@@ -1,5 +1,5 @@
 // src/screens/ProfileScreen.tsx
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import { useAuth } from '../services/AuthProvider';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canAccessFeature, SUBSCRIPTIONS_ENABLED } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
+import { checkForAppUpdates, getUpdateInfo } from '../services/updateService';
 import { RoutinesScreen } from './RoutinesScreen';
 import { GoalsScreen } from './GoalsScreen';
 import { JournalScreen } from './JournalScreen';
@@ -64,6 +65,7 @@ export const ProfileScreen = () => {
   const [initialRoutineId, setInitialRoutineId] = useState<string | null>(null);
   const [initialGoalId, setInitialGoalId] = useState<string | null>(null);
   const [initialJournalId, setInitialJournalId] = useState<string | null>(null);
+  const updateInfo = useMemo(() => getUpdateInfo(), []);
 
   const closePreferences = () => {
     setPreferencesVisible(false);
@@ -405,6 +407,16 @@ export const ProfileScreen = () => {
 
           <TouchableOpacity
             style={[styles.actionButton, { borderBottomColor: colors.border }]}
+            onPress={() => { void checkForAppUpdates(true); }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="cloud-download-outline" size={20} color={colors.accent} />
+            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Check for App Updates</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionButton, { borderBottomColor: colors.border }]}
             onPress={() => Alert.alert('Support', 'Daymark Support: contact@daymark.app')}
             activeOpacity={0.7}
           >
@@ -453,7 +465,9 @@ export const ProfileScreen = () => {
         </View>
 
         <View style={styles.appVersionContainer}>
-          <Text style={[styles.appVersionText, { color: colors.mutedText }]}>Daymark v1.0.0 (Build 1)</Text>
+          <Text style={[styles.appVersionText, { color: colors.mutedText }]}>
+            Daymark v{updateInfo.appVersion} · Runtime: {updateInfo.runtimeVersion} ({updateInfo.updateId})
+          </Text>
         </View>
       </ScrollView>
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />

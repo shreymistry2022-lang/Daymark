@@ -15,6 +15,7 @@ import { AuthScreen } from './src/screens/AuthScreen';
 import { CelebrationOverlay } from './src/components/CelebrationOverlay';
 import { NotificationPermissionModal } from './src/components/NotificationPermissionModal';
 import { checkNotificationPermissionStatus, subscribeToReminderAlerts } from './src/services/localReminders';
+import { checkForAppUpdates } from './src/services/updateService';
 import { SubscriptionProvider } from './src/services/SubscriptionProvider';
 import { RoutinesProvider } from './src/services/RoutinesContext';
 import { GoalsProvider } from './src/services/GoalsContext';
@@ -46,6 +47,14 @@ function RootNavigator() {
         [{ text: 'OK' }]
       );
     });
+  }, []);
+
+  useEffect(() => {
+    // Check for OTA updates in background shortly after launch
+    const timer = setTimeout(() => {
+      void checkForAppUpdates(false);
+    }, 2500);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {

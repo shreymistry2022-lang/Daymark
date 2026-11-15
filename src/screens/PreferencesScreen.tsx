@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Alert, Linking, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, THEME_OPTIONS, ThemeMode } from '../theme/tokens';
@@ -9,6 +9,7 @@ import { useSubscription } from '../services/SubscriptionProvider';
 import { canAccessFeature } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
 import { checkNotificationPermissionStatus, parseTimeString, sendTestNotificationAsync } from '../services/localReminders';
+import { checkForAppUpdates, getUpdateInfo } from '../services/updateService';
 
 interface Props { onClose?: () => void }
 const TIMEZONES = ['UTC', 'Asia/Kolkata', 'Asia/Dubai', 'Asia/Singapore', 'Asia/Tokyo', 'Europe/London', 'Europe/Paris', 'America/New_York', 'America/Los_Angeles', 'Australia/Sydney'];
@@ -16,6 +17,17 @@ export const PreferencesScreen = ({ onClose }: Props) => {
   const insets = useSafeAreaInsets(); const { colors, mode, setMode } = useTheme(); const { preferences, updatePreferences, error, clearError } = usePreferences(); const { isPro } = useSubscription();
   const [timezoneDraft, setTimezoneDraft] = useState(preferences.timezone); const [wakeDraft, setWakeDraft] = useState(preferences.wakeTime ?? ''); const [sleepDraft, setSleepDraft] = useState(preferences.sleepTime ?? ''); const [paywallVisible, setPaywallVisible] = useState(false);
   const [notiGranted, setNotiGranted] = useState<boolean | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const updateInfo = useMemo(() => getUpdateInfo(), []);
+
+  const handleCheckUpdates = async () => {
+    setIsCheckingUpdate(true);
+    try {
+      await checkForAppUpdates(true);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
 
   useEffect(() => {
     void checkNotificationPermissionStatus().then(res => setNotiGranted(res.granted));
@@ -100,6 +112,35 @@ export const PreferencesScreen = ({ onClose }: Props) => {
           <Text style={[styles.testReminderText, { color: colors.accent }]}>Send Test Habit Reminder (2 seconds)</Text>
         </TouchableOpacity>
       </Section>
+      <Section title="APP UPDATES" colors={colors}>
+        <Text style={[styles.caption, { color: colors.secondaryText }]}>
+          Daymark supports instant Over-The-Air updates. You can check for and apply updates without reinstalling.
+        </Text>
+        <View style={{ marginTop: 8, gap: 4 }}>
+          <Text style={[styles.updateMetaText, { color: colors.secondaryText }]}>
+            Version: <Text style={{ color: colors.primaryText, fontWeight: '700' }}>v{updateInfo.appVersion}</Text> · Runtime: <Text style={{ color: colors.primaryText, fontWeight: '700' }}>{updateInfo.runtimeVersion}</Text>
+          </Text>
+          <Text style={[styles.updateMetaText, { color: colors.mutedText }]}>
+            Update ID: {updateInfo.updateId} ({updateInfo.channel})
+          </Text>
+        </View>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Check for updates"
+          onPress={handleCheckUpdates}
+          disabled={isCheckingUpdate}
+          style={[styles.testReminderBtn, { backgroundColor: colors.accent, borderColor: colors.accent, marginTop: 12 }]}
+        >
+          {isCheckingUpdate ? (
+            <ActivityIndicator size="small" color="#FFF" />
+          ) : (
+            <Ionicons name="cloud-download-outline" size={16} color="#FFF" />
+          )}
+          <Text style={[styles.testReminderText, { color: '#FFF' }]}>
+            {isCheckingUpdate ? 'Checking for Updates...' : 'Check for App Updates'}
+          </Text>
+        </TouchableOpacity>
+      </Section>
       <Text style={[styles.footer, { color: colors.mutedText }]}>Settings save on this device and sync to your account when signed in.</Text>
     </ScrollView>
     <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
@@ -111,6 +152,7 @@ const Toggle = ({ label, detail, value, onChange, colors }: { label: string; det
 const styles = StyleSheet.create({ screen: { flex: 1 }, header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.md }, eyebrow: { fontSize: 10, fontWeight: '800', letterSpacing: 1.3 }, title: { fontSize: 29, fontWeight: '800', marginTop: 3 }, close: { padding: 8 }, content: { paddingHorizontal: spacing.lg, gap: spacing.md }, section: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md }, sectionTitle: { fontSize: 10, letterSpacing: 1.1, fontWeight: '800', marginBottom: spacing.sm }, caption: { fontSize: 11, lineHeight: 17 }, choiceWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: spacing.sm }, choice: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 10, paddingVertical: 8 }, label: { fontSize: 9, letterSpacing: 1, fontWeight: '800', marginTop: spacing.md }, swatches: { flexDirection: 'row', gap: 12, paddingTop: spacing.sm }, swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, alignItems: 'center', justifyContent: 'center' }, input: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: 10, marginTop: 6 }, timeRow: { flexDirection: 'row', gap: spacing.md }, toggle: { flexDirection: 'row', alignItems: 'center', minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth }, toggleMeta: { flex: 1 }, toggleTitle: { fontSize: 13, fontWeight: '700' }, footer: { textAlign: 'center', fontSize: 10, padding: spacing.sm }, notice: { borderWidth: 1, borderRadius: radii.md, padding: spacing.md, flexDirection: 'row', gap: 8 }, noticeText: { flex: 1 },
   testReminderBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: radii.md, borderWidth: 1, marginTop: spacing.md },
   testReminderText: { fontSize: 13, fontWeight: '700' },
+  updateMetaText: { fontSize: 11, lineHeight: 16 },
   permBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: spacing.md, borderRadius: radii.md, borderWidth: 1, marginBottom: spacing.md },
   permBannerTitle: { fontSize: 12, fontWeight: '700', marginBottom: 2 },
   permBannerSub: { fontSize: 11, lineHeight: 15 },
