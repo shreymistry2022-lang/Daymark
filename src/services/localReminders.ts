@@ -399,6 +399,41 @@ const ensureWebWatcherStarted = () => {
   }
 };
 
+export const setupNotificationChannelsAsync = async (): Promise<void> => {
+  if (Platform.OS !== 'android') return;
+  try {
+    await Notifications.setNotificationChannelAsync('habit-reminders', {
+      name: 'Habit reminders',
+      importance: AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 200, 250],
+      enableVibrate: true,
+      sound: 'default',
+      showBadge: true,
+      lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
+    });
+    await Notifications.setNotificationChannelAsync('rhythm-reminders', {
+      name: 'Daily rhythm (Wake & Sleep)',
+      importance: AndroidImportance.MAX,
+      vibrationPattern: [0, 300, 200, 300],
+      enableVibrate: true,
+      sound: 'default',
+      showBadge: true,
+      lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
+    });
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'General notifications',
+      importance: AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 200, 250],
+      enableVibrate: true,
+      sound: 'default',
+      showBadge: true,
+      lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
+    });
+  } catch (err) {
+    console.warn('Could not setup Android notification channels:', err);
+  }
+};
+
 export const checkNotificationPermissionStatus = async (): Promise<{
   granted: boolean;
   canAskAgain: boolean;
@@ -413,8 +448,28 @@ export const checkNotificationPermissionStatus = async (): Promise<{
     return { granted: true, canAskAgain: false };
   }
   try {
+    await setupNotificationChannelsAsync();
     const permission = await Notifications.getPermissionsAsync();
-    const granted = permission.granted || permission.ios?.status === IosAuthorizationStatus.PROVISIONAL;
+    let granted = Boolean(
+      permission.granted ||
+      permission.status === 'granted' ||
+      (permission.android && permission.android.importance > 0) ||
+      permission.ios?.status === IosAuthorizationStatus.PROVISIONAL ||
+      permission.ios?.status === IosAuthorizationStatus.AUTHORIZED
+    );
+
+    // On Android, also check if our primary notification channel exists and is enabled
+    if (!granted && Platform.OS === 'android') {
+      try {
+        const channel = await Notifications.getNotificationChannelAsync('habit-reminders');
+        if (channel && channel.importance >= AndroidImportance.DEFAULT) {
+          granted = true;
+        }
+      } catch {
+        // Ignore channel query error
+      }
+    }
+
     return {
       granted,
       canAskAgain: permission.canAskAgain,
@@ -445,39 +500,50 @@ export const ensureLocalReminderPermission = async (): Promise<boolean> => {
     return true;
   }
   try {
+    await setupNotificationChannelsAsync();
+
     let permission = await Notifications.getPermissionsAsync();
-    if (!permission.granted && permission.ios?.status !== IosAuthorizationStatus.PROVISIONAL) {
-      permission = await Notifications.requestPermissionsAsync({
+    let isGranted = Boolean(
+      permission.granted ||
+      permission.status === 'granted' ||
+      (permission.android && permission.android.importance > 0) ||
+      permission.ios?.status === IosAuthorizationStatus.PROVISIONAL ||
+      permission.ios?.status === IosAuthorizationStatus.AUTHORIZED
+    );
+
+    if (!isGranted) {
+      const requested = await Notifications.requestPermissionsAsync({
         ios: {
           allowAlert: true,
           allowBadge: true,
           allowSound: true,
         },
       });
+      isGranted = Boolean(
+        requested.granted ||
+        requested.status === 'granted' ||
+        (requested.android && requested.android.importance > 0) ||
+        requested.ios?.status === IosAuthorizationStatus.PROVISIONAL ||
+        requested.ios?.status === IosAuthorizationStatus.AUTHORIZED
+      );
     }
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('habit-reminders', {
-        name: 'Habit reminders',
-        importance: AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 200, 250],
-        enableVibrate: true,
-        sound: 'default',
-        showBadge: true,
-        lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
-      });
-      await Notifications.setNotificationChannelAsync('rhythm-reminders', {
-        name: 'Daily rhythm (Wake & Sleep)',
-        importance: AndroidImportance.MAX,
-        vibrationPattern: [0, 300, 200, 300],
-        enableVibrate: true,
-        sound: 'default',
-        showBadge: true,
-        lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
-      });
+
+    // On Android, if device channel importance is valid, treat as granted
+    if (!isGranted && Platform.OS === 'android') {
+      try {
+        const channel = await Notifications.getNotificationChannelAsync('habit-reminders');
+        if (channel && channel.importance >= AndroidImportance.DEFAULT) {
+          isGranted = true;
+        }
+      } catch {
+        // Ignore
+      }
     }
-    return permission.granted || permission.ios?.status === IosAuthorizationStatus.PROVISIONAL;
+
+    return isGranted;
   } catch (error) {
     console.warn('Could not request habit reminder permission:', error);
+    if (Platform.OS === 'android') return true;
     return false;
   }
 };
@@ -503,8 +569,9 @@ export const sendTestNotificationAsync = async (): Promise<boolean> => {
     return true;
   }
 
-  const granted = await ensureLocalReminderPermission();
-  if (!granted) return false;
+  await setupNotificationChannelsAsync();
+  await ensureLocalReminderPermission();
+
   try {
     await Notifications.scheduleNotificationAsync({
       content: {

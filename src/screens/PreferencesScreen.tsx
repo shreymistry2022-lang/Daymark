@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, AppState, Linking, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, THEME_OPTIONS, ThemeMode } from '../theme/tokens';
@@ -29,9 +29,27 @@ export const PreferencesScreen = ({ onClose }: Props) => {
     }
   };
 
-  useEffect(() => {
-    void checkNotificationPermissionStatus().then(res => setNotiGranted(res.granted));
+  const refreshPermission = useCallback(async () => {
+    try {
+      const res = await checkNotificationPermissionStatus();
+      setNotiGranted(res.granted);
+    } catch {
+      setNotiGranted(null);
+    }
   }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshPermission();
+    const subscription = AppState.addEventListener('change', nextState => {
+      if (nextState === 'active') {
+        void refreshPermission();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [refreshPermission]);
   // Sync local text drafts when preferences finish loading or change on another screen.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setTimezoneDraft(preferences.timezone); setWakeDraft(preferences.wakeTime ?? ''); setSleepDraft(preferences.sleepTime ?? ''); }, [preferences.timezone, preferences.wakeTime, preferences.sleepTime]);
@@ -56,10 +74,12 @@ export const PreferencesScreen = ({ onClose }: Props) => {
   const handleTestReminder = async () => {
     try {
       const scheduled = await sendTestNotificationAsync();
-      setNotiGranted(scheduled);
       if (scheduled) {
-        Alert.alert('Test Reminder Scheduled', 'Look for your test habit notification on your phone in about 2 seconds.');
+        setNotiGranted(true);
+        Alert.alert('Test Reminder Scheduled 🔔', 'Look for your test habit notification on your phone in about 2 seconds.');
       } else {
+        const status = await checkNotificationPermissionStatus();
+        setNotiGranted(status.granted);
         Alert.alert('Notifications Disabled', 'Notification permission is currently off. Please enable notifications for Daymark in your phone settings.');
       }
     } catch (err: any) {

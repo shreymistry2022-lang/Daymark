@@ -14,7 +14,7 @@ import { OnboardingScreen } from './src/screens/onboarding/OnboardingScreen';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { CelebrationOverlay } from './src/components/CelebrationOverlay';
 import { NotificationPermissionModal } from './src/components/NotificationPermissionModal';
-import { checkNotificationPermissionStatus, subscribeToReminderAlerts } from './src/services/localReminders';
+import { checkNotificationPermissionStatus, setupNotificationChannelsAsync, subscribeToReminderAlerts } from './src/services/localReminders';
 import { checkForAppUpdates } from './src/services/updateService';
 import { SubscriptionProvider } from './src/services/SubscriptionProvider';
 import { RoutinesProvider } from './src/services/RoutinesContext';
@@ -40,6 +40,7 @@ function RootNavigator() {
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
 
   useEffect(() => {
+    void setupNotificationChannelsAsync();
     return subscribeToReminderAlerts(alert => {
       Alert.alert(
         alert.title,
