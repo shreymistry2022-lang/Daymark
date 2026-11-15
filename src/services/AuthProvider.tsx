@@ -178,6 +178,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               setIsGuest(false);
               await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
               await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+              await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => {});
+              await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => {});
 
               if (!isNetworkError) {
                 // Background cloud sync
@@ -253,6 +255,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setIsGuest(false);
           await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
           await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+          await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => {});
+          await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => {});
           await saveLocalCredential({
             id: appUser.id,
             email: trimmedEmail,
@@ -283,6 +287,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setIsGuest(false);
         await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
         await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+        await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => {});
+        await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => {});
         return {};
       }
 
@@ -393,6 +399,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               setIsGuest(false);
               await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
               await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+              await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => {});
+              await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => {});
               await saveLocalCredential({
                 id: appUser.id,
                 email: trimmedEmail,
@@ -415,6 +423,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               setIsGuest(false);
               await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
               await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
+              await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => {});
+              await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => {});
               return {};
             }
 

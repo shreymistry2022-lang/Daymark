@@ -116,9 +116,11 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     const loadData = async () => {
       try {
         // 1. Load cached habits, onboarding state, and tombstones for deleted habits
-        const [savedHabitsJson, savedOnboarding, savedDeletedJson] = await Promise.all([
+        const userOnboardingKey = user?.id ? `@daymark_onboarding_v2_${user.id}` : null;
+        const [savedHabitsJson, savedOnboarding, savedUserOnboarding, savedDeletedJson] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.HABITS),
           AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING),
+          userOnboardingKey ? AsyncStorage.getItem(userOnboardingKey) : Promise.resolve(null),
           AsyncStorage.getItem(STORAGE_KEYS.DELETED_HABITS),
         ]);
 
@@ -159,7 +161,9 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
           await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(INITIAL_HABITS)).catch(() => {});
         }
 
-        if (savedOnboarding !== null && isMounted) {
+        if (savedUserOnboarding === 'true' && isMounted) {
+          setHasCompletedOnboarding(true);
+        } else if (savedOnboarding !== null && isMounted) {
           setHasCompletedOnboarding(savedOnboarding === 'true');
         } else if (localHabits.length > 0 && isMounted) {
           // Existing installs predate the persisted onboarding flag; do not restart onboarding on upgrade.
@@ -168,6 +172,12 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
 
         // 2. If user is logged in with Supabase, merge with cloud and preserve all completed dates!
         if (session && user && !user.isGuest && isSupabaseConfigured) {
+          if (session.user?.user_metadata?.onboarding_completed) {
+            if (isMounted) setHasCompletedOnboarding(true);
+            await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => {});
+            if (user?.id) await AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => {});
+          }
+
           let { data: cloudRows, error } = await supabase
             .from('habits')
             .select('*, habit_logs(*), habit_reminders(*)')
@@ -250,13 +260,32 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
 
             setHabits(mergedCloudHabits);
             await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(mergedCloudHabits));
+            setHasCompletedOnboarding(true);
+            await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => {});
+            if (user?.id) await AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => {});
 
             // Sync merged previous days back to Supabase in background
             for (const ch of mergedCloudHabits) {
               void syncHabitToCloudRef.current(ch);
             }
-          } else if (!error && Array.isArray(cloudRows) && cloudRows.length === 0 && localHabits.length > 0) {
-            // New cloud account: upload local habits WITH all previous days' history
+          } else if (!error && Array.isArray(cloudRows) && cloudRows.length === 0) {
+            try {
+              const { data: prefRow } = await supabase
+                .from('user_preferences')
+                .select('user_id')
+                .eq('user_id', user.id)
+                .maybeSingle();
+              if (prefRow && isMounted) {
+                setHasCompletedOnboarding(true);
+                await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => {});
+                if (user?.id) await AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => {});
+              }
+            } catch {
+              // ignore
+            }
+
+            if (localHabits.length > 0) {
+              // New cloud account: upload local habits WITH all previous days' history
             const uploadPayload = localHabits.map(h => ({
               id: h.id.startsWith(user.id) ? h.id : `${user.id}_${h.id}`,
               user_id: user.id,
@@ -290,7 +319,8 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
             }
           }
         }
-      } catch (err) {
+      }
+    } catch (err) {
         console.error('Failed to load recorded habits:', err);
       } finally {
         if (isMounted) {
@@ -686,11 +716,24 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
   const completeOnboarding = () => {
     setHasCompletedOnboarding(true);
     AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => {});
+    if (user?.id) {
+      AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => {});
+      if (isSupabaseConfigured && !user.isGuest) {
+        supabase.auth
+          .updateUser({
+            data: { onboarding_completed: true },
+          })
+          .catch(() => {});
+      }
+    }
   };
 
   const restartOnboarding = () => {
     setHasCompletedOnboarding(false);
     AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'false').catch(() => {});
+    if (user?.id) {
+      AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'false').catch(() => {});
+    }
   };
 
   const exportDataJson = () => {

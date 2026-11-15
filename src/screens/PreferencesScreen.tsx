@@ -8,7 +8,7 @@ import { DEFAULT_ACCENTS, DashboardSort, DateFormat, usePreferences } from '../s
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canAccessFeature } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
-import { checkNotificationPermissionStatus, parseTimeString, sendTestNotificationAsync } from '../services/localReminders';
+import { checkNotificationPermissionStatus, ensureLocalReminderPermission, parseTimeString, sendTestNotificationAsync } from '../services/localReminders';
 import { checkForAppUpdates, getUpdateInfo } from '../services/updateService';
 
 interface Props { onClose?: () => void }
@@ -112,9 +112,16 @@ export const PreferencesScreen = ({ onClose }: Props) => {
             </View>
             <TouchableOpacity
               style={[styles.openSettingsBtn, { backgroundColor: colors.accent }]}
-              onPress={() => Linking.openSettings()}
+              onPress={async () => {
+                const ok = await ensureLocalReminderPermission();
+                if (ok) {
+                  setNotiGranted(true);
+                } else {
+                  void Linking.openSettings();
+                }
+              }}
             >
-              <Text style={styles.openSettingsText}>Settings</Text>
+              <Text style={styles.openSettingsText}>Enable</Text>
             </TouchableOpacity>
           </View>
         )}
