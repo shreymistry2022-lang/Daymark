@@ -1,5 +1,6 @@
 // src/services/localReminders.ts
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { AndroidImportance, AndroidNotificationVisibility, IosAuthorizationStatus } from 'expo-notifications';
 import { HabitReminder } from '../domain/habitTypes';
@@ -9,6 +10,13 @@ export interface LocalReminderOwner {
   id: string;
   name: string;
   description?: string;
+  category?: string;
+  color?: string;
+  icon?: string;
+  streak?: number;
+  habitKind?: 'positive' | 'quit';
+  targetValue?: number;
+  unit?: string;
   reminders?: HabitReminder[];
   archivedAt?: string | null;
   startDate?: string;
@@ -74,6 +82,153 @@ export const parseTimeString = (input: string, fallbackAmPm?: 'AM' | 'PM'): { ho
   }
 
   return null;
+};
+
+export interface HabitNotificationContent {
+  title: string;
+  subtitle: string;
+  body: string;
+  color: string;
+}
+
+/**
+ * Builds rich, personalized, category-aware and streak-aware notification content
+ * so every habit reminder has a distinct, beautiful presentation.
+ */
+export const buildHabitNotificationContent = (owner: LocalReminderOwner): HabitNotificationContent => {
+  const color = owner.color || '#10B981';
+  const name = owner.name.trim();
+
+  // 1. Quit / Break habit
+  if (owner.habitKind === 'quit') {
+    let body = owner.description?.trim() || 'Protect your streak. You have the strength and resolve to choose differently today.';
+    if (owner.streak && owner.streak >= 2) {
+      body += `\n🔥 Day ${owner.streak} clean! Keep the chain unbroken.`;
+    }
+    return {
+      title: `🛡️ Stay Strong · ${name}`,
+      subtitle: 'Commitment Guard',
+      body,
+      color: owner.color || '#EF4444',
+    };
+  }
+
+  // 2. Category & keyword detection for positive habits
+  const text = `${owner.category || ''} ${owner.name || ''}`.toLowerCase();
+  let titlePrefix = '✨ Habit Reminder';
+  let subtitle = 'Daily Routine';
+  let defaultBody = 'A small step today keeps your momentum and progress moving forward.';
+
+  if (text.includes('water') || text.includes('hydrat') || text.includes('drink')) {
+    titlePrefix = '💧 Hydration Check';
+    subtitle = 'Nutrition & Water';
+    defaultBody = 'Drink a fresh glass of water to keep your body energized and mind clear.';
+  } else if (text.includes('sleep') || text.includes('rest') || text.includes('bed') || text.includes('wind down')) {
+    titlePrefix = '🌙 Bedtime & Rest';
+    subtitle = 'Sleep & Recovery';
+    defaultBody = 'Time to power down and let your mind and body recharge for tomorrow.';
+  } else if (
+    text.includes('fit') ||
+    text.includes('exercis') ||
+    text.includes('workout') ||
+    text.includes('gym') ||
+    text.includes('run') ||
+    text.includes('walk') ||
+    text.includes('step')
+  ) {
+    titlePrefix = '⚡ Movement & Vitality';
+    subtitle = 'Fitness & Movement';
+    defaultBody = 'Time for your workout! Movement fuels energy, clarity, and strength.';
+  } else if (
+    text.includes('mind') ||
+    text.includes('meditat') ||
+    text.includes('calm') ||
+    text.includes('journal') ||
+    text.includes('gratitude') ||
+    text.includes('breath')
+  ) {
+    titlePrefix = '🧘 Mindful Pause';
+    subtitle = 'Mindfulness & Peace';
+    defaultBody = 'Take a deep breath and center your focus. A moment of calm creates daily peace.';
+  } else if (
+    text.includes('focus') ||
+    text.includes('work') ||
+    text.includes('career') ||
+    text.includes('deep') ||
+    text.includes('study') ||
+    text.includes('code')
+  ) {
+    titlePrefix = '🎯 Deep Focus';
+    subtitle = 'Focus & Career';
+    defaultBody = 'Silence distractions and step into flow. Big achievements start with focused blocks.';
+  } else if (
+    text.includes('read') ||
+    text.includes('book') ||
+    text.includes('learn') ||
+    text.includes('skill') ||
+    text.includes('language')
+  ) {
+    titlePrefix = '📖 Expand Your Mind';
+    subtitle = 'Learning & Reading';
+    defaultBody = 'Open your book or lesson. A few minutes of daily growth compounds tremendously.';
+  } else if (
+    text.includes('financ') ||
+    text.includes('wealth') ||
+    text.includes('money') ||
+    text.includes('budget')
+  ) {
+    titlePrefix = '💰 Financial Freedom';
+    subtitle = 'Financial Discipline';
+    defaultBody = 'Stay intentional with your resources and keep your financial goals in sight.';
+  } else if (
+    text.includes('detox') ||
+    text.includes('screen') ||
+    text.includes('phone') ||
+    text.includes('scroll')
+  ) {
+    titlePrefix = '📵 Screen Reset';
+    subtitle = 'Digital Detox';
+    defaultBody = 'Step away from screens and connect with the real world around you.';
+  } else if (
+    text.includes('outdoor') ||
+    text.includes('nature') ||
+    text.includes('sun') ||
+    text.includes('park')
+  ) {
+    titlePrefix = '🌿 Fresh Air & Nature';
+    subtitle = 'Outdoor & Nature';
+    defaultBody = 'Step outside, catch the sunlight, and refresh your mind and spirit.';
+  } else if (
+    text.includes('clean') ||
+    text.includes('home') ||
+    text.includes('organ') ||
+    text.includes('tidy')
+  ) {
+    titlePrefix = '✨ Space & Clarity';
+    subtitle = 'Home & Organization';
+    defaultBody = 'A clean, tidy space brings peace of mind and effortless clarity.';
+  } else if (
+    text.includes('social') ||
+    text.includes('relation') ||
+    text.includes('friend') ||
+    text.includes('family')
+  ) {
+    titlePrefix = '🤝 Connect & Care';
+    subtitle = 'Relationships & Social';
+    defaultBody = 'Reach out to someone you care about or share a moment of kindness.';
+  }
+
+  let body = owner.description?.trim() || defaultBody;
+  if (owner.streak && owner.streak >= 2) {
+    body += `\n🔥 ${owner.streak}-day streak! Keep the chain unbroken.`;
+  }
+
+  return {
+    title: `${titlePrefix} · ${name}`,
+    subtitle,
+    body,
+    color,
+  };
 };
 
 Notifications.setNotificationHandler({
@@ -310,6 +465,15 @@ export const ensureLocalReminderPermission = async (): Promise<boolean> => {
         showBadge: true,
         lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
       });
+      await Notifications.setNotificationChannelAsync('rhythm-reminders', {
+        name: 'Daily rhythm (Wake & Sleep)',
+        importance: AndroidImportance.MAX,
+        vibrationPattern: [0, 300, 200, 300],
+        enableVibrate: true,
+        sound: 'default',
+        showBadge: true,
+        lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
+      });
     }
     return permission.granted || permission.ios?.status === IosAuthorizationStatus.PROVISIONAL;
   } catch (error) {
@@ -393,6 +557,8 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
     throw new Error('Notification permission is not enabled. Allow notifications in device settings to schedule reminders.');
   }
 
+  const content = buildHabitNotificationContent(owner);
+
   // 2. Schedule for Web
   if (Platform.OS === 'web') {
     const idsByReminder = new Map<string, string[]>();
@@ -404,8 +570,8 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
       const generatedId = `web_notif_${reminder.id}_${Date.now()}`;
       activeWebReminders.set(reminder.id, {
         ownerId: owner.id,
-        ownerName: owner.name,
-        ownerDescription: owner.description,
+        ownerName: content.title,
+        ownerDescription: content.body,
         soundEnabled: owner.soundEnabled !== false,
         reminderId: reminder.id,
         hour: reminder.hour,
@@ -438,11 +604,12 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
       }
       scheduledIds.push(await Notifications.scheduleNotificationAsync({
         content: {
-          title: owner.name,
-          body: owner.description || 'A small step keeps your progress moving.',
+          title: content.title,
+          subtitle: content.subtitle,
+          body: content.body,
           data: { ownerId: owner.id },
           sound: owner.soundEnabled !== false,
-          color: '#10B981',
+          color: content.color,
         },
         trigger: triggerInput,
       }));
@@ -461,11 +628,12 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
         }
         scheduledIds.push(await Notifications.scheduleNotificationAsync({
           content: {
-            title: owner.name,
-            body: owner.description || 'A small step keeps your progress moving.',
+            title: content.title,
+            subtitle: content.subtitle,
+            body: content.body,
             data: { ownerId: owner.id },
             sound: owner.soundEnabled !== false,
-            color: '#10B981',
+            color: content.color,
           },
           trigger: triggerInput,
         }));
@@ -478,3 +646,174 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
 
 export const replaceLocalHabitReminders = async (habit: LocalReminderOwner, previousReminders: HabitReminder[] = []) =>
   replaceLocalReminders(habit, previousReminders);
+
+export const RHYTHM_STORAGE_KEY = '@daymark_rhythm_notification_ids';
+
+export interface RhythmPreferencesInput {
+  wakeTime?: string | null;
+  sleepTime?: string | null;
+  notifications?: { routine?: boolean };
+  soundEnabled?: boolean;
+}
+
+/**
+ * Schedules daily wake-up and sleep/wind-down rhythm notifications based on user preferences.
+ */
+export const scheduleRhythmRemindersAsync = async (prefs: RhythmPreferencesInput): Promise<void> => {
+  // 1. Cancel previous rhythm notifications
+  if (Platform.OS === 'web') {
+    activeWebReminders.delete('rhythm_wake');
+    activeWebReminders.delete('rhythm_sleep');
+  } else {
+    try {
+      const stored = await AsyncStorage.getItem(RHYTHM_STORAGE_KEY);
+      if (stored) {
+        const oldIds: string[] = JSON.parse(stored);
+        await Promise.all(oldIds.map(async id => {
+          try { await Notifications.cancelScheduledNotificationAsync(id); } catch { /* ignore */ }
+        }));
+      }
+    } catch {
+      // Ignore reading error
+    }
+  }
+
+  // If routine notifications are explicitly turned off, clear stored IDs and stop
+  if (prefs.notifications?.routine === false) {
+    if (Platform.OS !== 'web') {
+      try { await AsyncStorage.setItem(RHYTHM_STORAGE_KEY, JSON.stringify([])); } catch { /* ignore */ }
+    }
+    return;
+  }
+
+  const parsedWake = prefs.wakeTime ? parseTimeString(prefs.wakeTime) : null;
+  const parsedSleep = prefs.sleepTime ? parseTimeString(prefs.sleepTime) : null;
+
+  if (!parsedWake && !parsedSleep) {
+    if (Platform.OS !== 'web') {
+      try { await AsyncStorage.setItem(RHYTHM_STORAGE_KEY, JSON.stringify([])); } catch { /* ignore */ }
+    }
+    return;
+  }
+
+  // Check permission (silently return if not yet granted to prevent unexpected dialogs)
+  const permStatus = await checkNotificationPermissionStatus();
+  if (!permStatus.granted && Platform.OS !== 'web') {
+    return;
+  }
+
+  // Ensure rhythm-reminders channel exists on Android
+  if (Platform.OS === 'android') {
+    try {
+      await Notifications.setNotificationChannelAsync('rhythm-reminders', {
+        name: 'Daily rhythm (Wake & Sleep)',
+        importance: AndroidImportance.MAX,
+        vibrationPattern: [0, 300, 200, 300],
+        enableVibrate: true,
+        sound: 'default',
+        showBadge: true,
+        lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
+      });
+    } catch { /* ignore */ }
+  }
+
+  const newIds: string[] = [];
+
+  // 1. Wake Up reminder
+  if (parsedWake) {
+    const wakeTitle = '☀️ Good Morning! Rise & Shine';
+    const wakeSub = 'Daily Rhythm';
+    const wakeBody = "A new day begins. Check today's routine and set your intentions for greatness.";
+    if (Platform.OS === 'web') {
+      activeWebReminders.set('rhythm_wake', {
+        ownerId: 'rhythm_wake',
+        ownerName: wakeTitle,
+        ownerDescription: wakeBody,
+        soundEnabled: prefs.soundEnabled !== false,
+        reminderId: 'rhythm_wake',
+        hour: parsedWake.hour,
+        minute: parsedWake.minute,
+        weekdays: [1, 2, 3, 4, 5, 6, 7],
+      });
+    } else {
+      try {
+        const triggerInput: any = {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour: parsedWake.hour,
+          minute: parsedWake.minute,
+          channelId: 'rhythm-reminders',
+        };
+        if (Platform.OS === 'android') {
+          triggerInput.delivery = 'alarmClock';
+        }
+        const id = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: wakeTitle,
+            subtitle: wakeSub,
+            body: wakeBody,
+            sound: prefs.soundEnabled !== false,
+            color: '#FF7A00',
+            data: { rhythmType: 'wake' },
+          },
+          trigger: triggerInput,
+        });
+        newIds.push(id);
+      } catch (err) {
+        console.warn('Could not schedule wake-up reminder:', err);
+      }
+    }
+  }
+
+  // 2. Sleep reminder
+  if (parsedSleep) {
+    const sleepTitle = '🌙 Wind Down · Time for Rest';
+    const sleepSub = 'Daily Rhythm';
+    const sleepBody = 'Rest is your superpower. Review your wins for today and prepare for deep, restorative sleep.';
+    if (Platform.OS === 'web') {
+      activeWebReminders.set('rhythm_sleep', {
+        ownerId: 'rhythm_sleep',
+        ownerName: sleepTitle,
+        ownerDescription: sleepBody,
+        soundEnabled: prefs.soundEnabled !== false,
+        reminderId: 'rhythm_sleep',
+        hour: parsedSleep.hour,
+        minute: parsedSleep.minute,
+        weekdays: [1, 2, 3, 4, 5, 6, 7],
+      });
+    } else {
+      try {
+        const triggerInput: any = {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour: parsedSleep.hour,
+          minute: parsedSleep.minute,
+          channelId: 'rhythm-reminders',
+        };
+        if (Platform.OS === 'android') {
+          triggerInput.delivery = 'alarmClock';
+        }
+        const id = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: sleepTitle,
+            subtitle: sleepSub,
+            body: sleepBody,
+            sound: prefs.soundEnabled !== false,
+            color: '#6366F1',
+            data: { rhythmType: 'sleep' },
+          },
+          trigger: triggerInput,
+        });
+        newIds.push(id);
+      } catch (err) {
+        console.warn('Could not schedule sleep reminder:', err);
+      }
+    }
+  }
+
+  if (Platform.OS === 'web') {
+    ensureWebWatcherStarted();
+  } else {
+    try {
+      await AsyncStorage.setItem(RHYTHM_STORAGE_KEY, JSON.stringify(newIds));
+    } catch { /* ignore */ }
+  }
+};

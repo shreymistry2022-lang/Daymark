@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { useAuth } from './AuthProvider';
 import { ThemeMode } from '../theme/tokens';
+import { scheduleRhythmRemindersAsync } from './localReminders';
 
 export type DateFormat = 'system' | 'us' | 'uk' | 'iso';
 export type DashboardSort = 'custom' | 'alphabetical' | 'consistency' | 'completion';
@@ -58,6 +59,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
 
   const persist = useCallback(async (next: DaymarkPreferences, sync = true) => {
     setPreferences(next);
+    void scheduleRhythmRemindersAsync(next);
     try { await AsyncStorage.setItem(key, JSON.stringify(next)); }
     catch { setError('Settings could not be saved on this device.'); }
     if (sync && session && user && !user.isGuest && isSupabaseConfigured) {
@@ -114,6 +116,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
       }
       if (!mounted) return;
       setPreferences(local);
+      void scheduleRhythmRemindersAsync(local);
       try { await AsyncStorage.setItem(key, JSON.stringify(local)); } catch { setError('Settings could not be saved on this device.'); }
       setIsLoading(false);
     };

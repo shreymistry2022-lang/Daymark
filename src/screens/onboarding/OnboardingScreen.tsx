@@ -11,7 +11,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radii } from '../../theme/tokens';
 import { useHabits, Habit } from '../../services/HabitContext';
-import { ensureLocalReminderPermission } from '../../services/localReminders';
+import { usePreferences } from '../../services/PreferencesContext';
+import { ensureLocalReminderPermission, parseTimeString } from '../../services/localReminders';
 
 interface OnboardingScreenProps {
   onComplete: () => void;
@@ -49,6 +50,7 @@ const SUGGESTED_HABITS: Omit<Habit, 'id' | 'streak' | 'completedDates'>[] = [
 export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {
   const insets = useSafeAreaInsets();
   const { addMultipleHabits } = useHabits();
+  const { updatePreferences } = usePreferences();
 
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [selectedGoals, setSelectedGoals] = useState<string[]>(['focus', 'fitness', 'nutrition']);
@@ -84,6 +86,26 @@ export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {
     if (reminderActive) {
       await ensureLocalReminderPermission();
     }
+
+    // Save chosen wake & sleep rhythm times to preferences so daily rhythm reminders are scheduled
+    const wakeParsed = parseTimeString(wakeTime);
+    const sleepParsed = parseTimeString(sleepTime);
+    const wake24 = wakeParsed
+      ? `${String(wakeParsed.hour).padStart(2, '0')}:${String(wakeParsed.minute).padStart(2, '0')}`
+      : null;
+    const sleep24 = sleepParsed
+      ? `${String(sleepParsed.hour).padStart(2, '0')}:${String(sleepParsed.minute).padStart(2, '0')}`
+      : null;
+
+    updatePreferences({
+      wakeTime: wake24,
+      sleepTime: sleep24,
+      notifications: {
+        daily: reminderActive,
+        routine: reminderActive,
+      },
+    });
+
     onComplete();
   };
 
@@ -348,8 +370,8 @@ export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {
               <View style={styles.notiLeft}>
                 <Ionicons name="notifications-outline" size={22} color={colors.accent} />
                 <View>
-                  <Text style={styles.notiTitle}>Daily Morning Prompt</Text>
-                  <Text style={styles.notiSub}>Gentle reminder at 08:00 AM</Text>
+                  <Text style={styles.notiTitle}>Daily Rhythm Reminders</Text>
+                  <Text style={styles.notiSub}>Wake & sleep alerts at {wakeTime} and {sleepTime}</Text>
                 </View>
               </View>
               <TouchableOpacity

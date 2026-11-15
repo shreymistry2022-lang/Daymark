@@ -41,8 +41,8 @@ function RootNavigator() {
   useEffect(() => {
     return subscribeToReminderAlerts(alert => {
       Alert.alert(
-        `🔔 ${alert.title}`,
-        `${alert.body}\n\nTime to check off this habit!`,
+        alert.title,
+        alert.body,
         [{ text: 'OK' }]
       );
     });

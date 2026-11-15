@@ -8,7 +8,7 @@ import { DEFAULT_ACCENTS, DashboardSort, DateFormat, usePreferences } from '../s
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canAccessFeature } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
-import { checkNotificationPermissionStatus, sendTestNotificationAsync } from '../services/localReminders';
+import { checkNotificationPermissionStatus, parseTimeString, sendTestNotificationAsync } from '../services/localReminders';
 
 interface Props { onClose?: () => void }
 const TIMEZONES = ['UTC', 'Asia/Kolkata', 'Asia/Dubai', 'Asia/Singapore', 'Asia/Tokyo', 'Europe/London', 'Europe/Paris', 'America/New_York', 'America/Los_Angeles', 'Australia/Sydney'];
@@ -25,7 +25,22 @@ export const PreferencesScreen = ({ onClose }: Props) => {
   useEffect(() => { setTimezoneDraft(preferences.timezone); setWakeDraft(preferences.wakeTime ?? ''); setSleepDraft(preferences.sleepTime ?? ''); }, [preferences.timezone, preferences.wakeTime, preferences.sleepTime]);
   const chooseTheme = (theme: ThemeMode) => { if (theme === 'pure' && !canAccessFeature('premium_themes', isPro)) { setPaywallVisible(true); return; } setMode(theme); };
   const commitTimezone = () => { const value = timezoneDraft.trim(); try { new Intl.DateTimeFormat('en-US', { timeZone: value }).format(); updatePreferences({ timezone: value }); } catch { Alert.alert('Timezone not recognized', 'Enter a valid IANA timezone, such as Asia/Kolkata or America/New_York.'); setTimezoneDraft(preferences.timezone); } };
-  const commitTime = (field: 'wakeTime' | 'sleepTime', value: string) => { const time = value.trim(); if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) { Alert.alert('Use 24-hour time', 'Enter a time in HH:mm format, such as 07:30.'); if (field === 'wakeTime') setWakeDraft(preferences.wakeTime ?? ''); else setSleepDraft(preferences.sleepTime ?? ''); return; } updatePreferences({ [field]: time || null }); };
+  const commitTime = (field: 'wakeTime' | 'sleepTime', value: string) => {
+    const time = value.trim();
+    if (!time) {
+      updatePreferences({ [field]: null });
+      return;
+    }
+    const parsed = parseTimeString(time);
+    if (!parsed) {
+      Alert.alert('Invalid Time', 'Enter a valid time such as 07:00, 7:00 AM, or 10:30 PM.');
+      if (field === 'wakeTime') setWakeDraft(preferences.wakeTime ?? '');
+      else setSleepDraft(preferences.sleepTime ?? '');
+      return;
+    }
+    const formatted = `${String(parsed.hour).padStart(2, '0')}:${String(parsed.minute).padStart(2, '0')}`;
+    updatePreferences({ [field]: formatted });
+  };
   const handleTestReminder = async () => {
     try {
       const scheduled = await sendTestNotificationAsync();
@@ -53,7 +68,7 @@ export const PreferencesScreen = ({ onClose }: Props) => {
       )}
       <Section title="APPEARANCE" colors={colors}><Text style={[styles.caption, { color: colors.secondaryText }]}>Automatic follows the device light and dark setting.</Text><View style={styles.choiceWrap}>{THEME_OPTIONS.map(option => <Choice key={option.id} label={option.label} active={mode === option.id} onPress={() => chooseTheme(option.id)} colors={colors} />)}</View><Text style={[styles.label, { color: colors.secondaryText }]}>ACCENT COLOUR</Text><View style={styles.swatches}>{DEFAULT_ACCENTS.map(color => <TouchableOpacity key={color} accessibilityRole="button" accessibilityLabel={`Set accent colour ${color}`} accessibilityState={{ selected: preferences.accentColor === color }} onPress={() => updatePreferences({ accentColor: color })} style={[styles.swatch, { backgroundColor: color, borderColor: preferences.accentColor === color ? colors.primaryText : colors.border }]}>{preferences.accentColor === color && <Ionicons name="checkmark" size={15} color="#fff" />}</TouchableOpacity>)}</View></Section>
       <Section title="CALENDAR AND TIME" colors={colors}><Text style={[styles.label, { color: colors.secondaryText }]}>WEEK STARTS ON</Text><View style={styles.choiceWrap}>{[{ label: 'Monday', value: 1 }, { label: 'Sunday', value: 0 }].map(item => <Choice key={item.value} label={item.label} active={preferences.weekStart === item.value} onPress={() => updatePreferences({ weekStart: item.value })} colors={colors} />)}</View><Text style={[styles.label, { color: colors.secondaryText }]}>DATE FORMAT</Text><View style={styles.choiceWrap}>{([{ label: 'System', value: 'system' }, { label: 'MM/DD/YYYY', value: 'us' }, { label: 'DD/MM/YYYY', value: 'uk' }, { label: 'YYYY-MM-DD', value: 'iso' }] as { label: string; value: DateFormat }[]).map(item => <Choice key={item.value} label={item.label} active={preferences.dateFormat === item.value} onPress={() => updatePreferences({ dateFormat: item.value })} colors={colors} />)}</View><Text style={[styles.label, { color: colors.secondaryText }]}>TIMEZONE</Text><TextInput accessibilityLabel="Timezone" value={timezoneDraft} onChangeText={setTimezoneDraft} onBlur={commitTimezone} onSubmitEditing={commitTimezone} autoCapitalize="none" placeholder="IANA timezone" placeholderTextColor={colors.mutedText} style={[styles.input, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]} /><View style={styles.choiceWrap}>{TIMEZONES.map(zone => <Choice key={zone} label={zone} active={preferences.timezone === zone} onPress={() => { setTimezoneDraft(zone); updatePreferences({ timezone: zone }); }} colors={colors} />)}</View></Section>
-      <Section title="DAILY RHYTHM" colors={colors}><Text style={[styles.caption, { color: colors.secondaryText }]}>Optional times for future planning and reminder suggestions.</Text><View style={styles.timeRow}><View style={{ flex: 1 }}><Text style={[styles.label, { color: colors.secondaryText }]}>WAKE UP</Text><TextInput accessibilityLabel="Wake up time" value={wakeDraft} onChangeText={setWakeDraft} onBlur={() => commitTime('wakeTime', wakeDraft)} onSubmitEditing={() => commitTime('wakeTime', wakeDraft)} placeholder="07:00" placeholderTextColor={colors.mutedText} style={[styles.input, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]} /></View><View style={{ flex: 1 }}><Text style={[styles.label, { color: colors.secondaryText }]}>SLEEP</Text><TextInput accessibilityLabel="Sleep time" value={sleepDraft} onChangeText={setSleepDraft} onBlur={() => commitTime('sleepTime', sleepDraft)} onSubmitEditing={() => commitTime('sleepTime', sleepDraft)} placeholder="22:00" placeholderTextColor={colors.mutedText} style={[styles.input, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]} /></View></View></Section>
+      <Section title="DAILY RHYTHM" colors={colors}><Text style={[styles.caption, { color: colors.secondaryText }]}>Your daily wake-up and sleep schedule. Daymark automatically sends rhythm reminders at these times.</Text><View style={styles.timeRow}><View style={{ flex: 1 }}><Text style={[styles.label, { color: colors.secondaryText }]}>WAKE UP</Text><TextInput accessibilityLabel="Wake up time" value={wakeDraft} onChangeText={setWakeDraft} onBlur={() => commitTime('wakeTime', wakeDraft)} onSubmitEditing={() => commitTime('wakeTime', wakeDraft)} placeholder="07:00 or 7:00 AM" placeholderTextColor={colors.mutedText} style={[styles.input, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]} /></View><View style={{ flex: 1 }}><Text style={[styles.label, { color: colors.secondaryText }]}>SLEEP</Text><TextInput accessibilityLabel="Sleep time" value={sleepDraft} onChangeText={setSleepDraft} onBlur={() => commitTime('sleepTime', sleepDraft)} onSubmitEditing={() => commitTime('sleepTime', sleepDraft)} placeholder="22:00 or 10:00 PM" placeholderTextColor={colors.mutedText} style={[styles.input, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]} /></View></View></Section>
       <Section title="DASHBOARD" colors={colors}><Text style={[styles.label, { color: colors.secondaryText }]}>DEFAULT HABIT ORDER</Text><View style={styles.choiceWrap}>{([{ label: 'Custom', value: 'custom' }, { label: 'Alphabetical', value: 'alphabetical' }, { label: 'Consistency', value: 'consistency' }, { label: 'Completion', value: 'completion' }] as { label: string; value: DashboardSort }[]).map(item => <Choice key={item.value} label={item.label} active={preferences.dashboardSort === item.value} onPress={() => updatePreferences({ dashboardSort: item.value })} colors={colors} />)}</View></Section>
       <Section title="FEEDBACK AND REMINDERS" colors={colors}>
         {notiGranted === false && (
@@ -74,7 +89,7 @@ export const PreferencesScreen = ({ onClose }: Props) => {
         <Toggle label="Haptic feedback" detail="Vibrate for small confirmations" value={preferences.hapticsEnabled} onChange={value => updatePreferences({ hapticsEnabled: value })} colors={colors} />
         <Toggle label="Sound" detail="Allow notification sounds" value={preferences.soundEnabled} onChange={value => updatePreferences({ soundEnabled: value })} colors={colors} />
         <Toggle label="Habit reminders" detail="Enable scheduled habit notifications" value={preferences.notifications.daily} onChange={value => updatePreferences({ notifications: { daily: value } })} colors={colors} />
-        <Toggle label="Routine reminders" detail="Enable routine notifications" value={preferences.notifications.routine} onChange={value => updatePreferences({ notifications: { routine: value } })} colors={colors} />
+        <Toggle label="Daily rhythm & routines" detail="Wake-up, bedtime, and routine notifications" value={preferences.notifications.routine} onChange={value => updatePreferences({ notifications: { routine: value } })} colors={colors} />
         <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel="Send test habit reminder"
