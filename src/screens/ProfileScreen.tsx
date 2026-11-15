@@ -23,6 +23,7 @@ import { useAuth } from '../services/AuthProvider';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canAccessFeature, SUBSCRIPTIONS_ENABLED } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
+import { FeedbackModal } from '../components/FeedbackModal';
 import { checkForAppUpdates, getUpdateInfo } from '../services/updateService';
 import { RoutinesScreen } from './RoutinesScreen';
 import { GoalsScreen } from './GoalsScreen';
@@ -62,6 +63,7 @@ export const ProfileScreen = () => {
   const [searchVisible, setSearchVisible] = useState(false);
   const [preferencesVisible, setPreferencesVisible] = useState(false);
   const [insightsVisible, setInsightsVisible] = useState(false);
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [initialRoutineId, setInitialRoutineId] = useState<string | null>(null);
   const [initialGoalId, setInitialGoalId] = useState<string | null>(null);
   const [initialJournalId, setInitialJournalId] = useState<string | null>(null);
@@ -407,6 +409,16 @@ export const ProfileScreen = () => {
 
           <TouchableOpacity
             style={[styles.actionButton, { borderBottomColor: colors.border }]}
+            onPress={() => setFeedbackVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="star-outline" size={20} color="#F59E0B" />
+            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Rate Daymark & Send Feedback</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionButton, { borderBottomColor: colors.border }]}
             onPress={() => { void checkForAppUpdates(true); }}
             activeOpacity={0.7}
           >
@@ -471,6 +483,7 @@ export const ProfileScreen = () => {
         </View>
       </ScrollView>
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
+      <FeedbackModal visible={feedbackVisible} onClose={() => setFeedbackVisible(false)} />
       <Modal visible={routinesVisible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setRoutinesVisible(false)}>
         <RoutinesScreen initialRoutineId={initialRoutineId} onInitialRoutineHandled={() => setInitialRoutineId(null)} onClose={() => { setRoutinesVisible(false); setInitialRoutineId(null); }} />
       </Modal>

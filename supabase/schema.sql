@@ -402,4 +402,33 @@ on conflict (user_id) do update set
   subscription_type = 'complimentary_lifetime',
   updated_at = now();
 
+-- =========================================================
+-- CUSTOMER REVIEWS & FEEDBACK COLLECTION TABLE
+-- =========================================================
+create table if not exists public.app_feedback (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  user_email text,
+  rating integer not null check (rating >= 1 and rating <= 5),
+  sentiment text not null,
+  category text default 'general',
+  feedback_text text,
+  app_version text,
+  device_info text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.app_feedback enable row level security;
+
+drop policy if exists "Users can insert feedback" on public.app_feedback;
+create policy "Users can insert feedback"
+  on public.app_feedback for insert
+  with check (true);
+
+drop policy if exists "Users can read own feedback" on public.app_feedback;
+create policy "Users can read own feedback"
+  on public.app_feedback for select
+  using (auth.uid() = user_id);
+
+
 
