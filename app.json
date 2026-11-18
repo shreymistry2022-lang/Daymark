@@ -8,11 +8,11 @@
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
     "ios": {
-      "bundleIdentifier": "com.daymark.app",
+      "bundleIdentifier": "com.daymark.habittracker.app",
       "supportsTablet": true
     },
     "android": {
-      "package": "com.daymark.app",
+      "package": "com.daymark.habittracker.app",
       "versionCode": 6,
       "adaptiveIcon": {
         "backgroundColor": "#1B1D22",

@@ -16,8 +16,8 @@ export interface FeedbackSubmission {
 const FEEDBACK_STORAGE_KEY = '@daymark_feedback_submitted_v1';
 const PROMPT_HISTORY_KEY = '@daymark_feedback_prompt_history_v1';
 
-export const PLAY_STORE_URL = 'market://details?id=com.daymark.app';
-export const PLAY_STORE_WEB_URL = 'https://play.google.com/store/apps/details?id=com.daymark.app';
+export const PLAY_STORE_URL = 'market://details?id=com.daymark.habittracker.app';
+export const PLAY_STORE_WEB_URL = 'https://play.google.com/store/apps/details?id=com.daymark.habittracker.app';
 
 /**
  * Open the Google Play Store page so the user can leave a public 5-star review.
