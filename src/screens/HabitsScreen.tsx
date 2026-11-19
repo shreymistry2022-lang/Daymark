@@ -26,9 +26,12 @@ import { addLocalDays, calculateCompletionStats, calculateStreakStats, getHabitD
 import { formatReminderTime } from '../services/localReminders';
 import { HabitTrackingControl } from '../components/HabitTrackingControl';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import * as Haptics from 'expo-haptics';
+import { usePreferences } from '../services/PreferencesContext';
 
 export const HabitsScreen = () => {
   const { habits, archivedHabits, allHabits, toggleHabit, recordHabitLog, addHabit, updateHabit, archiveHabit, restoreHabit, pauseHabit, resumeHabit, deleteHabit, todayDateStr } = useHabits();
+  const { preferences } = usePreferences();
   const { colors } = useTheme();
   const { isPro } = useSubscription();
   const insets = useSafeAreaInsets();
@@ -222,6 +225,7 @@ export const HabitsScreen = () => {
 
                 {/* Interactive checkmark button */}
                 <TouchableOpacity
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                   style={[
                     styles.checkButton,
                     {
@@ -230,7 +234,10 @@ export const HabitsScreen = () => {
                     },
                   ]}
                   activeOpacity={0.6}
-                  onPress={() => toggleHabit(habit.id)}
+                  onPress={() => {
+                    if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    toggleHabit(habit.id);
+                  }}
                 >
                   <Ionicons
                     name={isCompleted ? 'checkmark' : 'checkmark-outline'}
@@ -313,7 +320,7 @@ export const HabitsScreen = () => {
               </View>
               <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>{selectedHabitStats?.totalSuccessfulScheduledDays ?? 0} successful scheduled days recorded</Text>
 
-              {isTrackableOnDate(selectedHabit, todayDateStr) ? selectedHabit.habitKind === 'quit' || selectedHabit.trackingMethod === 'count' || selectedHabit.trackingMethod === 'measurable' ? (
+              {isTrackableOnDate(selectedHabit, todayDateStr) ? selectedHabit.habitKind === 'quit' ? (
                 <HabitTrackingControl habit={selectedHabit} date={todayDateStr} onSave={recordHabitLog} />
               ) : (
                 (() => {
@@ -327,6 +334,7 @@ export const HabitsScreen = () => {
                       ]}
                       activeOpacity={0.8}
                       onPress={() => {
+                        if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                         toggleHabit(selectedHabit.id);
                       }}
                     >

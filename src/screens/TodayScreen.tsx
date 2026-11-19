@@ -1,5 +1,5 @@
 // src/screens/TodayScreen.tsx
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii } from '../theme/tokens';
-import { useHabits } from '../services/HabitContext';
+import { useHabits, Habit } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
 import { CreateHabitModal } from '../components/CreateHabitModal';
 import { HABIT_CATEGORIES } from '../constants/categories';
@@ -25,6 +25,164 @@ import { getHabitDayStatus, isTrackableOnDate, parseLocalDate } from '../domain/
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../services/AuthProvider';
 import { formatReminderTime } from '../services/localReminders';
+
+interface TodayHabitCardProps {
+  habit: Habit;
+  habitIndex: number;
+  totalCount: number;
+  selectedDate: string;
+  dateReference: Date;
+  colors: any;
+  hapticsEnabled: boolean;
+  showReorder: boolean;
+  onOpenDetails: (habitId: string) => void;
+  onToggle: (habitId: string, dateStr: string) => void;
+  onRecordLog: (id: string, log: any) => { error?: string };
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}
+
+const TodayHabitCard = React.memo(({
+  habit,
+  habitIndex,
+  totalCount,
+  selectedDate,
+  dateReference,
+  colors,
+  hapticsEnabled,
+  showReorder,
+  onOpenDetails,
+  onToggle,
+  onRecordLog,
+  onMoveUp,
+  onMoveDown,
+}: TodayHabitCardProps) => {
+  const serverCompleted = getHabitDayStatus(habit, selectedDate, dateReference) === 'completed';
+  const [optimisticState, setOptimisticState] = useState<{ key: string; completed: boolean } | null>(null);
+
+  const currentKey = `${habit.id}-${selectedDate}-${habit.completedDates.length}-${habit.logs?.length ?? 0}`;
+  const isCompleted = optimisticState?.key === currentKey ? optimisticState.completed : serverCompleted;
+  const enabledReminders = (habit.reminders ?? []).filter(r => r.enabled);
+
+  const handlePressCheckbox = useCallback(() => {
+    if (hapticsEnabled) {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
+    const nextVal = !isCompleted;
+    setOptimisticState({ key: currentKey, completed: nextVal });
+    onToggle(habit.id, selectedDate);
+  }, [hapticsEnabled, isCompleted, currentKey, onToggle, habit.id, selectedDate]);
+
+  return (
+    <View
+      style={[
+        styles.habitCard,
+        {
+          backgroundColor: colors.card,
+          borderColor: isCompleted ? `${colors.accent}40` : colors.border,
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.habitIconBox,
+          { backgroundColor: `${habit.color}1F` },
+        ]}
+      >
+        <Ionicons name={habit.icon} size={22} color={habit.color} />
+      </View>
+
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${habit.name} details`}
+        style={styles.habitMeta}
+        onPress={() => onOpenDetails(habit.id)}
+      >
+        <Text
+          style={[
+            styles.habitTitle,
+            { color: isCompleted ? colors.mutedText : colors.primaryText },
+            isCompleted && styles.habitTitleCompleted,
+          ]}
+          numberOfLines={1}
+        >
+          {habit.name}
+        </Text>
+        <View style={styles.tagRow}>
+          <Text style={[styles.categoryTag, { color: colors.secondaryText }]}>{habit.category}</Text>
+          <Text style={[styles.tagDivider, { color: colors.mutedText }]}>•</Text>
+          <Text style={[styles.streakTag, { color: colors.accent }]}>🔥 {habit.streak}d streak</Text>
+          <Text style={[styles.tagDivider, { color: colors.mutedText }]}>•</Text>
+          <Text style={[styles.freqTag, { color: colors.mutedText }]}>{habit.targetFrequency}</Text>
+        </View>
+        {enabledReminders.length > 0 && (
+          <View style={[styles.reminderPill, { backgroundColor: `${habit.color}18`, opacity: isCompleted ? 0.6 : 1 }]}>
+            <Ionicons name="notifications-outline" size={11} color={habit.color} />
+            <Text style={[styles.reminderText, { color: habit.color }]}>
+              {enabledReminders.map(r => formatReminderTime(r.hour, r.minute)).join(', ')}
+            </Text>
+          </View>
+        )}
+      </TouchableOpacity>
+
+      {/* Instant Zero-Lag Simple Checkbox for all positive habits */}
+      {habit.habitKind === 'quit' ? (
+        <HabitTrackingControl
+          key={`${habit.id}-${selectedDate}`}
+          habit={habit}
+          date={selectedDate}
+          onSave={onRecordLog}
+        />
+      ) : (
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={`${isCompleted ? 'Undo' : 'Complete'} ${habit.name} for ${selectedDate}`}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          style={[
+            styles.checkbox,
+            {
+              borderColor: isCompleted ? habit.color : colors.border,
+              backgroundColor: isCompleted ? habit.color : colors.secondaryBackground,
+            },
+          ]}
+          activeOpacity={0.6}
+          onPress={handlePressCheckbox}
+        >
+          {isCompleted && (
+            <Ionicons name="checkmark" size={18} color="#000" />
+          )}
+        </TouchableOpacity>
+      )}
+
+      {showReorder && (
+        <View style={styles.reorderControls}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`Move ${habit.name} up`}
+            accessibilityState={{ disabled: habitIndex === 0 }}
+            disabled={habitIndex === 0}
+            onPress={onMoveUp}
+            style={styles.reorderButton}
+          >
+            <Ionicons name="chevron-up" size={18} color={habitIndex === 0 ? colors.mutedText : colors.secondaryText} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`Move ${habit.name} down`}
+            accessibilityState={{ disabled: habitIndex === totalCount - 1 }}
+            disabled={habitIndex === totalCount - 1}
+            onPress={onMoveDown}
+            style={styles.reorderButton}
+          >
+            <Ionicons name="chevron-down" size={18} color={habitIndex === totalCount - 1 ? colors.mutedText : colors.secondaryText} />
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+});
+
+TodayHabitCard.displayName = 'TodayHabitCard';
 
 export const TodayScreen = () => {
   const { habits, toggleHabit, recordHabitLog, addHabit, moveHabit, todayDateStr, stats, triggerCelebration } = useHabits();
@@ -61,6 +219,14 @@ export const TodayScreen = () => {
     if (selectedCategory === 'All') return true;
     return h.category === selectedCategory;
   });
+
+  const handleOpenDetails = useCallback((habitId: string) => {
+    navigation.navigate('Habits', { focusHabitId: habitId });
+  }, [navigation]);
+
+  const handleToggleHabit = useCallback((habitId: string, dateStr: string) => {
+    toggleHabit(habitId, dateStr);
+  }, [toggleHabit]);
 
   const currentDateFormatted = formatAppDate(new Date(`${selectedDate}T12:00:00Z`), preferences.dateFormat, preferences.timezone).toUpperCase();
   const currentHour = Number(new Intl.DateTimeFormat('en', { hour: '2-digit', hour12: false, timeZone: preferences.timezone }).format(new Date()));
@@ -225,84 +391,24 @@ export const TodayScreen = () => {
             </TouchableOpacity>
           </View>
 
-          {filteredHabits.map((habit, habitIndex) => {
-            const isCompleted = getHabitDayStatus(habit, selectedDate, dateReference) === 'completed';
-            const enabledReminders = (habit.reminders ?? []).filter(r => r.enabled);
-            return (
-              <View
-                key={habit.id}
-                style={[
-                  styles.habitCard,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: isCompleted ? `${colors.accent}40` : colors.border,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.habitIconBox,
-                    { backgroundColor: `${habit.color}1F` },
-                  ]}
-                >
-                  <Ionicons name={habit.icon} size={22} color={habit.color} />
-                </View>
-
-                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${habit.name} details`} style={styles.habitMeta} onPress={() => navigation.navigate('Habits', { focusHabitId: habit.id })}>
-                  <Text
-                    style={[
-                      styles.habitTitle,
-                      { color: isCompleted ? colors.mutedText : colors.primaryText },
-                      isCompleted && styles.habitTitleCompleted,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {habit.name}
-                  </Text>
-                  <View style={styles.tagRow}>
-                    <Text style={[styles.categoryTag, { color: colors.secondaryText }]}>{habit.category}</Text>
-                    <Text style={[styles.tagDivider, { color: colors.mutedText }]}>•</Text>
-                    <Text style={[styles.streakTag, { color: colors.accent }]}>🔥 {habit.streak}d streak</Text>
-                    <Text style={[styles.tagDivider, { color: colors.mutedText }]}>•</Text>
-                    <Text style={[styles.freqTag, { color: colors.mutedText }]}>{habit.targetFrequency}</Text>
-                  </View>
-                  {enabledReminders.length > 0 && (
-                    <View style={[styles.reminderPill, { backgroundColor: `${habit.color}18`, opacity: isCompleted ? 0.6 : 1 }]}>
-                      <Ionicons name="notifications-outline" size={11} color={habit.color} />
-                      <Text style={[styles.reminderText, { color: habit.color }]}>
-                        {enabledReminders.map(r => formatReminderTime(r.hour, r.minute)).join(', ')}
-                      </Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-
-                {/* Big Interactive Checkbox */}
-                {habit.habitKind === 'quit' || habit.trackingMethod === 'count' || habit.trackingMethod === 'measurable' ? (
-                  <HabitTrackingControl key={`${habit.id}-${selectedDate}-${habit.logs?.find(log => log.date === selectedDate)?.value ?? 0}-${habit.logs?.find(log => log.date === selectedDate)?.outcome ?? ''}`} habit={habit} date={selectedDate} onSave={recordHabitLog} />
-                ) : <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel={`${habit.completedDates.includes(selectedDate) ? 'Undo' : 'Complete'} ${habit.name} for ${selectedDate}`}
-                  style={[
-                    styles.checkbox,
-                    {
-                      borderColor: isCompleted ? habit.color : colors.border,
-                      backgroundColor: isCompleted ? habit.color : colors.secondaryBackground,
-                    },
-                  ]}
-                  activeOpacity={0.6}
-                  onPress={() => { toggleHabit(habit.id, selectedDate); if (preferences.hapticsEnabled) void Haptics.selectionAsync().catch(() => {}); }}
-                >
-                  {isCompleted && (
-                    <Ionicons name="checkmark" size={18} color="#000" />
-                  )}
-                </TouchableOpacity>}
-                {preferences.dashboardSort === 'custom' && selectedCategory === 'All' && <View style={styles.reorderControls}>
-                  <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Move ${habit.name} up`} accessibilityState={{ disabled: habitIndex === 0 }} disabled={habitIndex === 0} onPress={() => moveHabit(habit.id, filteredHabits[habitIndex - 1]?.id ?? '')} style={styles.reorderButton}><Ionicons name="chevron-up" size={18} color={habitIndex === 0 ? colors.mutedText : colors.secondaryText} /></TouchableOpacity>
-                  <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Move ${habit.name} down`} accessibilityState={{ disabled: habitIndex === filteredHabits.length - 1 }} disabled={habitIndex === filteredHabits.length - 1} onPress={() => moveHabit(habit.id, filteredHabits[habitIndex + 1]?.id ?? '')} style={styles.reorderButton}><Ionicons name="chevron-down" size={18} color={habitIndex === filteredHabits.length - 1 ? colors.mutedText : colors.secondaryText} /></TouchableOpacity>
-                </View>}
-              </View>
-            );
-          })}
+          {filteredHabits.map((habit, habitIndex) => (
+            <TodayHabitCard
+              key={habit.id}
+              habit={habit}
+              habitIndex={habitIndex}
+              totalCount={filteredHabits.length}
+              selectedDate={selectedDate}
+              dateReference={dateReference}
+              colors={colors}
+              hapticsEnabled={preferences.hapticsEnabled}
+              showReorder={preferences.dashboardSort === 'custom' && selectedCategory === 'All'}
+              onOpenDetails={handleOpenDetails}
+              onToggle={handleToggleHabit}
+              onRecordLog={recordHabitLog}
+              onMoveUp={() => moveHabit(habit.id, filteredHabits[habitIndex - 1]?.id ?? '')}
+              onMoveDown={() => moveHabit(habit.id, filteredHabits[habitIndex + 1]?.id ?? '')}
+            />
+          ))}
 
           {filteredHabits.length === 0 && (
             <View style={styles.emptyState}>

@@ -142,7 +142,12 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
           try {
             const parsed = JSON.parse(savedHabitsJson);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              localHabits = parsed.filter((item: Habit) => !deletedHabitIds.includes(item.id));
+              localHabits = parsed
+                .filter((item: Habit) => !deletedHabitIds.includes(item.id))
+                .map((item: Habit) => (item.habitKind !== 'quit' && (item.trackingMethod === 'count' || item.trackingMethod === 'measurable'))
+                  ? { ...item, trackingMethod: 'yes_no' as const }
+                  : item
+                );
               if (isMounted) {
                 setHabits(localHabits);
               }
@@ -238,7 +243,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
                 targetFrequency: row.target_frequency || 'Daily',
                 description: row.description || '',
                 habitKind: row.habit_kind === 'quit' ? 'quit' : 'positive',
-                trackingMethod: row.tracking_method === 'count' || row.tracking_method === 'measurable' ? row.tracking_method : 'yes_no',
+                trackingMethod: row.habit_kind === 'quit' ? 'yes_no' : 'yes_no',
                 targetValue: Number(row.target_value) > 0 ? Number(row.target_value) : 1,
                 unit: row.unit || '',
                 schedule: row.schedule && typeof row.schedule === 'object' ? row.schedule : undefined,
@@ -490,13 +495,14 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
 
   const toggleHabit = (id: string, dateStr: string = todayStr) => {
     const target = habits.find(habit => habit.id === id);
-    if (!target || target.archivedAt || target.habitKind === 'quit' || target.trackingMethod === 'count' || target.trackingMethod === 'measurable' || !isTrackableOnDate(target, dateStr, todayReferenceDate)) return;
+    if (!target || target.archivedAt || target.habitKind === 'quit' || !isTrackableOnDate(target, dateStr, todayReferenceDate)) return;
     const completed = target.completedDates.includes(dateStr);
     const logs = (target.logs ?? []).filter(log => log.date !== dateStr);
+    const targetVal = target.targetValue && target.targetValue > 0 ? target.targetValue : 1;
     const updatedHabit: Habit = {
       ...target,
       completedDates: completed ? target.completedDates.filter(date => date !== dateStr) : [...target.completedDates, dateStr].sort(),
-      logs: completed ? logs : [...logs, { date: dateStr, outcome: 'completed', value: 1, createdAt: new Date().toISOString() }],
+      logs: completed ? logs : [...logs, { date: dateStr, outcome: 'completed', value: targetVal, createdAt: new Date().toISOString() }],
     };
     const next = habits.map(habit => habit.id === id ? updatedHabit : habit);
     const scheduledToday = next.filter(habit => !habit.archivedAt && isScheduledOnDate(habit, todayStr));
