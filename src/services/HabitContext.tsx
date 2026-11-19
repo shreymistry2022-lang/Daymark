@@ -116,9 +116,11 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     const loadData = async () => {
       try {
         // 1. Load cached habits, onboarding state, and tombstones for deleted habits
+        const userHabitsKey = user?.id ? `@daymark_habits_user_${user.id}` : null;
         const userOnboardingKey = user?.id ? `@daymark_onboarding_v2_${user.id}` : null;
-        const [savedHabitsJson, savedOnboarding, savedUserOnboarding, savedDeletedJson] = await Promise.all([
+        const [savedHabitsJson, savedUserHabitsJson, savedOnboarding, savedUserOnboarding, savedDeletedJson] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.HABITS),
+          userHabitsKey ? AsyncStorage.getItem(userHabitsKey) : Promise.resolve(null),
           AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING),
           userOnboardingKey ? AsyncStorage.getItem(userOnboardingKey) : Promise.resolve(null),
           AsyncStorage.getItem(STORAGE_KEYS.DELETED_HABITS),
@@ -138,9 +140,10 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
         }
 
         let localHabits: Habit[] = [];
-        if (savedHabitsJson) {
+        const rawJsonToParse = (user && !user.isGuest && savedUserHabitsJson) ? savedUserHabitsJson : savedHabitsJson;
+        if (rawJsonToParse) {
           try {
-            const parsed = JSON.parse(savedHabitsJson);
+            const parsed = JSON.parse(rawJsonToParse);
             if (Array.isArray(parsed) && parsed.length > 0) {
               localHabits = parsed
                 .filter((item: Habit) => !deletedHabitIds.includes(item.id))
@@ -158,7 +161,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
         }
 
         // New installs start empty. Onboarding only adds habits the user explicitly selected.
-        if (localHabits.length === 0) {
+        if (localHabits.length === 0 && (!user || user.isGuest)) {
           localHabits = INITIAL_HABITS;
           if (isMounted) {
             setHabits(INITIAL_HABITS);
@@ -179,9 +182,19 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
           setHasCompletedOnboarding(false);
         }
 
-        // 2. If user is logged in with Supabase, merge with cloud and preserve all completed dates!
-        if (session && user && !user.isGuest && isSupabaseConfigured) {
-          if (session.user?.user_metadata?.onboarding_completed) {
+        // 2. If user is logged in with Supabase, merge with cloud and preserve all completed dates & streaks!
+        let activeSession = session;
+        if (!activeSession && isSupabaseConfigured) {
+          try {
+            const { data: sessData } = await supabase.auth.getSession();
+            activeSession = sessData?.session ?? null;
+          } catch {
+            // ignore
+          }
+        }
+
+        if (user && !user.isGuest && (activeSession || isSupabaseConfigured)) {
+          if (activeSession?.user?.user_metadata?.onboarding_completed) {
             if (isMounted) setHasCompletedOnboarding(true);
             await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => {});
             if (user?.id) await AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => {});
@@ -200,18 +213,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
           }
 
           if (!error && Array.isArray(cloudRows) && cloudRows.length > 0 && isMounted) {
-            const activeCloudRows = cloudRows.filter(row => {
-              const rawId = row.id;
-              const strippedId = user?.id && rawId.startsWith(`${user.id}_`) ? rawId.slice(user.id.length + 1) : rawId;
-              const isDeleted = deletedHabitIdsRef.current.includes(rawId) || deletedHabitIdsRef.current.includes(strippedId);
-              if (isDeleted) {
-                void supabase.from('habits').delete().eq('id', rawId).eq('user_id', user.id);
-                return false;
-              }
-              return true;
-            });
-
-            const cloudHabits: Habit[] = activeCloudRows.map(row => {
+            const cloudHabits: Habit[] = cloudRows.map(row => {
               const cloudDates: string[] = Array.isArray(row.completed_dates) ? row.completed_dates : [];
               // Find matching local habit to combine all previous days' dates
               const localMatch = localHabits.find(lh => lh.id === row.id);
@@ -236,13 +238,26 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
                 notificationIds: Array.isArray(reminder.notification_ids) ? reminder.notification_ids : [],
               })) : [];
 
+              const habitSchedule = row.schedule && typeof row.schedule === 'object' ? row.schedule : undefined;
+              const habitPaused = Array.isArray(row.paused_periods) && row.paused_periods.length > 0 ? row.paused_periods : localMatch?.pausedPeriods ?? [];
+              const habitStart = row.start_date || localMatch?.startDate || todayStr;
+
+              // Calculate genuine streak from completion history
+              const streakStats = calculateStreakStats({
+                completedDates: mergedDates,
+                targetFrequency: row.target_frequency || 'Daily',
+                schedule: habitSchedule,
+                startDate: habitStart,
+                pausedPeriods: habitPaused,
+              }, todayReferenceDate);
+
               return {
                 id: row.id,
                 name: row.name,
                 category: row.category,
                 color: row.color,
                 icon: row.icon as keyof typeof Ionicons.glyphMap,
-                streak: 0,
+                streak: streakStats.currentStreak,
                 completedDates: mergedDates,
                 targetFrequency: row.target_frequency || 'Daily',
                 description: row.description || '',
@@ -250,11 +265,11 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
                 trackingMethod: row.habit_kind === 'quit' ? 'yes_no' : 'yes_no',
                 targetValue: Number(row.target_value) > 0 ? Number(row.target_value) : 1,
                 unit: row.unit || '',
-                schedule: row.schedule && typeof row.schedule === 'object' ? row.schedule : undefined,
-                startDate: row.start_date || localMatch?.startDate || todayStr,
+                schedule: habitSchedule,
+                startDate: habitStart,
                 endDate: row.end_date || null,
                 archivedAt: row.archived_at || null,
-                pausedPeriods: Array.isArray(row.paused_periods) && row.paused_periods.length > 0 ? row.paused_periods : localMatch?.pausedPeriods ?? [],
+                pausedPeriods: habitPaused,
                 logs: mergedLogs,
                 reminders: Array.isArray(row.reminders) ? row.reminders : (cloudReminders.length ? cloudReminders : localMatch?.reminders ?? []),
                 configurationHistory: Array.isArray(row.configuration_history) ? row.configuration_history : localMatch?.configurationHistory ?? [],
@@ -263,15 +278,23 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
               };
             });
 
-            // Keep rows with pending local-only changes and habits created offline.
+            // Keep authentic offline habits, but NEVER inject starter habits into an existing user's cloud account!
             const cloudIds = new Set(cloudHabits.map(habit => habit.id));
-            const mergedCloudHabits = [...cloudHabits, ...localHabits.filter(local => !cloudIds.has(local.id))];
+            const offlineHabitsToKeep = localHabits.filter(local =>
+              !cloudIds.has(local.id) &&
+              !local.id.startsWith('local_') &&
+              !local.id.includes('onboard_')
+            );
+            const mergedCloudHabits = [...cloudHabits, ...offlineHabitsToKeep];
 
             setHabits(mergedCloudHabits);
             await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(mergedCloudHabits));
+            if (user?.id) {
+              await AsyncStorage.setItem(`@daymark_habits_user_${user.id}`, JSON.stringify(mergedCloudHabits));
+              await AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => {});
+            }
             setHasCompletedOnboarding(true);
             await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => {});
-            if (user?.id) await AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => {});
 
             // Sync merged previous days back to Supabase in background
             for (const ch of mergedCloudHabits) {
@@ -344,19 +367,22 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     return () => {
       isMounted = false;
     };
-  }, [user, session, todayStr]);
+  }, [user, session, todayStr, todayReferenceDate]);
 
   const saveHabits = async (updated: Habit[]) => {
     setHabits(updated);
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(updated));
+      if (user?.id && !user.isGuest) {
+        await AsyncStorage.setItem(`@daymark_habits_user_${user.id}`, JSON.stringify(updated));
+      }
     } catch (err) {
       console.error('Failed to save recorded habits locally:', err);
     }
   };
 
   const syncHabitToCloud = async (habit: Habit) => {
-    if (!session || !user || user.isGuest || !isSupabaseConfigured) return;
+    if (!user || user.isGuest || !isSupabaseConfigured) return;
     const updatedAt = new Date().toISOString();
     const extendedRow = {
       id: habit.id,

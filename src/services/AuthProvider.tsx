@@ -26,7 +26,7 @@ type AuthContextType = {
   isGuest: boolean;
   passwordRecoveryRequested: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string, fullName: string) => Promise<{ error?: string; isExistingUser?: boolean }>;
   sendPasswordRecovery: (email: string) => Promise<{ error?: string }>;
   updatePassword: (password: string) => Promise<{ error?: string }>;
   signInWithProvider: (provider: SocialProvider) => Promise<{ error?: string }>;
@@ -253,6 +253,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
 
         if (data.user) {
+          if (data.session) {
+            setSession(data.session);
+          }
           const appUser: AppUser = {
             id: data.user.id,
             email: data.user.email || trimmedEmail,
@@ -316,7 +319,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     email: string,
     password: string,
     fullName: string
-  ): Promise<{ error?: string }> => {
+  ): Promise<{ error?: string; isExistingUser?: boolean }> => {
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedPassword = password.trim();
     const trimmedName = fullName.trim() || trimmedEmail.split('@')[0] || 'Daymark Member';
@@ -400,6 +403,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               password: trimmedPassword,
             });
             if (signInRes.data?.user) {
+              if (signInRes.data.session) {
+                setSession(signInRes.data.session);
+              }
               const appUser: AppUser = {
                 id: signInRes.data.user.id,
                 email: signInRes.data.user.email || trimmedEmail,
@@ -418,7 +424,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 password: trimmedPassword,
                 fullName: appUser.fullName,
               });
-              return {};
+              return { isExistingUser: true };
             }
 
             // Check if local credentials match!
@@ -436,7 +442,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
               await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => { });
               await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => { });
-              return {};
+              return { isExistingUser: true };
             }
 
             return {
@@ -621,6 +627,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.LOCAL_USER,
         STORAGE_KEYS.GUEST_MODE,
+        '@daymark_habits_v1',
+        '@daymark_deleted_habits_v1',
       ]);
     } catch (err) {
       console.error('Error during sign out:', err);

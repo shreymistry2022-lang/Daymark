@@ -244,15 +244,19 @@ export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {
           setAuthError(res.error);
           return;
         }
+        // Only seed starter habits for genuinely brand-new accounts; never overwrite existing accounts!
+        if (!res.isExistingUser) {
+          await commitStarterData();
+        }
       } else {
         const res = await signIn(trimmedEmail, trimmedPass);
         if (res.error) {
           setAuthError(res.error);
           return;
         }
+        // Existing account signing in: DO NOT call commitStarterData()! All cloud habits, history, and streaks will load intact.
       }
 
-      await commitStarterData();
       if (preferences.hapticsEnabled) {
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
       }
@@ -273,7 +277,7 @@ export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {
         setAuthError(res.error);
         return;
       }
-      await commitStarterData();
+      // Do not overwrite existing account data with starter habits on social sign-in
       onComplete();
     } catch {
       setAuthError(`${provider} sign-in failed. Please try email.`);
