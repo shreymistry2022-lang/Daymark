@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -63,15 +64,20 @@ const TodayHabitCard = React.memo(({
   const currentKey = `${habit.id}-${selectedDate}-${habit.completedDates.length}-${habit.logs?.length ?? 0}`;
   const isCompleted = optimisticState?.key === currentKey ? optimisticState.completed : serverCompleted;
   const enabledReminders = (habit.reminders ?? []).filter(r => r.enabled);
+  const [checkScale] = useState(() => new Animated.Value(1));
 
   const handlePressCheckbox = useCallback(() => {
     if (hapticsEnabled) {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
+    Animated.sequence([
+      Animated.timing(checkScale, { toValue: 0.8, duration: 60, useNativeDriver: true }),
+      Animated.spring(checkScale, { toValue: 1, friction: 3, tension: 40, useNativeDriver: true }),
+    ]).start();
     const nextVal = !isCompleted;
     setOptimisticState({ key: currentKey, completed: nextVal });
     onToggle(habit.id, selectedDate);
-  }, [hapticsEnabled, isCompleted, currentKey, onToggle, habit.id, selectedDate]);
+  }, [hapticsEnabled, checkScale, isCompleted, currentKey, onToggle, habit.id, selectedDate]);
 
   return (
     <View
@@ -134,24 +140,26 @@ const TodayHabitCard = React.memo(({
           onSave={onRecordLog}
         />
       ) : (
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel={`${isCompleted ? 'Undo' : 'Complete'} ${habit.name} for ${selectedDate}`}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          style={[
-            styles.checkbox,
-            {
-              borderColor: isCompleted ? habit.color : colors.border,
-              backgroundColor: isCompleted ? habit.color : colors.secondaryBackground,
-            },
-          ]}
-          activeOpacity={0.6}
-          onPress={handlePressCheckbox}
-        >
-          {isCompleted && (
-            <Ionicons name="checkmark" size={18} color="#000" />
-          )}
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: checkScale }] }}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`${isCompleted ? 'Undo' : 'Complete'} ${habit.name} for ${selectedDate}`}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            style={[
+              styles.checkbox,
+              {
+                borderColor: isCompleted ? habit.color : colors.border,
+                backgroundColor: isCompleted ? habit.color : colors.secondaryBackground,
+              },
+            ]}
+            activeOpacity={0.6}
+            onPress={handlePressCheckbox}
+          >
+            {isCompleted && (
+              <Ionicons name="checkmark" size={18} color="#000" />
+            )}
+          </TouchableOpacity>
+        </Animated.View>
       )}
 
       {showReorder && (

@@ -110,9 +110,9 @@ export const HabitsScreen = () => {
           <View>
             <Text style={[styles.eyebrow, { color: colors.accent }]}>CATALOG & TRACKING</Text>
             <Text style={[styles.title, { color: colors.primaryText }]}>All Habits</Text>
-          <TouchableOpacity onPress={() => setShowArchived(value => !value)} accessibilityRole="button" accessibilityLabel={showArchived ? 'Show active habits' : `Show archived habits, ${archivedHabits.length}`}>
-            <Text style={{ color: colors.accent, fontWeight: '600', marginTop: 6 }}>{showArchived ? 'Active' : `Archived (${archivedHabits.length})`}</Text>
-          </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowArchived(value => !value)} accessibilityRole="button" accessibilityLabel={showArchived ? 'Show active habits' : `Show archived habits, ${archivedHabits.length}`}>
+              <Text style={{ color: colors.accent, fontWeight: '600', marginTop: 6 }}>{showArchived ? 'Active' : `Archived (${archivedHabits.length})`}</Text>
+            </TouchableOpacity>
           </View>
           <TouchableOpacity
             style={[styles.newHabitBtn, { backgroundColor: colors.accent }]}
@@ -235,7 +235,7 @@ export const HabitsScreen = () => {
                   ]}
                   activeOpacity={0.6}
                   onPress={() => {
-                    if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
                     toggleHabit(habit.id);
                   }}
                 >
@@ -284,120 +284,120 @@ export const HabitsScreen = () => {
           <View style={styles.modalBackdrop}>
             <View style={[styles.modalBody, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailScroll}>
-              <View style={styles.modalHeader}>
-                <View style={[styles.modalIcon, { backgroundColor: `${selectedHabit.color}25` }]}>
-                  <Ionicons name={selectedHabit.icon} size={28} color={selectedHabit.color} />
-                </View>
-                <TouchableOpacity onPress={() => setSelectedHabitId(null)}>
-                  <Ionicons name="close" size={24} color={colors.secondaryText} />
-                </TouchableOpacity>
-              </View>
-
-              <Text style={[styles.modalHabitName, { color: colors.primaryText }]}>{selectedHabit.name}</Text>
-              <Text style={[styles.modalCategoryText, { color: colors.secondaryText }]}>
-                Category: <Text style={{ color: selectedHabit.color }}>{selectedHabit.category}</Text>
-                {'  '}•{'  '}Frequency: {selectedHabit.targetFrequency}
-              </Text>
-              {!!selectedHabit.description && <Text style={{ color: colors.secondaryText, marginTop: 8 }}>{selectedHabit.description}</Text>}
-              <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>{selectedHabit.habitKind === 'quit' ? 'Quit habit' : 'Positive habit'} · {selectedHabit.trackingMethod ?? 'yes_no'}{selectedHabit.trackingMethod !== 'yes_no' ? ` · Target ${selectedHabit.targetValue ?? 1} ${selectedHabit.unit ?? ''}` : ''}</Text>
-              <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Since {selectedHabit.startDate ?? '—'}{selectedHabit.endDate ? ` · Ends ${selectedHabit.endDate}` : ''}</Text>
-              {isPausedOnDate(selectedHabit, todayDateStr) && <Text style={{ color: colors.accent, marginTop: 8 }}>Paused today · streaks are protected</Text>}
-              {!!selectedHabit.pausedPeriods?.length && <Text style={{ color: colors.mutedText, marginTop: 6, fontSize: 12 }}>Pause history: {selectedHabit.pausedPeriods.map(period => `${period.startDate}–${period.endDate ?? 'ongoing'}`).join(', ')}</Text>}
-
-              <View style={styles.modalStatsRow}>
-                <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                  <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabit.streak}</Text>
-                  <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Current streak</Text>
-                </View>
-                <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                  <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabitStats?.bestStreak ?? 0}</Text>
-                  <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Best streak</Text>
-                </View>
-                <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                  <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabitRecentRate}%</Text>
-                  <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Last 30 days</Text>
-                </View>
-              </View>
-              <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>{selectedHabitStats?.totalSuccessfulScheduledDays ?? 0} successful scheduled days recorded</Text>
-
-              {isTrackableOnDate(selectedHabit, todayDateStr) ? selectedHabit.habitKind === 'quit' ? (
-                <HabitTrackingControl habit={selectedHabit} date={todayDateStr} onSave={recordHabitLog} />
-              ) : (
-                (() => {
-                  const isSelectedDone = getHabitDayStatus(selectedHabit, todayDateStr, todayReferenceDate) === 'completed';
-                  return (
-                    <TouchableOpacity
-                      style={[
-                        styles.toggleActionBtn,
-                        { backgroundColor: colors.secondaryBackground },
-                        isSelectedDone && styles.toggleActionBtnDone,
-                      ]}
-                      activeOpacity={0.8}
-                      onPress={() => {
-                        if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                        toggleHabit(selectedHabit.id);
-                      }}
-                    >
-                      <Ionicons
-                        name={
-                          isSelectedDone
-                            ? 'checkmark-circle'
-                            : 'ellipse-outline'
-                        }
-                        size={20}
-                        color="#FFF"
-                      />
-                      <Text style={styles.toggleActionText}>
-                        {isSelectedDone
-                          ? 'Completed Today'
-                          : 'Mark Completed for Today'}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })()
-              ) : <Text style={[styles.detailMetadata, { color: colors.secondaryText, marginBottom: spacing.md }]}>{selectedHabit.archivedAt ? 'Archived habits are read-only.' : isPausedOnDate(selectedHabit, todayDateStr) ? 'Paused today. Tracking resumes after the pause.' : 'This habit is not scheduled today.'}</Text>}
-              {!!selectedHabit.reminders?.length && <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Reminders: {selectedHabit.reminders.filter(reminder => reminder.enabled).map(reminder => formatReminderTime(reminder.hour, reminder.minute)).join(', ') || 'All disabled'}</Text>}
-
-              <TouchableOpacity
-                style={styles.deleteButton}
-                activeOpacity={0.7}
-                onPress={() => handleDelete(selectedHabit.id, selectedHabit.name)}
-              >
-                <Ionicons name="trash-outline" size={18} color={colors.error} />
-                <Text style={[styles.deleteText, { color: colors.error }]}>Delete Habit</Text>
-              </TouchableOpacity>
-              {showArchived ? (
-                <TouchableOpacity style={styles.deleteButton} onPress={() => { restoreHabit(selectedHabit.id); setSelectedHabitId(null); }}>
-                  <Ionicons name="refresh-outline" size={18} color={colors.accent} />
-                  <Text style={[styles.deleteText, { color: colors.accent }]}>Restore Habit</Text>
-                </TouchableOpacity>
-              ) : (
-                <>
-                  {isPausedOnDate(selectedHabit, todayDateStr) ? (
-                    <TouchableOpacity style={styles.deleteButton} onPress={() => { resumeHabit(selectedHabit.id); setSelectedHabitId(null); }}>
-                      <Ionicons name="play-outline" size={18} color={colors.accent} />
-                      <Text style={[styles.deleteText, { color: colors.accent }]}>Resume Habit</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.deleteButton}
-                      activeOpacity={0.7}
-                      onPress={() => setPauseModalHabit(selectedHabit)}
-                    >
-                      <Ionicons name="pause-outline" size={18} color={colors.secondaryText} />
-                      <Text style={[styles.deleteText, { color: colors.secondaryText }]}>Pause Habit</Text>
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity style={styles.deleteButton} onPress={() => { setEditingHabit(selectedHabit); setCreateModalVisible(true); }}>
-                    <Ionicons name="create-outline" size={18} color={colors.accent} />
-                    <Text style={[styles.deleteText, { color: colors.accent }]}>Edit Habit</Text>
+                <View style={styles.modalHeader}>
+                  <View style={[styles.modalIcon, { backgroundColor: `${selectedHabit.color}25` }]}>
+                    <Ionicons name={selectedHabit.icon} size={28} color={selectedHabit.color} />
+                  </View>
+                  <TouchableOpacity onPress={() => setSelectedHabitId(null)}>
+                    <Ionicons name="close" size={24} color={colors.secondaryText} />
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.deleteButton} onPress={() => { archiveHabit(selectedHabit.id); setSelectedHabitId(null); }}>
-                    <Ionicons name="archive-outline" size={18} color={colors.secondaryText} />
-                    <Text style={[styles.deleteText, { color: colors.secondaryText }]}>Archive Habit</Text>
+                </View>
+
+                <Text style={[styles.modalHabitName, { color: colors.primaryText }]}>{selectedHabit.name}</Text>
+                <Text style={[styles.modalCategoryText, { color: colors.secondaryText }]}>
+                  Category: <Text style={{ color: selectedHabit.color }}>{selectedHabit.category}</Text>
+                  {'  '}•{'  '}Frequency: {selectedHabit.targetFrequency}
+                </Text>
+                {!!selectedHabit.description && <Text style={{ color: colors.secondaryText, marginTop: 8 }}>{selectedHabit.description}</Text>}
+                <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>{selectedHabit.habitKind === 'quit' ? 'Quit habit' : 'Positive habit'} · {selectedHabit.trackingMethod ?? 'yes_no'}{selectedHabit.trackingMethod !== 'yes_no' ? ` · Target ${selectedHabit.targetValue ?? 1} ${selectedHabit.unit ?? ''}` : ''}</Text>
+                <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Since {selectedHabit.startDate ?? '—'}{selectedHabit.endDate ? ` · Ends ${selectedHabit.endDate}` : ''}</Text>
+                {isPausedOnDate(selectedHabit, todayDateStr) && <Text style={{ color: colors.accent, marginTop: 8 }}>Paused today · streaks are protected</Text>}
+                {!!selectedHabit.pausedPeriods?.length && <Text style={{ color: colors.mutedText, marginTop: 6, fontSize: 12 }}>Pause history: {selectedHabit.pausedPeriods.map(period => `${period.startDate}–${period.endDate ?? 'ongoing'}`).join(', ')}</Text>}
+
+                <View style={styles.modalStatsRow}>
+                  <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
+                    <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabit.streak}</Text>
+                    <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Current streak</Text>
+                  </View>
+                  <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
+                    <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabitStats?.bestStreak ?? 0}</Text>
+                    <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Best streak</Text>
+                  </View>
+                  <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
+                    <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabitRecentRate}%</Text>
+                    <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Last 30 days</Text>
+                  </View>
+                </View>
+                <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>{selectedHabitStats?.totalSuccessfulScheduledDays ?? 0} successful scheduled days recorded</Text>
+
+                {isTrackableOnDate(selectedHabit, todayDateStr) ? selectedHabit.habitKind === 'quit' ? (
+                  <HabitTrackingControl habit={selectedHabit} date={todayDateStr} onSave={recordHabitLog} />
+                ) : (
+                  (() => {
+                    const isSelectedDone = getHabitDayStatus(selectedHabit, todayDateStr, todayReferenceDate) === 'completed';
+                    return (
+                      <TouchableOpacity
+                        style={[
+                          styles.toggleActionBtn,
+                          { backgroundColor: colors.secondaryBackground },
+                          isSelectedDone && styles.toggleActionBtnDone,
+                        ]}
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
+                          toggleHabit(selectedHabit.id);
+                        }}
+                      >
+                        <Ionicons
+                          name={
+                            isSelectedDone
+                              ? 'checkmark-circle'
+                              : 'ellipse-outline'
+                          }
+                          size={20}
+                          color="#FFF"
+                        />
+                        <Text style={styles.toggleActionText}>
+                          {isSelectedDone
+                            ? 'Completed Today'
+                            : 'Mark Completed for Today'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })()
+                ) : <Text style={[styles.detailMetadata, { color: colors.secondaryText, marginBottom: spacing.md }]}>{selectedHabit.archivedAt ? 'Archived habits are read-only.' : isPausedOnDate(selectedHabit, todayDateStr) ? 'Paused today. Tracking resumes after the pause.' : 'This habit is not scheduled today.'}</Text>}
+                {!!selectedHabit.reminders?.length && <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Reminders: {selectedHabit.reminders.filter(reminder => reminder.enabled).map(reminder => formatReminderTime(reminder.hour, reminder.minute)).join(', ') || 'All disabled'}</Text>}
+
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  activeOpacity={0.7}
+                  onPress={() => handleDelete(selectedHabit.id, selectedHabit.name)}
+                >
+                  <Ionicons name="trash-outline" size={18} color={colors.error} />
+                  <Text style={[styles.deleteText, { color: colors.error }]}>Delete Habit</Text>
+                </TouchableOpacity>
+                {showArchived ? (
+                  <TouchableOpacity style={styles.deleteButton} onPress={() => { restoreHabit(selectedHabit.id); setSelectedHabitId(null); }}>
+                    <Ionicons name="refresh-outline" size={18} color={colors.accent} />
+                    <Text style={[styles.deleteText, { color: colors.accent }]}>Restore Habit</Text>
                   </TouchableOpacity>
-                </>
-              )}
+                ) : (
+                  <>
+                    {isPausedOnDate(selectedHabit, todayDateStr) ? (
+                      <TouchableOpacity style={styles.deleteButton} onPress={() => { resumeHabit(selectedHabit.id); setSelectedHabitId(null); }}>
+                        <Ionicons name="play-outline" size={18} color={colors.accent} />
+                        <Text style={[styles.deleteText, { color: colors.accent }]}>Resume Habit</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.deleteButton}
+                        activeOpacity={0.7}
+                        onPress={() => setPauseModalHabit(selectedHabit)}
+                      >
+                        <Ionicons name="pause-outline" size={18} color={colors.secondaryText} />
+                        <Text style={[styles.deleteText, { color: colors.secondaryText }]}>Pause Habit</Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={styles.deleteButton} onPress={() => { setEditingHabit(selectedHabit); setCreateModalVisible(true); }}>
+                      <Ionicons name="create-outline" size={18} color={colors.accent} />
+                      <Text style={[styles.deleteText, { color: colors.accent }]}>Edit Habit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.deleteButton} onPress={() => { archiveHabit(selectedHabit.id); setSelectedHabitId(null); }}>
+                      <Ionicons name="archive-outline" size={18} color={colors.secondaryText} />
+                      <Text style={[styles.deleteText, { color: colors.secondaryText }]}>Archive Habit</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
               </ScrollView>
             </View>
           </View>

@@ -166,13 +166,17 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
           await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(INITIAL_HABITS)).catch(() => {});
         }
 
+        const isFreshInstall = savedHabitsJson === null && savedOnboarding === null && savedUserOnboarding === null;
+
         if (savedUserOnboarding === 'true' && isMounted) {
           setHasCompletedOnboarding(true);
         } else if (savedOnboarding !== null && isMounted) {
           setHasCompletedOnboarding(savedOnboarding === 'true');
-        } else if (localHabits.length > 0 && isMounted) {
+        } else if (!isFreshInstall && localHabits.length > 0 && isMounted) {
           // Existing installs predate the persisted onboarding flag; do not restart onboarding on upgrade.
           setHasCompletedOnboarding(true);
+        } else if (isMounted) {
+          setHasCompletedOnboarding(false);
         }
 
         // 2. If user is logged in with Supabase, merge with cloud and preserve all completed dates!

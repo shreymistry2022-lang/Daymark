@@ -64,8 +64,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const restoreSession = async () => {
       try {
         await migrateLegacyCredentials().catch(error => console.warn('Could not migrate legacy local credentials securely:', error));
-        // Clear legacy guest mode since free tier requires account sign up
-        await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
+        // 1. Check guest mode
+        const savedGuest = await AsyncStorage.getItem(STORAGE_KEYS.GUEST_MODE);
+        if (savedGuest === 'true' && isMounted) {
+          setUser({
+            id: 'local_guest',
+            email: '',
+            fullName: 'Guest User',
+            isGuest: true,
+          });
+          setIsGuest(true);
+          setIsLoading(false);
+          return;
+        }
 
         // 2. Check Supabase session if configured
         if (isSupabaseConfigured) {
@@ -178,8 +189,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               setIsGuest(false);
               await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
               await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
-              await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => {});
-              await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => {});
+              await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => { });
+              await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => { });
 
               if (!isNetworkError) {
                 // Background cloud sync
@@ -189,7 +200,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     password: trimmedPassword,
                     options: { data: { full_name: localRecord.fullName } },
                   })
-                  .catch(() => {});
+                  .catch(() => { });
               }
 
               return {};
@@ -255,8 +266,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setIsGuest(false);
           await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
           await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
-          await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => {});
-          await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => {});
+          await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => { });
+          await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => { });
           await saveLocalCredential({
             id: appUser.id,
             email: trimmedEmail,
@@ -287,8 +298,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setIsGuest(false);
         await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
         await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
-        await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => {});
-        await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => {});
+        await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => { });
+        await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => { });
         return {};
       }
 
@@ -399,8 +410,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               setIsGuest(false);
               await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
               await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
-              await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => {});
-              await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => {});
+              await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => { });
+              await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => { });
               await saveLocalCredential({
                 id: appUser.id,
                 email: trimmedEmail,
@@ -423,8 +434,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               setIsGuest(false);
               await AsyncStorage.removeItem(STORAGE_KEYS.GUEST_MODE);
               await AsyncStorage.setItem(STORAGE_KEYS.LOCAL_USER, JSON.stringify(appUser));
-              await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => {});
-              await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => {});
+              await AsyncStorage.setItem('@daymark_onboarding_v1', 'true').catch(() => { });
+              await AsyncStorage.setItem(`@daymark_onboarding_v2_${appUser.id}`, 'true').catch(() => { });
               return {};
             }
 
@@ -565,7 +576,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // If signed in via Supabase, invoke account deletion function / endpoint if present
       if (isSupabaseConfigured && user && !user.isGuest) {
         try {
-          await supabase.functions.invoke('delete-account').catch(() => {});
+          await supabase.functions.invoke('delete-account').catch(() => { });
         } catch {
           // Continue local wipe even if edge function not deployed yet
         }
@@ -573,7 +584,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       // Delete local credentials if registered locally
       if (user?.email) {
-        await deleteLocalCredential(user.email).catch(() => {});
+        await deleteLocalCredential(user.email).catch(() => { });
       }
 
       // Wipe all local storage keys
@@ -581,7 +592,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         STORAGE_KEYS.LOCAL_USER,
         STORAGE_KEYS.GUEST_MODE,
         ...LOCAL_DATA_KEYS,
-      ]).catch(() => {});
+      ]).catch(() => { });
 
       await signOut();
       return {};
@@ -591,14 +602,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const continueAsGuest = () => {
-    // Deprecated: free tier requires an account to be created
-    setIsGuest(false);
+    const guestUser: AppUser = {
+      id: 'local_guest',
+      email: '',
+      fullName: 'Guest User',
+      isGuest: true,
+    };
+    setUser(guestUser);
+    setIsGuest(true);
+    void AsyncStorage.setItem(STORAGE_KEYS.GUEST_MODE, 'true').catch(() => { });
   };
 
   const signOut = async () => {
     try {
       if (isSupabaseConfigured) {
-        await supabase.auth.signOut().catch(() => {});
+        await supabase.auth.signOut().catch(() => { });
       }
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.LOCAL_USER,

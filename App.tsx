@@ -121,10 +121,10 @@ function RootNavigator() {
   return (
     <NavigationContainer theme={navTheme}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      {!user || user.isGuest ? (
-        <AuthScreen />
-      ) : !hasCompletedOnboarding ? (
+      {!hasCompletedOnboarding ? (
         <OnboardingScreen onComplete={completeOnboarding} />
+      ) : !user ? (
+        <AuthScreen />
       ) : (
         <BottomTabNavigator />
       )}
