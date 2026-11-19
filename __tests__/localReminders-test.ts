@@ -9,6 +9,8 @@ jest.mock('expo-notifications', () => ({
   requestPermissionsAsync: jest.fn().mockResolvedValue({ granted: true }),
   scheduleNotificationAsync: jest.fn().mockResolvedValue('test-notification-id'),
   cancelScheduledNotificationAsync: jest.fn().mockResolvedValue(undefined),
+  getAllScheduledNotificationsAsync: jest.fn().mockResolvedValue([]),
+  cancelAllScheduledNotificationsAsync: jest.fn().mockResolvedValue(undefined),
   SchedulableTriggerInputTypes: {
     DAILY: 'daily',
     WEEKLY: 'weekly',
@@ -29,7 +31,12 @@ import {
   buildHabitNotificationContent,
   formatReminderTime,
   parseTimeString,
+  cleanupDuplicateNotificationsAsync,
+  schedulePendingHabitsReminderAsync,
+  getRandomMotivationalQuote,
+  MOTIVATIONAL_HABIT_QUOTES,
 } from '../src/services/localReminders';
+import * as Notifications from 'expo-notifications';
 
 describe('localReminders notification content generator', () => {
   it('formats Sleep habit with bedtime emoji, title, and restorative copy', () => {
@@ -155,5 +162,63 @@ describe('formatReminderTime', () => {
     expect(formatReminderTime(0, 0)).toBe('12:00 AM');
     expect(formatReminderTime(12, 0)).toBe('12:00 PM');
     expect(formatReminderTime(23, 59)).toBe('11:59 PM');
+  });
+});
+
+describe('cleanupDuplicateNotificationsAsync', () => {
+  it('detects and cancels duplicate scheduled alarms for the same slot', async () => {
+    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValueOnce([
+      {
+        identifier: 'alarm-1',
+        content: { data: { ownerId: 'h_sleep' } },
+        trigger: { hour: 20, minute: 16 },
+      },
+      {
+        identifier: 'alarm-2',
+        content: { data: { ownerId: 'h_sleep' } },
+        trigger: { hour: 20, minute: 16 },
+      },
+      {
+        identifier: 'alarm-3',
+        content: { data: { ownerId: 'h_sleep' } },
+        trigger: { hour: 20, minute: 16 },
+      },
+    ]);
+
+    const res = await cleanupDuplicateNotificationsAsync();
+    expect(res.cancelledCount).toBe(2);
+    expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('alarm-2');
+    expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('alarm-3');
+    expect(Notifications.cancelScheduledNotificationAsync).not.toHaveBeenCalledWith('alarm-1');
+  });
+});
+
+describe('schedulePendingHabitsReminderAsync & motivational engine', () => {
+  it('provides inspirational quotes from the motivational pool', () => {
+    const quote = getRandomMotivationalQuote(42);
+    expect(typeof quote).toBe('string');
+    expect(MOTIVATIONAL_HABIT_QUOTES).toContain(quote);
+  });
+
+  it('schedules pending habits reminder with incomplete habit names and motivational message', async () => {
+    (Notifications.getAllScheduledNotificationsAsync as jest.Mock).mockResolvedValueOnce([]);
+    const scheduledId = await schedulePendingHabitsReminderAsync(
+      [
+        { id: 'h1', name: 'Drink Water', completedDates: ['2026-11-19'] } as any,
+        { id: 'h2', name: 'Exercise', completedDates: [] } as any,
+        { id: 'h3', name: 'Read 20 Pages', completedDates: [] } as any,
+      ],
+      { todayDateStr: '2026-11-19', hour: 19, minute: 0 }
+    );
+
+    expect(scheduledId).toBe('test-notification-id');
+    expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.objectContaining({
+          title: expect.stringContaining('2 Pending Habits Today'),
+          body: expect.stringContaining('Exercise, Read 20 Pages'),
+        }),
+      })
+    );
   });
 });

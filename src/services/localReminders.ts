@@ -1,5 +1,5 @@
 // src/services/localReminders.ts
-import { Platform } from 'react-native';
+import { Platform, Share } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { AndroidImportance, AndroidNotificationVisibility, IosAuthorizationStatus } from 'expo-notifications';
@@ -84,6 +84,29 @@ export const parseTimeString = (input: string, fallbackAmPm?: 'AM' | 'PM'): { ho
   return null;
 };
 
+export const MOTIVATIONAL_HABIT_QUOTES = [
+  'Small daily improvements over time lead to stunning results.',
+  'Every action you take is a vote for the person you wish to become.',
+  'Consistency is the DNA of mastery. Keep your chain unbroken today!',
+  'Focus on the process, not just the outcome. You have got this!',
+  'One small win today creates unstoppable momentum tomorrow.',
+  'Discipline is choosing between what you want now and what you want most.',
+  'Your future self will thank you for the habits you build today.',
+  'Progress over perfection. Show up today!',
+  'The secret of getting ahead is getting started.',
+  'Energy flows where attention goes. Fuel your highest self today!',
+  'You do not have to be extreme, just consistent.',
+  'Focus on the step in front of you, not the whole staircase.',
+];
+
+export const getRandomMotivationalQuote = (seed?: string | number): string => {
+  if (seed !== undefined) {
+    const num = typeof seed === 'number' ? seed : String(seed).split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+    return MOTIVATIONAL_HABIT_QUOTES[Math.abs(num) % MOTIVATIONAL_HABIT_QUOTES.length];
+  }
+  return MOTIVATIONAL_HABIT_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_HABIT_QUOTES.length)];
+};
+
 export interface HabitNotificationContent {
   title: string;
   subtitle: string;
@@ -92,8 +115,8 @@ export interface HabitNotificationContent {
 }
 
 /**
- * Builds rich, personalized, category-aware and streak-aware notification content
- * so every habit reminder has a distinct, beautiful presentation.
+ * Builds rich, personalized, category-aware, streak-aware and motivation-enhanced notification content
+ * so every habit reminder inspires and motivates the user.
  */
 export const buildHabitNotificationContent = (owner: LocalReminderOwner): HabitNotificationContent => {
   const color = owner.color || '#10B981';
@@ -222,6 +245,8 @@ export const buildHabitNotificationContent = (owner: LocalReminderOwner): HabitN
   if (owner.streak && owner.streak >= 2) {
     body += `\n🔥 ${owner.streak}-day streak! Keep the chain unbroken.`;
   }
+  const quote = getRandomMotivationalQuote(owner.id);
+  body += `\n✨ "${quote}"`;
 
   return {
     title: `${titlePrefix} · ${name}`,
@@ -598,15 +623,36 @@ export const sendTestNotificationAsync = async (): Promise<boolean> => {
 export const replaceLocalReminders = async (owner: LocalReminderOwner, previousReminders: HabitReminder[] = []): Promise<HabitReminder[]> => {
   const reminders = owner.reminders ?? [];
 
-  // 1. Cancel previous notifications
+  // 1. Cancel previous notifications (both known IDs and querying OS to prevent duplicates)
   if (Platform.OS === 'web') {
     const oldReminderIds = new Set([...reminders, ...previousReminders].map(r => r.id));
     oldReminderIds.forEach(id => activeWebReminders.delete(id));
   } else {
-    const oldIds = [...reminders, ...previousReminders].flatMap(reminder => reminder.notificationIds ?? []);
-    await Promise.all(oldIds.map(async id => {
+    const oldIds = new Set([...reminders, ...previousReminders].flatMap(reminder => reminder.notificationIds ?? []));
+
+    // Cancel all scheduled notifications in the OS that belong to this owner
+    try {
+      const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
+      for (const item of allScheduled) {
+        const itemData = (item.content?.data ?? {}) as Record<string, any>;
+        const itemOwnerId = itemData.ownerId;
+        const itemReminderId = itemData.reminderId;
+        if (
+          itemOwnerId === owner.id ||
+          (itemReminderId && reminders.some(r => r.id === itemReminderId)) ||
+          oldIds.has(item.identifier)
+        ) {
+          await Notifications.cancelScheduledNotificationAsync(item.identifier).catch(() => {});
+        }
+      }
+    } catch (error) {
+      console.warn('Could not inspect OS scheduled notifications for cleanup:', error);
+    }
+
+    // Fallback cancellation for known old IDs
+    await Promise.all(Array.from(oldIds).map(async id => {
       try { await Notifications.cancelScheduledNotificationAsync(id); }
-      catch (error) { console.warn('Could not cancel previous habit reminder:', error); }
+      catch { /* ignore */ }
     }));
   }
 
@@ -674,7 +720,12 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
           title: content.title,
           subtitle: content.subtitle,
           body: content.body,
-          data: { ownerId: owner.id },
+          data: {
+            ownerId: owner.id,
+            reminderId: reminder.id,
+            type: 'habit_reminder',
+            time: `${reminder.hour}:${reminder.minute}`,
+          },
           sound: owner.soundEnabled !== false,
           color: content.color,
         },
@@ -698,7 +749,12 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
             title: content.title,
             subtitle: content.subtitle,
             body: content.body,
-            data: { ownerId: owner.id },
+            data: {
+              ownerId: owner.id,
+              reminderId: reminder.id,
+              type: 'habit_reminder',
+              time: `${reminder.hour}:${reminder.minute}`,
+            },
             sound: owner.soundEnabled !== false,
             color: content.color,
           },
@@ -713,6 +769,276 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
 
 export const replaceLocalHabitReminders = async (habit: LocalReminderOwner, previousReminders: HabitReminder[] = []) =>
   replaceLocalReminders(habit, previousReminders);
+
+/**
+ * Scans the OS AlarmManager queue and purges all duplicate notifications,
+ * leaving at most one active alarm per reminder slot.
+ * Also removes orphaned notifications for habits that are deleted or have reminders disabled.
+ */
+export const cleanupDuplicateNotificationsAsync = async (
+  activeHabits?: LocalReminderOwner[]
+): Promise<{ cancelledCount: number }> => {
+  if (Platform.OS === 'web') return { cancelledCount: 0 };
+  try {
+    const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
+    if (!Array.isArray(allScheduled) || allScheduled.length === 0) {
+      return { cancelledCount: 0 };
+    }
+
+    const activeHabitMap = activeHabits ? new Map(activeHabits.map(h => [h.id, h])) : null;
+    const seenSlots = new Set<string>();
+    let cancelledCount = 0;
+
+    for (const item of allScheduled) {
+      const data = (item.content?.data ?? {}) as Record<string, any>;
+      const ownerId = typeof data.ownerId === 'string' ? data.ownerId : undefined;
+      const type = data.type || (data.rhythmType ? `rhythm_${data.rhythmType}` : undefined);
+
+      // Check if this belongs to a habit that was deleted, archived, or disabled
+      if (ownerId && activeHabitMap) {
+        const habit = activeHabitMap.get(ownerId);
+        if (!habit || habit.archivedAt || habit.notificationsEnabled === false) {
+          await Notifications.cancelScheduledNotificationAsync(item.identifier).catch(() => {});
+          cancelledCount++;
+          continue;
+        }
+        const reminderId = data.reminderId;
+        if (reminderId && habit.reminders && !habit.reminders.some(r => r.id === reminderId && r.enabled)) {
+          await Notifications.cancelScheduledNotificationAsync(item.identifier).catch(() => {});
+          cancelledCount++;
+          continue;
+        }
+      }
+
+      // Slot key for deduplication
+      let slotKey = '';
+      if (ownerId) {
+        const trig = item.trigger as any;
+        const hour = trig?.hour ?? '';
+        const minute = trig?.minute ?? '';
+        const weekday = trig?.weekday ?? 'all';
+        slotKey = `habit_${ownerId}_${hour}_${minute}_${weekday}`;
+      } else if (type === 'pending_habits_summary') {
+        slotKey = 'pending_habits_summary';
+      } else if (type) {
+        slotKey = `type_${type}`;
+      } else {
+        const title = item.content?.title || '';
+        const trig = item.trigger as any;
+        slotKey = `generic_${title}_${trig?.hour ?? ''}_${trig?.minute ?? ''}`;
+      }
+
+      if (seenSlots.has(slotKey)) {
+        // DUPLICATE ALARM DETECTED! Cancel it immediately!
+        await Notifications.cancelScheduledNotificationAsync(item.identifier).catch(() => {});
+        cancelledCount++;
+      } else {
+        seenSlots.add(slotKey);
+      }
+    }
+
+    return { cancelledCount };
+  } catch (err) {
+    console.warn('Error during notification cleanup sweep:', err);
+    return { cancelledCount: 0 };
+  }
+};
+
+export const PENDING_HABITS_STORAGE_KEY = '@daymark_pending_notification_ids';
+
+export interface PendingHabitsOptions {
+  hour?: number;
+  minute?: number;
+  notificationsEnabled?: boolean;
+  soundEnabled?: boolean;
+  todayDateStr?: string;
+  timezone?: string;
+}
+
+/**
+ * Automatically schedules a smart daily reminder of pending habits with motivational encouragement.
+ * Refreshes smoothly whenever habits are completed or modified.
+ */
+export const schedulePendingHabitsReminderAsync = async (
+  habits: LocalReminderOwner[],
+  options: PendingHabitsOptions = {}
+): Promise<string | null> => {
+  if (options.notificationsEnabled === false) {
+    if (Platform.OS !== 'web') {
+      try {
+        const stored = await AsyncStorage.getItem(PENDING_HABITS_STORAGE_KEY);
+        if (stored) {
+          const oldIds: string[] = JSON.parse(stored);
+          await Promise.all(oldIds.map(id => Notifications.cancelScheduledNotificationAsync(id).catch(() => {})));
+          await AsyncStorage.setItem(PENDING_HABITS_STORAGE_KEY, JSON.stringify([]));
+        }
+      } catch { /* ignore */ }
+    }
+    return null;
+  }
+
+  const today = options.todayDateStr || toLocalDateString(new Date());
+
+  const activeTodayHabits = habits.filter(h => {
+    if (h.archivedAt) return false;
+    if (h.startDate && h.startDate > today) return false;
+    if (h.endDate && h.endDate < today) return false;
+    if ((h.pausedPeriods ?? []).some(p => p.startDate <= today && (!p.endDate || p.endDate >= today))) return false;
+    return true;
+  });
+
+  if (activeTodayHabits.length === 0) return null;
+
+  const pendingHabits = activeTodayHabits.filter(h => {
+    const dates = (h as any).completedDates;
+    return !Array.isArray(dates) || !dates.includes(today);
+  });
+
+  const checkHour = options.hour ?? 19; // Default 7:00 PM evening check-in
+  const checkMinute = options.minute ?? 0;
+
+  const motivationalQuote = getRandomMotivationalQuote(pendingHabits.length + checkHour);
+  let title = '';
+  let body = '';
+
+  if (pendingHabits.length > 0) {
+    const pendingNames = pendingHabits.slice(0, 3).map(h => h.name.trim()).join(', ');
+    const moreCount = pendingHabits.length > 3 ? ` +${pendingHabits.length - 3} more` : '';
+    title = `⚡ ${pendingHabits.length} Pending Habit${pendingHabits.length > 1 ? 's' : ''} Today`;
+    body = `Pending: ${pendingNames}${moreCount}\n✨ "${motivationalQuote}"\nTake 5 minutes to complete them and keep your streak strong! 💪`;
+  } else {
+    title = '🏆 Perfect Day Achieved!';
+    body = `All ${activeTodayHabits.length} habits completed today!\n✨ "${motivationalQuote}"\nOutstanding consistency. Rest well tonight! 🌟`;
+  }
+
+  if (Platform.OS === 'web') {
+    activeWebReminders.delete('pending_habits_summary');
+    activeWebReminders.set('pending_habits_summary', {
+      ownerId: 'pending_habits_summary',
+      ownerName: title,
+      ownerDescription: body,
+      soundEnabled: options.soundEnabled !== false,
+      reminderId: 'pending_habits_summary',
+      hour: checkHour,
+      minute: checkMinute,
+      weekdays: [1, 2, 3, 4, 5, 6, 7],
+    });
+    ensureWebWatcherStarted();
+    return 'web_pending_summary';
+  }
+
+  try {
+    const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
+    for (const item of allScheduled) {
+      if (item.content?.data?.type === 'pending_habits_summary') {
+        await Notifications.cancelScheduledNotificationAsync(item.identifier).catch(() => {});
+      }
+    }
+    const stored = await AsyncStorage.getItem(PENDING_HABITS_STORAGE_KEY);
+    if (stored) {
+      const oldIds: string[] = JSON.parse(stored);
+      await Promise.all(oldIds.map(id => Notifications.cancelScheduledNotificationAsync(id).catch(() => {})));
+    }
+  } catch { /* ignore */ }
+
+  const permStatus = await checkNotificationPermissionStatus();
+  if (!permStatus.granted) return null;
+
+  try {
+    const triggerInput: any = {
+      type: Notifications.SchedulableTriggerInputTypes.DAILY,
+      hour: checkHour,
+      minute: checkMinute,
+      channelId: 'habit-reminders',
+    };
+    if (Platform.OS === 'android') {
+      triggerInput.delivery = 'alarmClock';
+    }
+
+    const scheduledId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        subtitle: 'Daily Habit Check-In',
+        body,
+        sound: options.soundEnabled !== false,
+        color: '#10B981',
+        data: {
+          type: 'pending_habits_summary',
+          pendingCount: pendingHabits.length,
+        },
+      },
+      trigger: triggerInput,
+    });
+
+    await AsyncStorage.setItem(PENDING_HABITS_STORAGE_KEY, JSON.stringify([scheduledId]));
+    return scheduledId;
+  } catch (err) {
+    console.warn('Failed to schedule pending habits reminder:', err);
+    return null;
+  }
+};
+
+/**
+ * Allows user to share their pending habits and daily consistency progress with friends, family, or accountability partners.
+ */
+export const shareDailyProgressAsync = async (
+  habits: { name: string; streak?: number; completedDates?: string[]; archivedAt?: string | null; startDate?: string; endDate?: string | null; pausedPeriods?: any[] }[],
+  selectedDate: string,
+  stats?: { completedToday: number; totalToday: number; bestStreak?: number }
+): Promise<boolean> => {
+  try {
+    const today = selectedDate || toLocalDateString(new Date());
+    const activeToday = habits.filter(h => {
+      if (h.archivedAt) return false;
+      if (h.startDate && h.startDate > today) return false;
+      if (h.endDate && h.endDate < today) return false;
+      return true;
+    });
+
+    const completed = activeToday.filter(h => Array.isArray(h.completedDates) && h.completedDates.includes(today));
+    const pending = activeToday.filter(h => !Array.isArray(h.completedDates) || !h.completedDates.includes(today));
+
+    const total = activeToday.length;
+    const completedCount = completed.length;
+    const percentage = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+    const quote = getRandomMotivationalQuote(total + completedCount);
+
+    let message = `🌟 Daymark Habit Progress (${today})\n`;
+    message += `📊 ${completedCount}/${total} habits completed (${percentage}%)\n\n`;
+
+    if (completed.length > 0) {
+      message += `✅ Completed:\n`;
+      completed.forEach(h => {
+        const streakText = (h.streak && h.streak > 1) ? ` (🔥 ${h.streak}d)` : '';
+        message += `  • ${h.name}${streakText}\n`;
+      });
+      message += '\n';
+    }
+
+    if (pending.length > 0) {
+      message += `⏳ Pending:\n`;
+      pending.forEach(h => {
+        message += `  • ${h.name}\n`;
+      });
+      message += '\n';
+    } else if (total > 0) {
+      message += `🏆 All habits finished! Perfect consistency.\n\n`;
+    }
+
+    message += `✨ "${quote}"\n\n`;
+    message += `Track your daily habits with Daymark: https://play.google.com/store/apps/details?id=com.daymark.habittracker.app`;
+
+    const result = await Share.share({
+      title: `Daymark Habit Progress (${completedCount}/${total})`,
+      message,
+    });
+
+    return result.action === Share.sharedAction;
+  } catch (err) {
+    console.warn('Could not share habit progress:', err);
+    return false;
+  }
+};
 
 export const RHYTHM_STORAGE_KEY = '@daymark_rhythm_notification_ids';
 
@@ -733,6 +1059,12 @@ export const scheduleRhythmRemindersAsync = async (prefs: RhythmPreferencesInput
     activeWebReminders.delete('rhythm_sleep');
   } else {
     try {
+      const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
+      for (const item of allScheduled) {
+        if (item.content?.data?.rhythmType) {
+          await Notifications.cancelScheduledNotificationAsync(item.identifier).catch(() => {});
+        }
+      }
       const stored = await AsyncStorage.getItem(RHYTHM_STORAGE_KEY);
       if (stored) {
         const oldIds: string[] = JSON.parse(stored);

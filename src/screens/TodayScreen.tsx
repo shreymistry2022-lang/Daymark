@@ -25,7 +25,7 @@ import { formatAppDate, getWeekDates } from '../domain/preferencesEngine';
 import { getHabitDayStatus, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../services/AuthProvider';
-import { formatReminderTime } from '../services/localReminders';
+import { formatReminderTime, shareDailyProgressAsync } from '../services/localReminders';
 
 interface TodayHabitCardProps {
   habit: Habit;
@@ -255,6 +255,7 @@ export const TodayScreen = () => {
           </View>
           <View style={styles.topActions}>
             <View style={styles.iconActions}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Share daily habit progress" onPress={() => void shareDailyProgressAsync(habits, selectedDate, stats)} style={styles.topIconButton}><Ionicons name="share-social-outline" size={20} color={colors.primaryText} /></TouchableOpacity>
               <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open notification preferences" onPress={() => navigation.navigate('Profile', { openPreferences: true })} style={styles.topIconButton}><Ionicons name="notifications-outline" size={20} color={colors.primaryText} /></TouchableOpacity>
               <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile" onPress={() => navigation.navigate('Profile')} style={styles.topIconButton}><Ionicons name="person-circle-outline" size={23} color={colors.primaryText} /></TouchableOpacity>
             </View>

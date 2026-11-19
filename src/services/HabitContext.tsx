@@ -8,7 +8,7 @@ import { canCreateHabit } from './subscriptionEntitlements';
 import { useSubscription } from './SubscriptionProvider';
 import { addLocalDays, calculateCompletionStats, calculateStreakStats, getHabitDayStatus, isScheduledOnDate, isTrackableOnDate, normalizeSchedule, parseLocalDate } from '../domain/habitEngine';
 import { HabitConfigurationSnapshot, HabitKind, HabitLog, HabitPause, HabitReminder, HabitSchedule, TrackingMethod } from '../domain/habitTypes';
-import { replaceLocalHabitReminders } from './localReminders';
+import { replaceLocalHabitReminders, cleanupDuplicateNotificationsAsync, schedulePendingHabitsReminderAsync } from './localReminders';
 import { usePreferences } from './PreferencesContext';
 import { dateKeyInTimezone } from '../domain/preferencesEngine';
 import DaymarkTodayWidget from '../widgets/DaymarkTodayWidget';
@@ -517,7 +517,14 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     if (!hasInitializedRemindersRef.current || prefChanged) {
       hasInitializedRemindersRef.current = true;
       lastReminderSettingsRef.current = { enabled: preferences.notifications.daily, sound: preferences.soundEnabled };
+      void cleanupDuplicateNotificationsAsync(habits);
       habits.filter(habit => !habit.archivedAt && habit.reminders?.length).forEach(habit => { void refreshReminderSchedule(habit, habits, habit); });
+      void schedulePendingHabitsReminderAsync(habits, {
+        notificationsEnabled: preferences.notifications.daily,
+        soundEnabled: preferences.soundEnabled,
+        todayDateStr: todayStr,
+        timezone: preferences.timezone,
+      });
     }
     // refreshReminderSchedule uses the current preference values and latest habit snapshot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -540,6 +547,12 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     const isAllComplete = scheduledToday.length > 0 && scheduledToday.every(habit => getHabitDayStatus(habit, todayStr, todayReferenceDate) === 'completed');
     if (dateStr === todayStr && !wasAllComplete && isAllComplete) setIsCelebrationVisible(true);
     saveAndSync(next, updatedHabit);
+    void schedulePendingHabitsReminderAsync(next, {
+      notificationsEnabled: preferences.notifications.daily,
+      soundEnabled: preferences.soundEnabled,
+      todayDateStr: todayStr,
+      timezone: preferences.timezone,
+    });
   };
 
   const addHabit = (newHabit: Omit<Habit, 'id' | 'streak' | 'completedDates'>) => {
@@ -569,6 +582,12 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     };
     const updated = [created, ...habits];
     saveAndSync(updated, created);
+    void schedulePendingHabitsReminderAsync(updated, {
+      notificationsEnabled: preferences.notifications.daily,
+      soundEnabled: preferences.soundEnabled,
+      todayDateStr: todayStr,
+      timezone: preferences.timezone,
+    });
     return {};
   };
 
@@ -601,6 +620,12 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     const updated = [...createdList, ...habits];
     void saveHabits(updated);
     createdList.forEach(habit => void syncHabitToCloud(habit));
+    void schedulePendingHabitsReminderAsync(updated, {
+      notificationsEnabled: preferences.notifications.daily,
+      soundEnabled: preferences.soundEnabled,
+      todayDateStr: todayStr,
+      timezone: preferences.timezone,
+    });
   };
 
   const snapshot = (habit: Habit, effectiveFrom: string): HabitConfigurationSnapshot => ({
@@ -741,6 +766,13 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
 
     const updated = habits.filter(habit => !idVariants.includes(habit.id));
     void saveHabits(updated);
+    void cleanupDuplicateNotificationsAsync(updated);
+    void schedulePendingHabitsReminderAsync(updated, {
+      notificationsEnabled: preferences.notifications.daily,
+      soundEnabled: preferences.soundEnabled,
+      todayDateStr: todayStr,
+      timezone: preferences.timezone,
+    });
     if (session && user && !user.isGuest && isSupabaseConfigured) {
       void supabase.from('habits').delete()
         .or(`id.eq.${id},id.eq.${user.id}_${id}`)
