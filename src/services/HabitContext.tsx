@@ -101,7 +101,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
   const [isCelebrationVisible, setIsCelebrationVisible] = useState<boolean>(false);
   const isLoadedRef = useRef(false);
   const deletedHabitIdsRef = useRef<string[]>([]);
-  const syncHabitToCloudRef = useRef<(habit: Habit) => Promise<void>>(async () => {});
+  const syncHabitToCloudRef = useRef<(habit: Habit) => Promise<void>>(async () => { });
 
   const todayStr = dateKeyInTimezone(new Date(), preferences.timezone);
   const todayReferenceDate = useMemo(() => parseLocalDate(todayStr) ?? new Date(), [todayStr]);
@@ -166,7 +166,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
           if (isMounted) {
             setHabits(INITIAL_HABITS);
           }
-          await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(INITIAL_HABITS)).catch(() => {});
+          await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(INITIAL_HABITS)).catch(() => { });
         }
 
         const isFreshInstall = savedHabitsJson === null && savedOnboarding === null && savedUserOnboarding === null;
@@ -196,8 +196,8 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
         if (user && !user.isGuest && (activeSession || isSupabaseConfigured)) {
           if (activeSession?.user?.user_metadata?.onboarding_completed) {
             if (isMounted) setHasCompletedOnboarding(true);
-            await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => {});
-            if (user?.id) await AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => {});
+            await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => { });
+            if (user?.id) await AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => { });
           }
 
           let { data: cloudRows, error } = await supabase
@@ -233,7 +233,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
                 id: reminder.id,
                 hour: Number(reminder.hour),
                 minute: Number(reminder.minute),
-                weekdays: Array.isArray(reminder.weekdays) ? reminder.weekdays.map(Number) : [1,2,3,4,5,6,7],
+                weekdays: Array.isArray(reminder.weekdays) ? reminder.weekdays.map(Number) : [1, 2, 3, 4, 5, 6, 7],
                 enabled: Boolean(reminder.enabled),
                 notificationIds: Array.isArray(reminder.notification_ids) ? reminder.notification_ids : [],
               })) : [];
@@ -291,10 +291,10 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
             await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(mergedCloudHabits));
             if (user?.id) {
               await AsyncStorage.setItem(`@daymark_habits_user_${user.id}`, JSON.stringify(mergedCloudHabits));
-              await AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => {});
+              await AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => { });
             }
             setHasCompletedOnboarding(true);
-            await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => {});
+            await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => { });
 
             // Sync merged previous days back to Supabase in background
             for (const ch of mergedCloudHabits) {
@@ -309,8 +309,8 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
                 .maybeSingle();
               if (prefRow && isMounted) {
                 setHasCompletedOnboarding(true);
-                await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => {});
-                if (user?.id) await AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => {});
+                await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => { });
+                if (user?.id) await AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => { });
               }
             } catch {
               // ignore
@@ -318,41 +318,41 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
 
             if (localHabits.length > 0) {
               // New cloud account: upload local habits WITH all previous days' history
-            const uploadPayload = localHabits.map(h => ({
-              id: h.id.startsWith(user.id) ? h.id : `${user.id}_${h.id}`,
-              user_id: user.id,
-              name: h.name,
-              category: h.category,
-              color: h.color,
-              icon: h.icon,
-              streak: h.streak,
-              completed_dates: h.completedDates, // ALL PREVIOUS DAYS PRESERVED!
-              target_frequency: h.targetFrequency,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            }));
-
-            const { error: upsertErr } = await supabase.from('habits').upsert(uploadPayload);
-            if (!upsertErr && isMounted) {
-              const syncedHabits: Habit[] = uploadPayload.map(p => ({
-                id: p.id,
-                name: p.name,
-                category: p.category,
-                color: p.color,
-                icon: p.icon as keyof typeof Ionicons.glyphMap,
-                streak: p.streak,
-                completedDates: p.completed_dates,
-                targetFrequency: p.target_frequency,
+              const uploadPayload = localHabits.map(h => ({
+                id: h.id.startsWith(user.id) ? h.id : `${user.id}_${h.id}`,
+                user_id: user.id,
+                name: h.name,
+                category: h.category,
+                color: h.color,
+                icon: h.icon,
+                streak: h.streak,
+                completed_dates: h.completedDates, // ALL PREVIOUS DAYS PRESERVED!
+                target_frequency: h.targetFrequency,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
               }));
-              setHabits(syncedHabits);
-              await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(syncedHabits));
-            } else if (upsertErr) {
-              console.warn('Failed to seed starter habits to Supabase:', upsertErr.message);
+
+              const { error: upsertErr } = await supabase.from('habits').upsert(uploadPayload);
+              if (!upsertErr && isMounted) {
+                const syncedHabits: Habit[] = uploadPayload.map(p => ({
+                  id: p.id,
+                  name: p.name,
+                  category: p.category,
+                  color: p.color,
+                  icon: p.icon as keyof typeof Ionicons.glyphMap,
+                  streak: p.streak,
+                  completedDates: p.completed_dates,
+                  targetFrequency: p.target_frequency,
+                }));
+                setHabits(syncedHabits);
+                await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(syncedHabits));
+              } else if (upsertErr) {
+                console.warn('Failed to seed starter habits to Supabase:', upsertErr.message);
+              }
             }
           }
         }
-      }
-    } catch (err) {
+      } catch (err) {
         console.error('Failed to load recorded habits:', err);
       } finally {
         if (isMounted) {
@@ -519,8 +519,8 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       lastReminderSettingsRef.current = { enabled: preferences.notifications.daily, sound: preferences.soundEnabled };
       habits.filter(habit => !habit.archivedAt && habit.reminders?.length).forEach(habit => { void refreshReminderSchedule(habit, habits, habit); });
     }
-  // refreshReminderSchedule uses the current preference values and latest habit snapshot.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // refreshReminderSchedule uses the current preference values and latest habit snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferences.notifications.daily, preferences.soundEnabled, isLoadingData]);
 
   const toggleHabit = (id: string, dateStr: string = todayStr) => {
@@ -614,10 +614,10 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     trackingMethod: habit.trackingMethod ?? 'yes_no',
     targetValue: habit.targetValue ?? 1,
     unit: habit.unit ?? '',
-      targetFrequency: habit.targetFrequency,
+    targetFrequency: habit.targetFrequency,
     schedule: habit.schedule ?? { frequency: 'daily' },
-      startDate: habit.startDate ?? todayStr,
-      endDate: habit.endDate ?? null,
+    startDate: habit.startDate ?? todayStr,
+    endDate: habit.endDate ?? null,
   });
 
   const updateHabit = (id: string, changes: Partial<Omit<Habit, 'id' | 'completedDates' | 'streak'>>) => {
@@ -737,7 +737,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     const idVariants = [id, `${userPrefix}${id}`.replace(`${userPrefix}${userPrefix}`, userPrefix)];
     const updatedDeleted = Array.from(new Set([...deletedHabitIdsRef.current, ...idVariants]));
     deletedHabitIdsRef.current = updatedDeleted;
-    void AsyncStorage.setItem(STORAGE_KEYS.DELETED_HABITS, JSON.stringify(updatedDeleted)).catch(() => {});
+    void AsyncStorage.setItem(STORAGE_KEYS.DELETED_HABITS, JSON.stringify(updatedDeleted)).catch(() => { });
 
     const updated = habits.filter(habit => !idVariants.includes(habit.id));
     void saveHabits(updated);
@@ -751,24 +751,24 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
 
   const completeOnboarding = () => {
     setHasCompletedOnboarding(true);
-    AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => {});
+    AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => { });
     if (user?.id) {
-      AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => {});
+      AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => { });
       if (isSupabaseConfigured && !user.isGuest) {
         supabase.auth
           .updateUser({
             data: { onboarding_completed: true },
           })
-          .catch(() => {});
+          .catch(() => { });
       }
     }
   };
 
   const restartOnboarding = () => {
     setHasCompletedOnboarding(false);
-    AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'false').catch(() => {});
+    AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'false').catch(() => { });
     if (user?.id) {
-      AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'false').catch(() => {});
+      AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'false').catch(() => { });
     }
   };
 
