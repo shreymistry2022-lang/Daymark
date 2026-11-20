@@ -1,6 +1,6 @@
 // App.tsx
 import React, { useEffect, useState } from 'react';
-import { Alert, View, ActivityIndicator } from 'react-native';
+import { Alert, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
@@ -14,6 +14,7 @@ import { OnboardingScreen } from './src/screens/onboarding/OnboardingScreen';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { CelebrationOverlay } from './src/components/CelebrationOverlay';
 import { NotificationPermissionModal } from './src/components/NotificationPermissionModal';
+import { OpeningSplashScreen } from './src/components/OpeningSplashScreen';
 import { checkNotificationPermissionStatus, setupNotificationChannelsAsync, subscribeToReminderAlerts } from './src/services/localReminders';
 import { checkForAppUpdates } from './src/services/updateService';
 import { SubscriptionProvider } from './src/services/SubscriptionProvider';
@@ -109,38 +110,47 @@ function RootNavigator() {
     },
   };
 
-  if (isAuthLoading || isLoadingData) {
-    return (
-      <View style={{ flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }}>
-        <StatusBar style={isDark ? 'light' : 'dark'} />
-        <ActivityIndicator size="large" color={colors.accent} />
-      </View>
-    );
-  }
+  const [isSplashDone, setIsSplashDone] = useState(false);
+  const isReady = !isAuthLoading && !isLoadingData;
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      {user && !user.isGuest ? (
-        <BottomTabNavigator />
-      ) : !hasCompletedOnboarding ? (
-        <OnboardingScreen onComplete={completeOnboarding} />
-      ) : !user ? (
-        <AuthScreen />
-      ) : (
-        <BottomTabNavigator />
+
+      {/* Render navigation hierarchy once auth state is settled */}
+      {!isAuthLoading && (
+        <NavigationContainer theme={navTheme}>
+          {user && !user.isGuest ? (
+            <BottomTabNavigator />
+          ) : !hasCompletedOnboarding ? (
+            <OnboardingScreen onComplete={completeOnboarding} />
+          ) : !user ? (
+            <AuthScreen />
+          ) : (
+            <BottomTabNavigator />
+          )}
+          <CelebrationOverlay
+            visible={isCelebrationVisible}
+            onDismiss={dismissCelebration}
+            totalHabits={stats.totalToday}
+          />
+          <NotificationPermissionModal
+            visible={showPermissionPrompt}
+            onClose={handleDismissPermission}
+            onGranted={handleDismissPermission}
+          />
+        </NavigationContainer>
       )}
-      <CelebrationOverlay
-        visible={isCelebrationVisible}
-        onDismiss={dismissCelebration}
-        totalHabits={stats.totalToday}
-      />
-      <NotificationPermissionModal
-        visible={showPermissionPrompt}
-        onClose={handleDismissPermission}
-        onGranted={handleDismissPermission}
-      />
-    </NavigationContainer>
+
+      {/* Opening Animated Screen (WhatsApp / Instagram / YouTube style) */}
+      {!isSplashDone && (
+        <OpeningSplashScreen
+          isReady={isReady}
+          onFinish={() => setIsSplashDone(true)}
+          minimumDurationMs={1350}
+        />
+      )}
+    </View>
   );
 }
 

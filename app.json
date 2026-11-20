@@ -7,6 +7,11 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/brand-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0D0E12"
+    },
     "ios": {
       "bundleIdentifier": "com.daymark.habittracker.app",
       "supportsTablet": true
@@ -54,7 +59,12 @@
           "defaultChannel": {
             "name": "Habit reminders",
             "importance": "max",
-            "vibrationPattern": [0, 250, 200, 250],
+            "vibrationPattern": [
+              0,
+              250,
+              200,
+              250
+            ],
             "lightColor": "#10B981"
           }
         }
