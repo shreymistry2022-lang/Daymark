@@ -14,7 +14,6 @@ import { OnboardingScreen } from './src/screens/onboarding/OnboardingScreen';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { CelebrationOverlay } from './src/components/CelebrationOverlay';
 import { NotificationPermissionModal } from './src/components/NotificationPermissionModal';
-import { OpeningSplashScreen } from './src/components/OpeningSplashScreen';
 import { checkNotificationPermissionStatus, setupNotificationChannelsAsync, subscribeToReminderAlerts } from './src/services/localReminders';
 import { checkForAppUpdates } from './src/services/updateService';
 import { SubscriptionProvider } from './src/services/SubscriptionProvider';
@@ -110,47 +109,33 @@ function RootNavigator() {
     },
   };
 
-  const [isSplashDone, setIsSplashDone] = useState(false);
-  const isReady = !isAuthLoading && !isLoadingData;
+  if (isAuthLoading) {
+    return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <NavigationContainer theme={navTheme}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-
-      {/* Render navigation hierarchy once auth state is settled */}
-      {!isAuthLoading && (
-        <NavigationContainer theme={navTheme}>
-          {user && !user.isGuest ? (
-            <BottomTabNavigator />
-          ) : !hasCompletedOnboarding ? (
-            <OnboardingScreen onComplete={completeOnboarding} />
-          ) : !user ? (
-            <AuthScreen />
-          ) : (
-            <BottomTabNavigator />
-          )}
-          <CelebrationOverlay
-            visible={isCelebrationVisible}
-            onDismiss={dismissCelebration}
-            totalHabits={stats.totalToday}
-          />
-          <NotificationPermissionModal
-            visible={showPermissionPrompt}
-            onClose={handleDismissPermission}
-            onGranted={handleDismissPermission}
-          />
-        </NavigationContainer>
+      {user && !user.isGuest ? (
+        <BottomTabNavigator />
+      ) : !hasCompletedOnboarding ? (
+        <OnboardingScreen onComplete={completeOnboarding} />
+      ) : !user ? (
+        <AuthScreen />
+      ) : (
+        <BottomTabNavigator />
       )}
-
-      {/* Opening Animated Screen (Minimalist & Simple) */}
-      {!isSplashDone && (
-        <OpeningSplashScreen
-          isReady={isReady}
-          onFinish={() => setIsSplashDone(true)}
-          minimumDurationMs={850}
-        />
-      )}
-    </View>
+      <CelebrationOverlay
+        visible={isCelebrationVisible}
+        onDismiss={dismissCelebration}
+        totalHabits={stats.totalToday}
+      />
+      <NotificationPermissionModal
+        visible={showPermissionPrompt}
+        onClose={handleDismissPermission}
+        onGranted={handleDismissPermission}
+      />
+    </NavigationContainer>
   );
 }
 
