@@ -142,12 +142,12 @@ function RootNavigator() {
         </NavigationContainer>
       )}
 
-      {/* Opening Animated Screen (WhatsApp / Instagram / YouTube style) */}
+      {/* Opening Animated Screen (Minimalist & Simple) */}
       {!isSplashDone && (
         <OpeningSplashScreen
           isReady={isReady}
           onFinish={() => setIsSplashDone(true)}
-          minimumDurationMs={1350}
+          minimumDurationMs={850}
         />
       )}
     </View>
