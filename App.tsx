@@ -14,6 +14,7 @@ import { OnboardingScreen } from './src/screens/onboarding/OnboardingScreen';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { CelebrationOverlay } from './src/components/CelebrationOverlay';
 import { NotificationPermissionModal } from './src/components/NotificationPermissionModal';
+import { BrandOpeningScreen } from './src/components/BrandOpeningScreen';
 import { checkNotificationPermissionStatus, setupNotificationChannelsAsync, subscribeToReminderAlerts } from './src/services/localReminders';
 import { checkForAppUpdates } from './src/services/updateService';
 import { SubscriptionProvider } from './src/services/SubscriptionProvider';
@@ -109,33 +110,46 @@ function RootNavigator() {
     },
   };
 
-  if (isAuthLoading) {
-    return <View style={{ flex: 1, backgroundColor: colors.background }} />;
-  }
+  const [isSplashDone, setIsSplashDone] = useState(false);
+  const isReady = !isAuthLoading && !isLoadingData;
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      {user && !user.isGuest ? (
-        <BottomTabNavigator />
-      ) : !hasCompletedOnboarding ? (
-        <OnboardingScreen onComplete={completeOnboarding} />
-      ) : !user ? (
-        <AuthScreen />
-      ) : (
-        <BottomTabNavigator />
+
+      {/* Main navigation mounted underneath and ready */}
+      {!isAuthLoading && (
+        <NavigationContainer theme={navTheme}>
+          {user && !user.isGuest ? (
+            <BottomTabNavigator />
+          ) : !hasCompletedOnboarding ? (
+            <OnboardingScreen onComplete={completeOnboarding} />
+          ) : !user ? (
+            <AuthScreen />
+          ) : (
+            <BottomTabNavigator />
+          )}
+          <CelebrationOverlay
+            visible={isCelebrationVisible}
+            onDismiss={dismissCelebration}
+            totalHabits={stats.totalToday}
+          />
+          <NotificationPermissionModal
+            visible={showPermissionPrompt}
+            onClose={handleDismissPermission}
+            onGranted={handleDismissPermission}
+          />
+        </NavigationContainer>
       )}
-      <CelebrationOverlay
-        visible={isCelebrationVisible}
-        onDismiss={dismissCelebration}
-        totalHabits={stats.totalToday}
-      />
-      <NotificationPermissionModal
-        visible={showPermissionPrompt}
-        onClose={handleDismissPermission}
-        onGranted={handleDismissPermission}
-      />
-    </NavigationContainer>
+
+      {/* GetYourGuide style Brand Opening: Logo -> DAYMARK -> Dot -> Aperture Reveal */}
+      {!isSplashDone && (
+        <BrandOpeningScreen
+          isReady={isReady}
+          onFinish={() => setIsSplashDone(true)}
+        />
+      )}
+    </View>
   );
 }
 
