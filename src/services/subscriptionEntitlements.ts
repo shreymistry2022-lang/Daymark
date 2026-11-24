@@ -40,7 +40,7 @@ const PRO_FEATURES = new Set<SubscriptionFeature>([
  * - false: Launch v1.0 as 100% Free with all features unlocked for Google Play review and initial testers.
  * - true: Turn on RevenueCat paywall and store subscriptions for v1.1+.
  */
-export const SUBSCRIPTIONS_ENABLED = false;
+export const SUBSCRIPTIONS_ENABLED = true;
 
 export const canAccessFeature = (feature: SubscriptionFeature, isPro: boolean): boolean =>
   !SUBSCRIPTIONS_ENABLED || !PRO_FEATURES.has(feature) || isPro;

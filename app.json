@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.daymark.habittracker.app",
-      "versionCode": 7,
+      "versionCode": 9,
       "adaptiveIcon": {
         "backgroundColor": "#1B1D22",
         "foregroundImage": "./assets/android-icon-foreground.png",

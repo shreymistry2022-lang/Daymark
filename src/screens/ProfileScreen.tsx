@@ -394,14 +394,30 @@ export const ProfileScreen = () => {
 
           <TouchableOpacity
             style={[styles.actionButton, { borderBottomColor: colors.border }]}
-            onPress={() => { void handleExportData('csv'); }}
+            onPress={() => {
+              if (!canAccessFeature('advanced_export', isPro)) {
+                setPaywallVisible(true);
+                return;
+              }
+              void handleExportData('csv');
+            }}
             activeOpacity={0.7}
           >
             <Ionicons name="download-outline" size={20} color={colors.primaryText} />
             <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Export Progress (CSV)</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { borderBottomColor: colors.border }]} onPress={() => { void handleExportData('json'); }} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={[styles.actionButton, { borderBottomColor: colors.border }]}
+            onPress={() => {
+              if (!canAccessFeature('advanced_export', isPro)) {
+                setPaywallVisible(true);
+                return;
+              }
+              void handleExportData('json');
+            }}
+            activeOpacity={0.7}
+          >
             <Ionicons name="code-download-outline" size={20} color={colors.primaryText} />
             <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Export Backup (JSON)</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />

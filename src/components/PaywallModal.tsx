@@ -57,7 +57,10 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
       return;
     }
     if (!item) {
-      Alert.alert('Plan unavailable', 'This plan is not currently available from the app store. Please try again later.');
+      Alert.alert(
+        'Store Subscriptions Connecting',
+        'In-app subscriptions are connecting to Google Play. Once your Google Play Store subscription setup is finalized, purchases will process directly through Google Play.'
+      );
       return;
     }
     setBusy(true);
@@ -111,18 +114,48 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
           </View>
 
           {isLoading ? <ActivityIndicator color={LIME} style={{ marginVertical: 18 }} /> : null}
-          {annual ? (
-            <TouchableOpacity style={[styles.plan, styles.annual]} onPress={() => void buy(annual)} disabled={busy}>
-              <View style={styles.bestValue}><Text style={styles.bestValueText}>BEST VALUE</Text></View>
-              <View style={styles.planRow}><Text style={styles.planTitle}>Annual</Text><Text style={styles.price}>{annual.product.priceString}<Text style={styles.period}> / year</Text></Text></View>
-              <Text style={styles.planCaption}>7-day trial only when eligible and configured by the store.</Text>
-            </TouchableOpacity>
-          ) : null}
-          {monthly ? (
-            <TouchableOpacity style={styles.plan} onPress={() => void buy(monthly)} disabled={busy}>
-              <View style={styles.planRow}><Text style={styles.planTitle}>Monthly</Text><Text style={styles.price}>{monthly.product.priceString}<Text style={styles.period}> / month</Text></Text></View>
-            </TouchableOpacity>
-          ) : null}
+          {/* Annual Plan (Best Value - $23.99/year with 7-day trial) */}
+          <TouchableOpacity
+            style={[styles.plan, styles.annual]}
+            onPress={() => void buy(annual)}
+            disabled={busy}
+            activeOpacity={0.8}
+          >
+            <View style={styles.bestValue}><Text style={styles.bestValueText}>SAVE 50% • BEST VALUE</Text></View>
+            <View style={styles.planRow}>
+              <View>
+                <Text style={styles.planTitle}>Annual</Text>
+                <Text style={styles.planSubtitle}>7-Day Free Trial included</Text>
+              </View>
+              <Text style={styles.price}>
+                {annual?.product.priceString || '$23.99'}
+                <Text style={styles.period}> / year</Text>
+              </Text>
+            </View>
+            <Text style={styles.planCaption}>
+              {annual ? '7-day free trial, then renews annually. Cancel anytime.' : 'Just ~$1.99/month. 7-day free trial, then $23.99/year.'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Monthly Plan ($3.99/month) */}
+          <TouchableOpacity
+            style={styles.plan}
+            onPress={() => void buy(monthly)}
+            disabled={busy}
+            activeOpacity={0.8}
+          >
+            <View style={styles.planRow}>
+              <View>
+                <Text style={styles.planTitle}>Monthly</Text>
+                <Text style={styles.planSubtitle}>Flexible month-to-month</Text>
+              </View>
+              <Text style={styles.price}>
+                {monthly?.product.priceString || '$3.99'}
+                <Text style={styles.period}> / month</Text>
+              </Text>
+            </View>
+            <Text style={styles.planCaption}>Renews automatically every month. Cancel anytime.</Text>
+          </TouchableOpacity>
 
           {busy ? <ActivityIndicator color={LIME} style={{ margin: 12 }} /> : null}
           {isPro && entitlement ? (
@@ -175,6 +208,7 @@ const styles = StyleSheet.create({
   bestValueText: { color: '#14160E', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 },
   planRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   planTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  planSubtitle: { color: '#A7ABB7', fontSize: 11, marginTop: 2, fontWeight: '500' },
   price: { color: '#FFFFFF', fontSize: 18, fontWeight: '900' },
   period: { color: '#A7ABB7', fontSize: 12, fontWeight: '500' },
   planCaption: { color: '#A7ABB7', fontSize: 11, marginTop: 8 },
