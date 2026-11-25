@@ -29,7 +29,10 @@ jest.mock('expo-notifications', () => ({
 
 import {
   buildHabitNotificationContent,
+  buildRepeatedDailyReminders,
+  formatGapLabel,
   formatReminderTime,
+  inferRepeatConfigFromReminders,
   parseTimeString,
   cleanupDuplicateNotificationsAsync,
   schedulePendingHabitsReminderAsync,
@@ -220,5 +223,59 @@ describe('schedulePendingHabitsReminderAsync & motivational engine', () => {
         }),
       })
     );
+  });
+});
+
+describe('repeated daily habit reminders with custom time gaps', () => {
+  it('generates multiple reminders per day at the configured gap', () => {
+    const result = buildRepeatedDailyReminders({
+      startHour: 8,
+      startMinute: 0,
+      repeatCount: 4,
+      intervalMinutes: 120,
+      weekdays: [1, 2, 3, 4, 5, 6, 7],
+      enabled: true,
+    });
+
+    expect(result.truncatedBeforeMidnight).toBe(false);
+    expect(result.reminders).toHaveLength(4);
+    expect(result.reminders.map(r => `${r.hour}:${String(r.minute).padStart(2, '0')}`)).toEqual([
+      '8:00',
+      '10:00',
+      '12:00',
+      '14:00',
+    ]);
+    expect(result.reminders[0].repeatCount).toBe(4);
+    expect(result.reminders[0].intervalMinutes).toBe(120);
+  });
+
+  it('caps reminders before midnight when start time and gap would pass 23:59', () => {
+    const result = buildRepeatedDailyReminders({
+      startHour: 21,
+      startMinute: 0,
+      repeatCount: 4,
+      intervalMinutes: 120,
+      weekdays: [1, 2, 3, 4, 5, 6, 7],
+      enabled: true,
+    });
+
+    expect(result.truncatedBeforeMidnight).toBe(true);
+    expect(result.reminders).toHaveLength(2);
+    expect(result.reminders.map(r => r.hour)).toEqual([21, 23]);
+  });
+
+  it('infers repeat count and time gap from saved reminder slots', () => {
+    expect(inferRepeatConfigFromReminders([
+      { id: 'r0', hour: 9, minute: 0, weekdays: [1, 2, 3, 4, 5, 6, 7], enabled: true },
+      { id: 'r1', hour: 9, minute: 45, weekdays: [1, 2, 3, 4, 5, 6, 7], enabled: true },
+      { id: 'r2', hour: 10, minute: 30, weekdays: [1, 2, 3, 4, 5, 6, 7], enabled: true },
+    ])).toEqual({ repeatCount: 3, intervalMinutes: 45 });
+  });
+
+  it('formats minute and hour gap labels cleanly', () => {
+    expect(formatGapLabel(30)).toBe('30 min');
+    expect(formatGapLabel(60)).toBe('1 hr');
+    expect(formatGapLabel(90)).toBe('1 hr 30 min');
+    expect(formatGapLabel(120)).toBe('2 hr');
   });
 });

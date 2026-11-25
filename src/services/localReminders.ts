@@ -37,6 +37,86 @@ export const formatReminderTime = (hour: number, minute: number): string => {
   return `${displayHour}:${displayMin} ${ampm}`;
 };
 
+export const formatGapLabel = (minutes: number): string => {
+  const safe = Math.max(1, Math.round(minutes));
+  const hrs = Math.floor(safe / 60);
+  const mins = safe % 60;
+  if (hrs === 0) return `${mins} min`;
+  if (mins === 0) return `${hrs} hr`;
+  return `${hrs} hr ${mins} min`;
+};
+
+export interface RepeatedReminderOptions {
+  startHour: number;
+  startMinute: number;
+  repeatCount: number;
+  intervalMinutes: number;
+  weekdays: number[];
+  enabled: boolean;
+  baseId?: string;
+}
+
+/**
+ * Expands a single start time + daily repeat count + time gap (minutes) into
+ * distinct HabitReminder slots within the same day (00:00–23:59).
+ */
+export const buildRepeatedDailyReminders = ({
+  startHour,
+  startMinute,
+  repeatCount,
+  intervalMinutes,
+  weekdays,
+  enabled,
+  baseId,
+}: RepeatedReminderOptions): { reminders: HabitReminder[]; truncatedBeforeMidnight: boolean } => {
+  const safeCount = Math.max(1, Math.min(24, Math.floor(repeatCount || 1)));
+  const safeGap = Math.max(5, Math.min(720, Math.floor(intervalMinutes || 60)));
+  const startTotal = startHour * 60 + startMinute;
+  const reminders: HabitReminder[] = [];
+  let truncatedBeforeMidnight = false;
+
+  for (let i = 0; i < safeCount; i++) {
+    const totalMinutes = startTotal + i * safeGap;
+    if (totalMinutes >= 24 * 60) {
+      truncatedBeforeMidnight = true;
+      break;
+    }
+    const hour = Math.floor(totalMinutes / 60);
+    const minute = totalMinutes % 60;
+    reminders.push({
+      id: i === 0 ? (baseId || `reminder_${hour}_${minute}`) : `reminder_${i}_${hour}_${minute}`,
+      hour,
+      minute,
+      weekdays,
+      enabled,
+      ...(i === 0 ? { repeatCount: safeCount, intervalMinutes: safeGap } : {}),
+    });
+  }
+
+  return { reminders, truncatedBeforeMidnight };
+};
+
+/**
+ * Restores repeatCount & intervalMinutes from saved HabitReminder slots when editing.
+ */
+export const inferRepeatConfigFromReminders = (
+  reminders?: HabitReminder[],
+): { repeatCount: number; intervalMinutes: number } => {
+  if (!reminders?.length) return { repeatCount: 1, intervalMinutes: 120 };
+  const first = reminders[0];
+  if (first.repeatCount && first.repeatCount >= 1 && first.intervalMinutes && first.intervalMinutes >= 5) {
+    return { repeatCount: first.repeatCount, intervalMinutes: first.intervalMinutes };
+  }
+  if (reminders.length > 1) {
+    const second = reminders[1];
+    const diff = (second.hour * 60 + second.minute) - (first.hour * 60 + first.minute);
+    if (diff >= 5) {
+      return { repeatCount: reminders.length, intervalMinutes: diff };
+    }
+  }
+  return { repeatCount: 1, intervalMinutes: 120 };
+};
+
 /**
  * Parse an entered time string (supports 12-hour AM/PM and 24-hour format)
  * e.g. "8:00 AM", "8:30pm", "8 PM", "9.50pm", "9.50", "9:50", "14:30", "08:00", "9"

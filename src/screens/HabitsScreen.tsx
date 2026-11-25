@@ -23,7 +23,7 @@ import { useSubscription } from '../services/SubscriptionProvider';
 import { canCreateHabit } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
 import { addLocalDays, calculateCompletionStats, calculateStreakStats, getHabitDayStatus, isPausedOnDate, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
-import { formatReminderTime } from '../services/localReminders';
+import { formatGapLabel, formatReminderTime } from '../services/localReminders';
 import { HabitTrackingControl } from '../components/HabitTrackingControl';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
@@ -216,8 +216,10 @@ export const HabitsScreen = () => {
                   {enabledReminders.length > 0 && (
                     <View style={[styles.reminderPill, { backgroundColor: `${habit.color}18`, opacity: isCompleted ? 0.6 : 1 }]}>
                       <Ionicons name="notifications-outline" size={11} color={habit.color} />
-                      <Text style={[styles.reminderText, { color: habit.color }]}>
-                        {enabledReminders.map(r => formatReminderTime(r.hour, r.minute)).join(', ')}
+                      <Text style={[styles.reminderText, { color: habit.color }]} numberOfLines={2}>
+                        {enabledReminders.length > 1
+                          ? `${enabledReminders.length}x/day${enabledReminders[0]?.intervalMinutes ? ` (${formatGapLabel(enabledReminders[0].intervalMinutes)})` : ''} · ${enabledReminders.slice(0, 3).map(r => formatReminderTime(r.hour, r.minute)).join(', ')}${enabledReminders.length > 3 ? ` +${enabledReminders.length - 3}` : ''}`
+                          : enabledReminders.map(r => formatReminderTime(r.hour, r.minute)).join(', ')}
                       </Text>
                     </View>
                   )}

@@ -40,6 +40,10 @@ export interface HabitReminder {
   weekdays: number[];
   enabled: boolean;
   notificationIds?: string[];
+  /** Number of reminders scheduled per day when repeating at fixed intervals. */
+  repeatCount?: number;
+  /** Gap in minutes between repeated reminders within the same day. */
+  intervalMinutes?: number;
 }
 
 export interface HabitConfigurationSnapshot {
