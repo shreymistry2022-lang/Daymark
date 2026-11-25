@@ -48,7 +48,7 @@ export const useRoutines = () => {
 
 export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
   const { user, session } = useAuth();
-  const { habits, allHabits, ensureHabitsSynced } = useHabits();
+  const { habits, allHabits, isLoadingData: isLoadingHabits, ensureHabitsSynced } = useHabits();
   const { preferences } = usePreferences();
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [isLoadingRoutines, setIsLoadingRoutines] = useState(true);
@@ -136,13 +136,15 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
     const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
     if (!cloudAuth) return;
     const pendingIds = await readStorageJson<string[]>(routinePendingSyncKey(cloudAuth.userId), []);
-    if (!pendingIds.length) return;
+    const targets = pendingIds.length
+      ? pendingIds.map(id => routinesRef.current.find(r => r.id === id)).filter((r): r is Routine => Boolean(r))
+      : routinesRef.current;
     try {
+      for (const target of targets) {
+        await syncRoutine(target);
+      }
       for (const id of pendingIds) {
-        const target = routinesRef.current.find(r => r.id === id);
-        if (target) {
-          await syncRoutine(target);
-        } else {
+        if (!routinesRef.current.some(r => r.id === id)) {
           await clearRoutinePending(cloudAuth.userId, id);
         }
       }
@@ -160,6 +162,14 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
     });
     return () => sub.remove();
   }, [retryRoutineSync]);
+
+  useEffect(() => {
+    if (!routineError || isLoadingHabits) return;
+    const timer = setInterval(() => {
+      void retryRoutineSync();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [routineError, isLoadingHabits, retryRoutineSync]);
 
   const refreshRoutineReminders = async (routine: Routine, previous?: Routine) => {
     try {
@@ -203,8 +213,8 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
     if (previous.enabled === preferences.notifications.routine && previous.sound === preferences.soundEnabled) return;
     lastReminderSettingsRef.current = { enabled: preferences.notifications.routine, sound: preferences.soundEnabled };
     routines.filter(routine => !routine.archivedAt && routine.reminders.length).forEach(routine => { void refreshRoutineReminders(routine, routine); });
-  // refreshRoutineReminders uses current preferences and routine snapshot.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // refreshRoutineReminders uses current preferences and routine snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferences.notifications.routine, preferences.soundEnabled, isLoadingRoutines]);
 
   useEffect(() => {
@@ -234,6 +244,8 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
         console.warn('Could not load local routines:', error);
         if (mounted) setRoutineError('Saved routines could not be read from this device.');
       }
+
+      if (isLoadingHabits) return;
 
       const cloudAuth = await resolveCloudAuth(user, session);
       if (cloudAuth) {
@@ -278,7 +290,8 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
           const mergedCloud = cloud.map(cloudRoutine => {
             const localRoutine = localById.get(cloudRoutine.id);
             if (!localRoutine) return cloudRoutine;
-            const localIsNewer = localRoutine.updatedAt > cloudRoutine.updatedAt || pendingSyncIds.includes(localRoutine.id);
+            const hasMissingCloudLinks = localRoutine.updatedAt === cloudRoutine.updatedAt && localRoutine.habitIds.length > cloudRoutine.habitIds.length;
+            const localIsNewer = localRoutine.updatedAt > cloudRoutine.updatedAt || pendingSyncIds.includes(localRoutine.id) || hasMissingCloudLinks;
             if (localIsNewer) localWins.push(localRoutine);
             const selected = localIsNewer ? localRoutine : cloudRoutine;
             const logsByDate = new Map<string, RoutineLog>();
@@ -311,7 +324,7 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
     };
     void load();
     return () => { mounted = false; };
-  }, [activeUid, markRoutinePending, session, syncRoutine, user]);
+  }, [activeUid, isLoadingHabits, markRoutinePending, session, syncRoutine, user]);
 
   const persistAndSync = (updated: Routine[], changed?: Routine) => {
     setRoutineError(null);

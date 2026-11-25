@@ -112,6 +112,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
   const sessionRef = useRef(session);
   const habitsRef = useRef(habits);
   const syncedHabitIdsRef = useRef<Set<string>>(new Set());
+  const [hasPendingSync, setHasPendingSync] = useState(false);
   useEffect(() => {
     userRef.current = user;
     sessionRef.current = session;
@@ -413,6 +414,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const markHabitPending = useCallback(async (userId: string, habitId: string) => {
+    setHasPendingSync(true);
     const existing = await readStorageJson<string[]>(pendingHabitsKey(userId), []);
     if (!existing.includes(habitId)) {
       await writeStorageJson(pendingHabitsKey(userId), [...existing, habitId]).catch(() => { });
@@ -422,7 +424,11 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
   const clearHabitPending = useCallback(async (userId: string, habitId: string) => {
     const existing = await readStorageJson<string[]>(pendingHabitsKey(userId), []);
     if (existing.includes(habitId)) {
-      await writeStorageJson(pendingHabitsKey(userId), existing.filter(id => id !== habitId)).catch(() => { });
+      const next = existing.filter(id => id !== habitId);
+      await writeStorageJson(pendingHabitsKey(userId), next).catch(() => { });
+      setHasPendingSync(next.length > 0);
+    } else {
+      setHasPendingSync(false);
     }
   }, []);
 
@@ -572,6 +578,14 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     });
     return () => sub.remove();
   }, [syncAllHabitsNow]);
+
+  useEffect(() => {
+    if (!hasPendingSync) return;
+    const timer = setInterval(() => {
+      void syncAllHabitsNow();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [hasPendingSync, syncAllHabitsNow]);
 
   const refreshReminderSchedule = async (habit: Habit, fallbackHabits: Habit[], previous?: Habit) => {
     try {

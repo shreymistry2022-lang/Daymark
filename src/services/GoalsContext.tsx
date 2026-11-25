@@ -47,7 +47,7 @@ export const useGoals = () => {
 
 export const GoalsProvider = ({ children }: { children: ReactNode }) => {
   const { user, session } = useAuth();
-  const { habits, allHabits, ensureHabitsSynced } = useHabits();
+  const { habits, allHabits, isLoadingData: isLoadingHabits, ensureHabitsSynced } = useHabits();
   const { preferences } = usePreferences();
   const todayDate = dateKeyInTimezone(new Date(), preferences.timezone);
   const todayReferenceDate = parseLocalDate(todayDate) ?? new Date();
@@ -134,13 +134,15 @@ export const GoalsProvider = ({ children }: { children: ReactNode }) => {
     const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
     if (!cloudAuth) return;
     const pendingIds = await readStorageJson<string[]>(pendingSyncStorageKey(cloudAuth.userId), []);
-    if (!pendingIds.length) return;
+    const targets = pendingIds.length
+      ? pendingIds.map(id => goalsRef.current.find(g => g.id === id)).filter((g): g is Goal => Boolean(g))
+      : goalsRef.current;
     try {
+      for (const target of targets) {
+        await syncGoal(target);
+      }
       for (const id of pendingIds) {
-        const target = goalsRef.current.find(g => g.id === id);
-        if (target) {
-          await syncGoal(target);
-        } else {
+        if (!goalsRef.current.some(g => g.id === id)) {
           await clearGoalPending(cloudAuth.userId, id);
         }
       }
@@ -158,6 +160,14 @@ export const GoalsProvider = ({ children }: { children: ReactNode }) => {
     });
     return () => sub.remove();
   }, [retryGoalSync]);
+
+  useEffect(() => {
+    if (!goalError || isLoadingHabits) return;
+    const timer = setInterval(() => {
+      void retryGoalSync();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [goalError, isLoadingHabits, retryGoalSync]);
 
   useEffect(() => {
     let mounted = true;
@@ -186,6 +196,8 @@ export const GoalsProvider = ({ children }: { children: ReactNode }) => {
         console.warn('Could not load local goals:', error);
         if (mounted) setGoalError('Saved goals could not be read from this device.');
       }
+
+      if (isLoadingHabits) return;
 
       const cloudAuth = await resolveCloudAuth(user, session);
       if (cloudAuth) {
@@ -228,7 +240,11 @@ export const GoalsProvider = ({ children }: { children: ReactNode }) => {
           const mergedCloud = cloud.map(cloudGoal => {
             const localGoal = localMap.get(cloudGoal.id);
             if (!localGoal) return cloudGoal;
-            if (localGoal.updatedAt > cloudGoal.updatedAt || pendingSyncIds.includes(localGoal.id)) {
+            const hasMissingCloudLinks = localGoal.updatedAt === cloudGoal.updatedAt && (
+              localGoal.habitIds.length > cloudGoal.habitIds.length ||
+              localGoal.milestones.length > cloudGoal.milestones.length
+            );
+            if (localGoal.updatedAt > cloudGoal.updatedAt || pendingSyncIds.includes(localGoal.id) || hasMissingCloudLinks) {
               localWins.push(localGoal);
               return localGoal;
             }
@@ -258,7 +274,7 @@ export const GoalsProvider = ({ children }: { children: ReactNode }) => {
     };
     void load();
     return () => { mounted = false; };
-  }, [activeUid, markGoalPending, session, syncGoal, user]);
+  }, [activeUid, isLoadingHabits, markGoalPending, session, syncGoal, user]);
 
   const persistAndSync = (updated: Goal[], changed?: Goal) => {
     setGoalError(null);

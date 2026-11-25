@@ -20,7 +20,7 @@ export const useJournal = () => { const value = useContext(JournalContext); if (
 
 export const JournalProvider = ({ children }: { children: ReactNode }) => {
   const { user, session } = useAuth();
-  const { allHabits, ensureHabitsSynced } = useHabits();
+  const { allHabits, isLoadingData: isLoadingHabits, ensureHabitsSynced } = useHabits();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,12 +86,13 @@ export const JournalProvider = ({ children }: { children: ReactNode }) => {
     const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
     if (!cloudAuth) return;
     const pendingIds = await readStorageJson<string[]>(journalPendingKey(cloudAuth.userId), []);
-    if (!pendingIds.length) return;
+    const targets = pendingIds.length
+      ? pendingIds.map(id => entriesRef.current.find(e => e.id === id)).filter((e): e is JournalEntry => Boolean(e))
+      : entriesRef.current;
     try {
+      for (const target of targets) await syncEntry(target);
       for (const id of pendingIds) {
-        const target = entriesRef.current.find(e => e.id === id);
-        if (target) await syncEntry(target);
-        else await clearPending(cloudAuth.userId, id);
+        if (!entriesRef.current.some(e => e.id === id)) await clearPending(cloudAuth.userId, id);
       }
       setError(null);
     } catch (syncErr) {
@@ -105,6 +106,14 @@ export const JournalProvider = ({ children }: { children: ReactNode }) => {
     });
     return () => sub.remove();
   }, [retryJournalSync]);
+
+  useEffect(() => {
+    if (!error || isLoadingHabits) return;
+    const timer = setInterval(() => {
+      void retryJournalSync();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [error, isLoadingHabits, retryJournalSync]);
 
   useEffect(() => {
     let mounted = true;
@@ -129,6 +138,8 @@ export const JournalProvider = ({ children }: { children: ReactNode }) => {
           entriesRef.current = local;
         }
       } catch { if (mounted) setError('Saved journal entries could not be read.'); }
+
+      if (isLoadingHabits) return;
 
       const cloudAuth = await resolveCloudAuth(user, session);
       if (cloudAuth) {
@@ -179,7 +190,7 @@ export const JournalProvider = ({ children }: { children: ReactNode }) => {
       if (mounted) setIsLoading(false);
     };
     void load(); return () => { mounted = false; };
-  }, [activeUid, markPending, persist, session, syncEntry, user]);
+  }, [activeUid, isLoadingHabits, markPending, persist, session, syncEntry, user]);
 
   const saveEntry = (value: Pick<JournalEntry, 'id' | 'habitId' | 'date' | 'text'>) => {
     const text = value.text.trim();
