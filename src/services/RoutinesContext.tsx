@@ -1,6 +1,7 @@
-import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase } from './supabase';
 import { useAuth } from './AuthProvider';
 import { Routine, RoutineLog } from '../domain/routineEngine';
 import { HabitSchedule } from '../domain/habitTypes';
@@ -9,9 +10,13 @@ import { dateKeyInTimezone } from '../domain/preferencesEngine';
 import { replaceLocalReminders } from './localReminders';
 import { useHabits } from './HabitContext';
 import { usePreferences } from './PreferencesContext';
+import { readStorageJson, resolveCloudAuth, writeStorageJson } from './cloudSyncHelpers';
 
-const STORAGE_KEY = '@daymark_routines_v1';
-const DELETE_QUEUE_KEY = '@daymark_routine_delete_queue_v1';
+const LEGACY_STORAGE_KEY = '@daymark_routines_v1';
+const LEGACY_DELETE_KEY = '@daymark_routine_delete_queue_v1';
+const routinesStorageKey = (uid?: string) => uid ? `@daymark_routines_v1:${uid}` : LEGACY_STORAGE_KEY;
+const routineDeleteQueueKey = (uid?: string) => uid ? `@daymark_routine_delete_queue_v1:${uid}` : LEGACY_DELETE_KEY;
+const routinePendingSyncKey = (uid?: string) => `@daymark_routine_pending_sync_v1:${uid ?? 'guest'}`;
 
 interface RoutineContextValue {
   routines: Routine[];
@@ -23,6 +28,7 @@ interface RoutineContextValue {
   deleteRoutine: (id: string) => void;
   reorderRoutine: (id: string, direction: -1 | 1) => void;
   toggleRoutineLog: (id: string, date?: string) => { error?: string };
+  retryRoutineSync: () => Promise<void>;
 }
 
 const RoutineContext = createContext<RoutineContextValue | null>(null);
@@ -42,54 +48,126 @@ export const useRoutines = () => {
 
 export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
   const { user, session } = useAuth();
-  const { habits } = useHabits();
+  const { habits, allHabits, ensureHabitsSynced } = useHabits();
   const { preferences } = usePreferences();
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [isLoadingRoutines, setIsLoadingRoutines] = useState(true);
   const [routineError, setRoutineError] = useState<string | null>(null);
 
-  const saveLocal = useCallback(async (updated: Routine[]) => {
-    setRoutines(sortRoutines(updated));
-    try { await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); }
+  const userRef = useRef(user);
+  const sessionRef = useRef(session);
+  const routinesRef = useRef(routines);
+  const allHabitsRef = useRef(allHabits);
+  useEffect(() => {
+    userRef.current = user;
+    sessionRef.current = session;
+    routinesRef.current = routines;
+    allHabitsRef.current = allHabits;
+  });
+
+  const activeUid = user?.id && !user.isGuest ? user.id : undefined;
+
+  const saveLocal = useCallback(async (updated: Routine[], uid?: string) => {
+    const sorted = sortRoutines(updated);
+    setRoutines(sorted);
+    routinesRef.current = sorted;
+    const targetKey = routinesStorageKey(uid ?? (userRef.current?.id && !userRef.current.isGuest ? userRef.current.id : undefined));
+    try { await AsyncStorage.setItem(targetKey, JSON.stringify(sorted)); }
     catch (error) { setRoutineError('Routines could not be saved on this device. Check available storage.'); console.warn(error); }
   }, []);
 
+  const markRoutinePending = useCallback(async (uid: string, routineId: string) => {
+    const pending = await readStorageJson<string[]>(routinePendingSyncKey(uid), []);
+    if (!pending.includes(routineId)) {
+      await writeStorageJson(routinePendingSyncKey(uid), [...pending, routineId]).catch(() => { });
+    }
+  }, []);
+
+  const clearRoutinePending = useCallback(async (uid: string, routineId: string) => {
+    const pending = await readStorageJson<string[]>(routinePendingSyncKey(uid), []);
+    if (pending.includes(routineId)) {
+      await writeStorageJson(routinePendingSyncKey(uid), pending.filter(id => id !== routineId)).catch(() => { });
+    }
+  }, []);
+
   const syncRoutine = useCallback(async (routine: Routine) => {
-    if (!session || !user || user.isGuest || !isSupabaseConfigured) return;
+    const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
+    if (!cloudAuth) return;
+
+    const validHabitIds = routine.habitIds.filter(id => allHabitsRef.current.some(h => h.id === id));
+    if (validHabitIds.length > 0) {
+      await ensureHabitsSynced(validHabitIds);
+    }
+
     const { error } = await supabase.from('routines').upsert({
       id: routine.id,
-      user_id: user.id,
+      user_id: cloudAuth.userId,
       name: routine.name,
       description: routine.description,
       schedule: routine.schedule,
       reminders: routine.reminders,
       sort_order: routine.sortOrder,
       archived_at: routine.archivedAt,
+      created_at: routine.createdAt,
       updated_at: routine.updatedAt,
-    });
+    }, { onConflict: 'id' });
     if (error) throw error;
+
     const { error: clearLinksError } = await supabase.from('routine_habits').delete().eq('routine_id', routine.id);
     if (clearLinksError) throw clearLinksError;
-    if (routine.habitIds.length) {
-      const links = routine.habitIds.map((habitId, index) => ({ routine_id: routine.id, habit_id: habitId, sort_order: index }));
-      const { error: linksError } = await supabase.from('routine_habits').upsert(links, { onConflict: 'routine_id,habit_id' });
+    if (validHabitIds.length) {
+      const links = validHabitIds.map((habitId, index) => ({ routine_id: routine.id, habit_id: habitId, sort_order: index }));
+      const { error: linksError } = await supabase.from('routine_habits').insert(links);
       if (linksError) throw linksError;
     }
-    const { error: clearLogsError } = await supabase.from('routine_logs').delete().eq('routine_id', routine.id).eq('user_id', user.id);
+
+    const { error: clearLogsError } = await supabase.from('routine_logs').delete().eq('routine_id', routine.id).eq('user_id', cloudAuth.userId);
     if (clearLogsError) throw clearLogsError;
     if (routine.logs.length) {
-      const logs = routine.logs.map(log => ({ user_id: user.id, routine_id: routine.id, log_date: log.date, completed_at: log.completedAt, updated_at: log.updatedAt }));
+      const logs = routine.logs.map(log => ({ user_id: cloudAuth.userId, routine_id: routine.id, log_date: log.date, completed_at: log.completedAt, updated_at: log.updatedAt }));
       const { error: logsError } = await supabase.from('routine_logs').upsert(logs, { onConflict: 'routine_id,log_date' });
       if (logsError) throw logsError;
     }
-  }, [session, user]);
+
+    await clearRoutinePending(cloudAuth.userId, routine.id);
+  }, [clearRoutinePending, ensureHabitsSynced]);
+
+  const retryRoutineSync = useCallback(async () => {
+    const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
+    if (!cloudAuth) return;
+    const pendingIds = await readStorageJson<string[]>(routinePendingSyncKey(cloudAuth.userId), []);
+    if (!pendingIds.length) return;
+    try {
+      for (const id of pendingIds) {
+        const target = routinesRef.current.find(r => r.id === id);
+        if (target) {
+          await syncRoutine(target);
+        } else {
+          await clearRoutinePending(cloudAuth.userId, id);
+        }
+      }
+      setRoutineError(null);
+    } catch (error) {
+      console.warn('Pending routine cloud sync retry failed:', error);
+    }
+  }, [clearRoutinePending, syncRoutine]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') {
+        void retryRoutineSync();
+      }
+    });
+    return () => sub.remove();
+  }, [retryRoutineSync]);
 
   const refreshRoutineReminders = async (routine: Routine, previous?: Routine) => {
     try {
       const reminders = await replaceLocalReminders({ ...routine, notificationsEnabled: preferences.notifications.routine, soundEnabled: preferences.soundEnabled }, previous?.reminders);
-      let latest = routines;
+      const storageKey = routinesStorageKey(userRef.current?.id && !userRef.current.isGuest ? userRef.current.id : undefined);
+      let latest = routinesRef.current;
       try {
-        const saved = await AsyncStorage.getItem(STORAGE_KEY);
+        const saved = await AsyncStorage.getItem(storageKey);
         if (saved) latest = JSON.parse(saved) as Routine[];
       } catch { /* Preserve the in-memory routine list. */ }
       const current = latest.find(item => item.id === routine.id);
@@ -97,10 +175,23 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
       const changed = { ...current, reminders };
       const updated = latest.map(item => item.id === routine.id ? changed : item);
       await saveLocal(updated);
-      await syncRoutine(changed);
+      const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
+      if (cloudAuth) {
+        try {
+          await syncRoutine(changed);
+          setRoutineError(null);
+        } catch (syncErr) {
+          await markRoutinePending(cloudAuth.userId, changed.id);
+          console.warn('Routine saved locally; cloud sync failed:', syncErr);
+          setRoutineError('Routine saved on this device, but cloud sync failed. It will retry automatically.');
+        }
+      }
     } catch (error) {
       console.warn('Routine reminder could not be scheduled:', error);
-      try { await syncRoutine(routine); } catch { /* Keep the local copy and show the notification/sync issue below. */ }
+      const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
+      if (cloudAuth) {
+        try { await syncRoutine(routine); } catch { await markRoutinePending(cloudAuth.userId, routine.id); }
+      }
       setRoutineError(error instanceof Error ? error.message : 'Routine reminder could not be scheduled.');
     }
   };
@@ -120,30 +211,53 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
     let mounted = true;
     const load = async () => {
       setIsLoadingRoutines(true);
+      const storageKey = routinesStorageKey(activeUid);
+      const deleteKey = routineDeleteQueueKey(activeUid);
+
       let local: Routine[] = [];
       try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
+        let stored = await AsyncStorage.getItem(storageKey);
+        if (!stored && activeUid) {
+          const legacyStored = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+          if (legacyStored) {
+            stored = legacyStored;
+            await AsyncStorage.setItem(storageKey, legacyStored).catch(() => { });
+          }
+        }
         if (stored) local = JSON.parse(stored) as Routine[];
-        if (mounted) setRoutines(sortRoutines(local));
+        if (mounted) {
+          const sorted = sortRoutines(local);
+          setRoutines(sorted);
+          routinesRef.current = sorted;
+        }
       } catch (error) {
         console.warn('Could not load local routines:', error);
         if (mounted) setRoutineError('Saved routines could not be read from this device.');
       }
 
-      if (session && user && !user.isGuest && isSupabaseConfigured) {
+      const cloudAuth = await resolveCloudAuth(user, session);
+      if (cloudAuth) {
         try {
-          let pendingDeletes: string[] = [];
-          try { pendingDeletes = JSON.parse((await AsyncStorage.getItem(DELETE_QUEUE_KEY)) ?? '[]') as string[]; } catch { pendingDeletes = []; }
+          const pendingDeletes = await readStorageJson<string[]>(deleteKey, []);
+          const legacyDeletes = deleteKey !== LEGACY_DELETE_KEY ? await readStorageJson<string[]>(LEGACY_DELETE_KEY, []) : [];
+          const combinedDeletes = Array.from(new Set([...pendingDeletes, ...legacyDeletes]));
           const remainingDeletes: string[] = [];
-          for (const id of pendingDeletes) {
-            const result = await supabase.from('routines').delete().eq('id', id).eq('user_id', user.id);
+          for (const id of combinedDeletes) {
+            const result = await supabase.from('routines').delete().eq('id', id).eq('user_id', cloudAuth.userId);
             if (result.error) remainingDeletes.push(id);
           }
-          await AsyncStorage.setItem(DELETE_QUEUE_KEY, JSON.stringify(remainingDeletes));
+          await writeStorageJson(deleteKey, remainingDeletes).catch(() => { });
+          if (deleteKey !== LEGACY_DELETE_KEY) {
+            await AsyncStorage.removeItem(LEGACY_DELETE_KEY).catch(() => { });
+          }
+
+          const pendingSyncIds = await readStorageJson<string[]>(routinePendingSyncKey(cloudAuth.userId), []);
+
           const { data, error } = await supabase.from('routines')
             .select('*, routine_habits(habit_id,sort_order), routine_logs(log_date,completed_at,updated_at)')
-            .eq('user_id', user.id).order('sort_order', { ascending: true });
+            .eq('user_id', cloudAuth.userId).order('sort_order', { ascending: true });
           if (error) throw error;
+
           const cloud: Routine[] = (data ?? []).filter((row: any) => !remainingDeletes.includes(row.id)).map((row: any) => ({
             id: row.id,
             name: row.name,
@@ -164,7 +278,7 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
           const mergedCloud = cloud.map(cloudRoutine => {
             const localRoutine = localById.get(cloudRoutine.id);
             if (!localRoutine) return cloudRoutine;
-            const localIsNewer = localRoutine.updatedAt > cloudRoutine.updatedAt;
+            const localIsNewer = localRoutine.updatedAt > cloudRoutine.updatedAt || pendingSyncIds.includes(localRoutine.id);
             if (localIsNewer) localWins.push(localRoutine);
             const selected = localIsNewer ? localRoutine : cloudRoutine;
             const logsByDate = new Map<string, RoutineLog>();
@@ -177,19 +291,27 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
           const localOnly = local.filter(routine => !cloudIds.has(routine.id));
           const merged = sortRoutines([...mergedCloud, ...localOnly]);
           setRoutines(merged);
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-          for (const routine of [...localWins, ...localOnly]) await syncRoutine(routine);
+          routinesRef.current = merged;
+          await AsyncStorage.setItem(storageKey, JSON.stringify(merged));
+          for (const routine of [...localWins, ...localOnly]) {
+            try {
+              await syncRoutine(routine);
+            } catch (syncErr) {
+              await markRoutinePending(cloudAuth.userId, routine.id);
+              throw syncErr;
+            }
+          }
           setRoutineError(null);
         } catch (error) {
           console.warn('Cloud routines remain available locally:', error);
-          if (mounted) setRoutineError('Cloud sync is unavailable. Routine changes are stored on this device and will retry later.');
+          if (mounted) setRoutineError('Cloud sync is unavailable. Routine changes are stored on this device and will retry automatically.');
         }
       }
       if (mounted) setIsLoadingRoutines(false);
     };
     void load();
     return () => { mounted = false; };
-  }, [session, user, syncRoutine]);
+  }, [activeUid, markRoutinePending, session, syncRoutine, user]);
 
   const persistAndSync = (updated: Routine[], changed?: Routine) => {
     setRoutineError(null);
@@ -202,10 +324,18 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
         || Boolean(previous.archivedAt) !== Boolean(changed.archivedAt)) {
         void savedLocally.then(() => refreshRoutineReminders(changed, previous));
       } else {
-        void syncRoutine(changed).catch(error => {
-          console.warn('Routine saved locally; cloud sync failed:', error);
-          setRoutineError('Routine saved on this device, but could not sync to your account. It will retry on your next app session.');
-        });
+        void (async () => {
+          const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
+          if (!cloudAuth) return;
+          try {
+            await syncRoutine(changed);
+            setRoutineError(null);
+          } catch (error) {
+            console.warn('Routine saved locally; cloud sync failed:', error);
+            await markRoutinePending(cloudAuth.userId, changed.id);
+            setRoutineError('Routine saved on this device, but could not sync to your account. It will retry automatically.');
+          }
+        })();
       }
     }
   };
@@ -250,13 +380,16 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
     if (existing?.reminders.length) void replaceLocalReminders({ ...existing, archivedAt: new Date().toISOString() }, existing.reminders);
     const next = routines.filter(routine => routine.id !== id).map((routine, index) => ({ ...routine, sortOrder: index }));
     persistAndSync(next);
-    if (session && user && !user.isGuest && isSupabaseConfigured) void (async () => {
-      let queue: string[] = [];
-      try { queue = JSON.parse((await AsyncStorage.getItem(DELETE_QUEUE_KEY)) ?? '[]') as string[]; } catch { queue = []; }
+    void (async () => {
+      const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
+      if (!cloudAuth) return;
+      await clearRoutinePending(cloudAuth.userId, id);
+      const deleteKey = routineDeleteQueueKey(cloudAuth.userId);
+      const queue = await readStorageJson<string[]>(deleteKey, []);
       if (!queue.includes(id)) queue.push(id);
-      await AsyncStorage.setItem(DELETE_QUEUE_KEY, JSON.stringify(queue));
-      const { error } = await supabase.from('routines').delete().eq('id', id).eq('user_id', user.id);
-      if (!error) await AsyncStorage.setItem(DELETE_QUEUE_KEY, JSON.stringify(queue.filter(queuedId => queuedId !== id)));
+      await writeStorageJson(deleteKey, queue).catch(() => { });
+      const { error } = await supabase.from('routines').delete().eq('id', id).eq('user_id', cloudAuth.userId);
+      if (!error) await writeStorageJson(deleteKey, queue.filter(queuedId => queuedId !== id)).catch(() => { });
       else setRoutineError('Routine deleted on this device; cloud deletion will retry next session.');
     })();
   };
@@ -269,7 +402,16 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
     [next[index], next[destination]] = [next[destination], next[index]];
     const reordered = next.map((routine, order) => ({ ...routine, sortOrder: order, updatedAt: new Date().toISOString() }));
     void saveLocal(reordered);
-    if (session && user && !user.isGuest && isSupabaseConfigured) for (const routine of reordered) void syncRoutine(routine).catch(() => setRoutineError('Routine order saved locally, but could not sync.'));
+    void (async () => {
+      const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
+      if (!cloudAuth) return;
+      for (const routine of reordered) {
+        try { await syncRoutine(routine); } catch {
+          await markRoutinePending(cloudAuth.userId, routine.id);
+          setRoutineError('Routine order saved locally, but could not sync.');
+        }
+      }
+    })();
   };
 
   const toggleRoutineLog = (id: string, date = dateKeyInTimezone(new Date(), preferences.timezone)) => {
@@ -286,6 +428,6 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
     return {};
   };
 
-  const value: RoutineContextValue = { routines, isLoadingRoutines, routineError, createRoutine, updateRoutine, archiveRoutine, deleteRoutine, reorderRoutine, toggleRoutineLog };
+  const value: RoutineContextValue = { routines, isLoadingRoutines, routineError, createRoutine, updateRoutine, archiveRoutine, deleteRoutine, reorderRoutine, toggleRoutineLog, retryRoutineSync };
   return <RoutineContext.Provider value={value}>{children}</RoutineContext.Provider>;
 };

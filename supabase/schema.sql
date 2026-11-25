@@ -336,6 +336,12 @@ drop policy if exists routine_habits_owner_insert on public.routine_habits;
 create policy routine_habits_owner_insert on public.routine_habits for insert to authenticated
   with check (exists (select 1 from public.routines r where r.id = routine_id and r.user_id = auth.uid())
     and exists (select 1 from public.habits h where h.id = habit_id and h.user_id = auth.uid()));
+drop policy if exists routine_habits_owner_update on public.routine_habits;
+create policy routine_habits_owner_update on public.routine_habits for update to authenticated
+  using (exists (select 1 from public.routines r where r.id = routine_id and r.user_id = auth.uid())
+    and exists (select 1 from public.habits h where h.id = habit_id and h.user_id = auth.uid()))
+  with check (exists (select 1 from public.routines r where r.id = routine_id and r.user_id = auth.uid())
+    and exists (select 1 from public.habits h where h.id = habit_id and h.user_id = auth.uid()));
 drop policy if exists routine_habits_owner_delete on public.routine_habits;
 create policy routine_habits_owner_delete on public.routine_habits for delete to authenticated
   using (exists (select 1 from public.routines r where r.id = routine_id and r.user_id = auth.uid())
@@ -348,6 +354,12 @@ create policy goal_habits_owner_select on public.goal_habits for select to authe
     and exists (select 1 from public.habits h where h.id = habit_id and h.user_id = auth.uid()));
 drop policy if exists goal_habits_owner_insert on public.goal_habits;
 create policy goal_habits_owner_insert on public.goal_habits for insert to authenticated
+  with check (exists (select 1 from public.goals g where g.id = goal_id and g.user_id = auth.uid())
+    and exists (select 1 from public.habits h where h.id = habit_id and h.user_id = auth.uid()));
+drop policy if exists goal_habits_owner_update on public.goal_habits;
+create policy goal_habits_owner_update on public.goal_habits for update to authenticated
+  using (exists (select 1 from public.goals g where g.id = goal_id and g.user_id = auth.uid())
+    and exists (select 1 from public.habits h where h.id = habit_id and h.user_id = auth.uid()))
   with check (exists (select 1 from public.goals g where g.id = goal_id and g.user_id = auth.uid())
     and exists (select 1 from public.habits h where h.id = habit_id and h.user_id = auth.uid()));
 drop policy if exists goal_habits_owner_delete on public.goal_habits;

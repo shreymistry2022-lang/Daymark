@@ -45,14 +45,14 @@ export const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const { habits, allHabits, stats, restartOnboarding } = useHabits();
+  const { habits, allHabits, stats, restartOnboarding, syncAllHabitsNow } = useHabits();
   const { mode, setMode, colors } = useTheme();
   const { user, signOut, deleteAccount } = useAuth();
   const { isPro } = useSubscription();
   const { preferences, updatePreferences } = usePreferences();
-  const { routines } = useRoutines();
-  const { goals } = useGoals();
-  const { entries } = useJournal();
+  const { routines, retryRoutineSync } = useRoutines();
+  const { goals, retryGoalSync } = useGoals();
+  const { entries, retryJournalSync } = useJournal();
   const { achievements } = useAchievements();
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [routinesVisible, setRoutinesVisible] = useState(false);
@@ -191,7 +191,10 @@ export const ProfileScreen = () => {
           </View>
           <TouchableOpacity
             style={styles.editProfileBtn}
-            onPress={() => Alert.alert('User Details', `Signed in as: ${displayName}\n${displayRole}`)}
+            onPress={() => Alert.alert(
+              'User Details',
+              `Signed in as: ${displayName}\n${displayRole}${user?.id ? `\nUser ID: ${user.id}` : ''}`
+            )}
           >
             <Ionicons name="information-circle-outline" size={20} color={colors.secondaryText} />
           </TouchableOpacity>
@@ -430,6 +433,28 @@ export const ProfileScreen = () => {
           >
             <Ionicons name="star-outline" size={20} color="#F59E0B" />
             <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Rate Daymark & Send Feedback</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionButton, { borderBottomColor: colors.border }]}
+            onPress={async () => {
+              if (!user || user.isGuest) {
+                Alert.alert('Guest Mode', 'Sign in with an account to back up and sync your data to the cloud.');
+                return;
+              }
+              await Promise.all([
+                syncAllHabitsNow(),
+                retryGoalSync(),
+                retryRoutineSync(),
+                retryJournalSync(),
+              ]);
+              Alert.alert('Cloud Sync Complete', 'All habits, goals, routines, and journal entries are synced to your account.');
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="cloud-upload-outline" size={20} color={colors.accent} />
+            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Sync Data to Cloud Now</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
           </TouchableOpacity>
 

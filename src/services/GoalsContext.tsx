@@ -1,15 +1,21 @@
-import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase } from './supabase';
 import { useAuth } from './AuthProvider';
 import { useHabits } from './HabitContext';
 import { calculateGoalProgress, Goal, GoalMilestone } from '../domain/goalEngine';
 import { parseLocalDate } from '../domain/habitEngine';
 import { usePreferences } from './PreferencesContext';
 import { dateKeyInTimezone } from '../domain/preferencesEngine';
+import { readStorageJson, resolveCloudAuth, writeStorageJson } from './cloudSyncHelpers';
 
-const STORAGE_KEY = '@daymark_goals_v1';
-const DELETE_QUEUE_KEY = '@daymark_goal_delete_queue_v1';
+const LEGACY_STORAGE_KEY = '@daymark_goals_v1';
+const LEGACY_DELETE_KEY = '@daymark_goal_delete_queue_v1';
+const goalsStorageKey = (uid?: string) => uid ? `@daymark_goals_v1:${uid}` : LEGACY_STORAGE_KEY;
+const deleteQueueStorageKey = (uid?: string) => uid ? `@daymark_goal_delete_queue_v1:${uid}` : LEGACY_DELETE_KEY;
+const pendingSyncStorageKey = (uid?: string) => `@daymark_goal_pending_sync_v1:${uid ?? 'guest'}`;
+
 type GoalInput = Pick<Goal, 'name' | 'description' | 'category' | 'startDate' | 'targetDate' | 'targetValue' | 'unit' | 'habitIds' | 'milestones'>;
 
 interface GoalsContextValue {
@@ -26,6 +32,7 @@ interface GoalsContextValue {
   markMilestoneReached: (goalId: string, milestoneId: string) => { error?: string };
   updateMilestone: (goalId: string, milestone: GoalMilestone) => { error?: string };
   deleteMilestone: (goalId: string, milestoneId: string) => void;
+  retryGoalSync: () => Promise<void>;
 }
 
 const GoalContext = createContext<GoalsContextValue | null>(null);
@@ -40,7 +47,7 @@ export const useGoals = () => {
 
 export const GoalsProvider = ({ children }: { children: ReactNode }) => {
   const { user, session } = useAuth();
-  const { habits } = useHabits();
+  const { habits, allHabits, ensureHabitsSynced } = useHabits();
   const { preferences } = usePreferences();
   const todayDate = dateKeyInTimezone(new Date(), preferences.timezone);
   const todayReferenceDate = parseLocalDate(todayDate) ?? new Date();
@@ -48,59 +55,163 @@ export const GoalsProvider = ({ children }: { children: ReactNode }) => {
   const [isLoadingGoals, setIsLoadingGoals] = useState(true);
   const [goalError, setGoalError] = useState<string | null>(null);
 
-  const saveLocal = useCallback(async (updated: Goal[]) => {
-    setGoals(sortGoals(updated));
-    try { await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); }
+  const userRef = useRef(user);
+  const sessionRef = useRef(session);
+  const goalsRef = useRef(goals);
+  const allHabitsRef = useRef(allHabits);
+  useEffect(() => {
+    userRef.current = user;
+    sessionRef.current = session;
+    goalsRef.current = goals;
+    allHabitsRef.current = allHabits;
+  });
+
+  const activeUid = user?.id && !user.isGuest ? user.id : undefined;
+
+  const saveLocal = useCallback(async (updated: Goal[], uid?: string) => {
+    const sorted = sortGoals(updated);
+    setGoals(sorted);
+    goalsRef.current = sorted;
+    const targetKey = goalsStorageKey(uid ?? (userRef.current?.id && !userRef.current.isGuest ? userRef.current.id : undefined));
+    try { await AsyncStorage.setItem(targetKey, JSON.stringify(sorted)); }
     catch (error) { console.warn('Could not save goals locally:', error); setGoalError('Goals could not be saved on this device.'); }
   }, []);
 
+  const markGoalPending = useCallback(async (uid: string, goalId: string) => {
+    const pending = await readStorageJson<string[]>(pendingSyncStorageKey(uid), []);
+    if (!pending.includes(goalId)) {
+      await writeStorageJson(pendingSyncStorageKey(uid), [...pending, goalId]).catch(() => { });
+    }
+  }, []);
+
+  const clearGoalPending = useCallback(async (uid: string, goalId: string) => {
+    const pending = await readStorageJson<string[]>(pendingSyncStorageKey(uid), []);
+    if (pending.includes(goalId)) {
+      await writeStorageJson(pendingSyncStorageKey(uid), pending.filter(id => id !== goalId)).catch(() => { });
+    }
+  }, []);
+
   const syncGoal = useCallback(async (goal: Goal) => {
-    if (!session || !user || user.isGuest || !isSupabaseConfigured) return;
+    const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
+    if (!cloudAuth) return;
+
+    const validHabitIds = goal.habitIds.filter(id => allHabitsRef.current.some(h => h.id === id));
+    if (validHabitIds.length > 0) {
+      await ensureHabitsSynced(validHabitIds);
+    }
+
     const { error } = await supabase.from('goals').upsert({
-      id: goal.id, user_id: user.id, name: goal.name, description: goal.description,
+      id: goal.id, user_id: cloudAuth.userId, name: goal.name, description: goal.description,
       category: goal.category, start_date: goal.startDate, target_date: goal.targetDate,
       target_value: goal.targetValue, unit: goal.unit, archived_at: goal.archivedAt,
-      completed_at: goal.completedAt, updated_at: goal.updatedAt,
-    });
+      completed_at: goal.completedAt, created_at: goal.createdAt, updated_at: goal.updatedAt,
+    }, { onConflict: 'id' });
     if (error) throw error;
+
     const { error: clearLinksError } = await supabase.from('goal_habits').delete().eq('goal_id', goal.id);
     if (clearLinksError) throw clearLinksError;
-    if (goal.habitIds.length) {
-      const links = goal.habitIds.map(habitId => ({ goal_id: goal.id, habit_id: habitId }));
-      const { error: linkError } = await supabase.from('goal_habits').upsert(links, { onConflict: 'goal_id,habit_id' });
+    if (validHabitIds.length) {
+      const links = validHabitIds.map(habitId => ({ goal_id: goal.id, habit_id: habitId }));
+      const { error: linkError } = await supabase.from('goal_habits').insert(links);
       if (linkError) throw linkError;
     }
-    const { error: clearMilestonesError } = await supabase.from('goal_milestones').delete().in('goal_id', [goal.id]);
+
+    const { error: clearMilestonesError } = await supabase.from('goal_milestones').delete().eq('goal_id', goal.id);
     if (clearMilestonesError) throw clearMilestonesError;
     if (goal.milestones.length) {
-      const milestones = goal.milestones.map(milestone => ({ id: milestone.id, goal_id: goal.id, title: milestone.title, target_value: milestone.targetValue, reached_at: milestone.reachedAt }));
-      const { error: milestonesError } = await supabase.from('goal_milestones').upsert(milestones, { onConflict: 'id' });
+      const milestones = goal.milestones.map(milestone => ({
+        id: milestone.id, goal_id: goal.id, title: milestone.title,
+        target_value: milestone.targetValue, reached_at: milestone.reachedAt,
+      }));
+      const { error: milestonesError } = await supabase.from('goal_milestones').insert(milestones);
       if (milestonesError) throw milestonesError;
     }
-  }, [session, user]);
+
+    await clearGoalPending(cloudAuth.userId, goal.id);
+  }, [clearGoalPending, ensureHabitsSynced]);
+
+  const retryGoalSync = useCallback(async () => {
+    const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
+    if (!cloudAuth) return;
+    const pendingIds = await readStorageJson<string[]>(pendingSyncStorageKey(cloudAuth.userId), []);
+    if (!pendingIds.length) return;
+    try {
+      for (const id of pendingIds) {
+        const target = goalsRef.current.find(g => g.id === id);
+        if (target) {
+          await syncGoal(target);
+        } else {
+          await clearGoalPending(cloudAuth.userId, id);
+        }
+      }
+      setGoalError(null);
+    } catch (error) {
+      console.warn('Pending goal cloud sync retry failed:', error);
+    }
+  }, [clearGoalPending, syncGoal]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') {
+        void retryGoalSync();
+      }
+    });
+    return () => sub.remove();
+  }, [retryGoalSync]);
 
   useEffect(() => {
     let mounted = true;
     const load = async () => {
       setIsLoadingGoals(true);
+      const storageKey = goalsStorageKey(activeUid);
+      const deleteKey = deleteQueueStorageKey(activeUid);
+
       let local: Goal[] = [];
       try {
-        const saved = await AsyncStorage.getItem(STORAGE_KEY);
+        let saved = await AsyncStorage.getItem(storageKey);
+        if (!saved && activeUid) {
+          const legacySaved = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+          if (legacySaved) {
+            saved = legacySaved;
+            await AsyncStorage.setItem(storageKey, legacySaved).catch(() => { });
+          }
+        }
         if (saved) local = JSON.parse(saved) as Goal[];
-        if (mounted) setGoals(sortGoals(local));
-      } catch (error) { console.warn('Could not load local goals:', error); if (mounted) setGoalError('Saved goals could not be read from this device.'); }
-      if (session && user && !user.isGuest && isSupabaseConfigured) {
+        if (mounted) {
+          const sorted = sortGoals(local);
+          setGoals(sorted);
+          goalsRef.current = sorted;
+        }
+      } catch (error) {
+        console.warn('Could not load local goals:', error);
+        if (mounted) setGoalError('Saved goals could not be read from this device.');
+      }
+
+      const cloudAuth = await resolveCloudAuth(user, session);
+      if (cloudAuth) {
         try {
-          let pending: string[] = [];
-          try { pending = JSON.parse((await AsyncStorage.getItem(DELETE_QUEUE_KEY)) ?? '[]') as string[]; } catch { pending = []; }
+          const pendingDeletes = await readStorageJson<string[]>(deleteKey, []);
+          const legacyDeletes = deleteKey !== LEGACY_DELETE_KEY ? await readStorageJson<string[]>(LEGACY_DELETE_KEY, []) : [];
+          const combinedDeletes = Array.from(new Set([...pendingDeletes, ...legacyDeletes]));
           const stillPending: string[] = [];
-          for (const id of pending) {
-            const result = await supabase.from('goals').delete().eq('id', id).eq('user_id', user.id);
+          for (const id of combinedDeletes) {
+            const result = await supabase.from('goals').delete().eq('id', id).eq('user_id', cloudAuth.userId);
             if (result.error) stillPending.push(id);
           }
-          await AsyncStorage.setItem(DELETE_QUEUE_KEY, JSON.stringify(stillPending));
-          const { data, error } = await supabase.from('goals').select('*, goal_habits(habit_id), goal_milestones(id,title,target_value,reached_at)').eq('user_id', user.id).order('created_at', { ascending: true });
+          await writeStorageJson(deleteKey, stillPending).catch(() => { });
+          if (deleteKey !== LEGACY_DELETE_KEY) {
+            await AsyncStorage.removeItem(LEGACY_DELETE_KEY).catch(() => { });
+          }
+
+          const pendingSyncIds = await readStorageJson<string[]>(pendingSyncStorageKey(cloudAuth.userId), []);
+
+          const { data, error } = await supabase
+            .from('goals')
+            .select('*, goal_habits(habit_id), goal_milestones(id,title,target_value,reached_at)')
+            .eq('user_id', cloudAuth.userId)
+            .order('created_at', { ascending: true });
           if (error) throw error;
+
           const cloud: Goal[] = (data ?? []).filter((row: any) => !stillPending.includes(row.id)).map((row: any) => ({
             id: row.id, name: row.name, description: row.description ?? '', category: row.category ?? 'Personal',
             startDate: row.start_date, targetDate: row.target_date ?? null, targetValue: row.target_value == null ? null : Number(row.target_value), unit: row.unit ?? '',
@@ -110,33 +221,62 @@ export const GoalsProvider = ({ children }: { children: ReactNode }) => {
             createdAt: row.created_at ?? new Date().toISOString(), updatedAt: row.updated_at ?? row.created_at ?? new Date().toISOString(),
           }));
           if (!mounted) return;
+
           const cloudIds = new Set(cloud.map(goal => goal.id));
           const localMap = new Map(local.map(goal => [goal.id, goal]));
           const localWins: Goal[] = [];
           const mergedCloud = cloud.map(cloudGoal => {
             const localGoal = localMap.get(cloudGoal.id);
             if (!localGoal) return cloudGoal;
-            if (localGoal.updatedAt > cloudGoal.updatedAt) { localWins.push(localGoal); return localGoal; }
+            if (localGoal.updatedAt > cloudGoal.updatedAt || pendingSyncIds.includes(localGoal.id)) {
+              localWins.push(localGoal);
+              return localGoal;
+            }
             return cloudGoal;
           });
           const localOnly = local.filter(goal => !cloudIds.has(goal.id));
           const merged = sortGoals([...mergedCloud, ...localOnly]);
           setGoals(merged);
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-          for (const goal of [...localWins, ...localOnly]) await syncGoal(goal);
+          goalsRef.current = merged;
+          await AsyncStorage.setItem(storageKey, JSON.stringify(merged));
+
+          for (const goal of [...localWins, ...localOnly]) {
+            try {
+              await syncGoal(goal);
+            } catch (syncErr) {
+              await markGoalPending(cloudAuth.userId, goal.id);
+              throw syncErr;
+            }
+          }
           setGoalError(null);
-        } catch (error) { console.warn('Cloud goals remain available locally:', error); if (mounted) setGoalError('Cloud sync is unavailable. Goal changes are stored on this device and will retry next session.'); }
+        } catch (error) {
+          console.warn('Cloud goals remain available locally:', error);
+          if (mounted) setGoalError('Cloud sync is unavailable. Goal changes are stored on this device and will retry automatically.');
+        }
       }
       if (mounted) setIsLoadingGoals(false);
     };
     void load();
     return () => { mounted = false; };
-  }, [session, user, syncGoal]);
+  }, [activeUid, markGoalPending, session, syncGoal, user]);
 
   const persistAndSync = (updated: Goal[], changed?: Goal) => {
     setGoalError(null);
     void saveLocal(updated);
-    if (changed) void syncGoal(changed).catch(error => { console.warn('Goal saved locally; cloud sync failed:', error); setGoalError('Goal saved on this device, but cloud sync failed. It will retry next session.'); });
+    if (changed) {
+      void (async () => {
+        const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
+        if (!cloudAuth) return;
+        try {
+          await syncGoal(changed);
+          setGoalError(null);
+        } catch (error) {
+          console.warn('Goal saved locally; cloud sync failed:', error);
+          await markGoalPending(cloudAuth.userId, changed.id);
+          setGoalError('Goal saved on this device, but cloud sync failed. It will retry automatically.');
+        }
+      })();
+    }
   };
 
   const validateInput = (value: Partial<GoalInput>, requireHabits: boolean) => {
@@ -179,13 +319,16 @@ export const GoalsProvider = ({ children }: { children: ReactNode }) => {
   const deleteGoal = (id: string) => {
     const updated = goals.filter(goal => goal.id !== id);
     void saveLocal(updated);
-    if (session && user && !user.isGuest && isSupabaseConfigured) void (async () => {
-      let queue: string[] = [];
-      try { queue = JSON.parse((await AsyncStorage.getItem(DELETE_QUEUE_KEY)) ?? '[]') as string[]; } catch { queue = []; }
+    void (async () => {
+      const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
+      if (!cloudAuth) return;
+      await clearGoalPending(cloudAuth.userId, id);
+      const deleteKey = deleteQueueStorageKey(cloudAuth.userId);
+      const queue = await readStorageJson<string[]>(deleteKey, []);
       if (!queue.includes(id)) queue.push(id);
-      await AsyncStorage.setItem(DELETE_QUEUE_KEY, JSON.stringify(queue));
-      const { error } = await supabase.from('goals').delete().eq('id', id).eq('user_id', user.id);
-      if (!error) await AsyncStorage.setItem(DELETE_QUEUE_KEY, JSON.stringify(queue.filter(value => value !== id)));
+      await writeStorageJson(deleteKey, queue).catch(() => { });
+      const { error } = await supabase.from('goals').delete().eq('id', id).eq('user_id', cloudAuth.userId);
+      if (!error) await writeStorageJson(deleteKey, queue.filter(value => value !== id)).catch(() => { });
       else setGoalError('Goal deleted on this device; cloud deletion will retry next session.');
     })();
   };
@@ -221,6 +364,6 @@ export const GoalsProvider = ({ children }: { children: ReactNode }) => {
   };
   const deleteMilestone = (goalId: string, milestoneId: string) => { const goal = goals.find(item => item.id === goalId); if (!goal) return; const changed = { ...goal, milestones: goal.milestones.filter(item => item.id !== milestoneId), updatedAt: new Date().toISOString() }; persistAndSync(goals.map(item => item.id === goalId ? changed : item), changed); };
 
-  const value: GoalsContextValue = { goals, isLoadingGoals, goalError, createGoal, updateGoal, archiveGoal, restoreGoal, deleteGoal, completeGoal, reopenGoal, markMilestoneReached, updateMilestone, deleteMilestone };
+  const value: GoalsContextValue = { goals, isLoadingGoals, goalError, createGoal, updateGoal, archiveGoal, restoreGoal, deleteGoal, completeGoal, reopenGoal, markMilestoneReached, updateMilestone, deleteMilestone, retryGoalSync };
   return <GoalContext.Provider value={value}>{children}</GoalContext.Provider>;
 };

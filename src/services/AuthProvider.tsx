@@ -627,7 +627,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.LOCAL_USER,
         STORAGE_KEYS.GUEST_MODE,
-        '@daymark_habits_v1',
+        ...LOCAL_DATA_KEYS,
         '@daymark_deleted_habits_v1',
       ]);
     } catch (err) {

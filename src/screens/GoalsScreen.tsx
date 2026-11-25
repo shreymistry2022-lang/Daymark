@@ -20,7 +20,7 @@ export const GoalsScreen = ({ onClose, initialGoalId, onInitialGoalHandled }: Pr
   const { colors } = useTheme();
   const { isPro } = useSubscription();
   const { habits, todayDateStr } = useHabits();
-  const { goals, isLoadingGoals, goalError, createGoal, updateGoal, archiveGoal, restoreGoal, deleteGoal, completeGoal, reopenGoal, markMilestoneReached } = useGoals();
+  const { goals, isLoadingGoals, goalError, createGoal, updateGoal, archiveGoal, restoreGoal, deleteGoal, completeGoal, reopenGoal, markMilestoneReached, retryGoalSync } = useGoals();
   const [showArchived, setShowArchived] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [editorVisible, setEditorVisible] = useState(false);
@@ -97,7 +97,13 @@ export const GoalsScreen = ({ onClose, initialGoalId, onInitialGoalHandled }: Pr
         </View>
         {!allowed && <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border }]}><Ionicons name="lock-closed-outline" size={18} color={colors.accent} /><Text style={[styles.noticeText, { color: colors.secondaryText }]}>Goal tracking is included with Daymark Pro. Your saved goals remain visible.</Text><TouchableOpacity onPress={() => setPaywallVisible(true)}><Text style={{ color: colors.accent, fontWeight: '700' }}>See Pro</Text></TouchableOpacity></View>}
         <TouchableOpacity accessibilityRole="button" onPress={() => setShowArchived(value => !value)} style={styles.archiveToggle}><Text style={{ color: colors.accent, fontWeight: '700' }}>{showArchived ? 'Show active goals' : `Archive (${goals.filter(goal => goal.archivedAt).length})`}</Text></TouchableOpacity>
-        {goalError && <Text accessibilityRole="alert" style={[styles.error, { color: colors.error }]}>{goalError}</Text>}
+        {goalError && (
+          <TouchableOpacity accessibilityRole="button" onPress={() => { void retryGoalSync(); }} style={[styles.notice, { backgroundColor: `${colors.error}14`, borderColor: `${colors.error}44` }]}>
+            <Ionicons name="cloud-offline-outline" size={18} color={colors.error} />
+            <Text accessibilityRole="alert" style={[styles.noticeText, { color: colors.error }]}>{goalError}</Text>
+            <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 12 }}>Retry</Text>
+          </TouchableOpacity>
+        )}
         {isLoadingGoals ? <View style={styles.loading}><ActivityIndicator color={colors.accent} /><Text style={{ color: colors.secondaryText, marginTop: 10 }}>Loading goals…</Text></View> : list.length === 0 ? (
           <View style={[styles.empty, { backgroundColor: colors.card, borderColor: colors.border }]}><View style={[styles.emptyIcon, { backgroundColor: `${colors.accent}1A` }]}><Ionicons name="flag-outline" size={27} color={colors.accent} /></View><Text style={[styles.emptyTitle, { color: colors.primaryText }]}>{showArchived ? 'No archived goals' : 'Choose a direction'}</Text><Text style={[styles.emptyText, { color: colors.secondaryText }]}>Link a goal to your habits and watch progress build from your actual completed records.</Text>{!showArchived && <TouchableOpacity style={[styles.primaryButton, { backgroundColor: colors.accent }]} onPress={() => openEditor()}><Text style={styles.primaryText}>Create a goal</Text></TouchableOpacity>}</View>
         ) : list.map(goal => {

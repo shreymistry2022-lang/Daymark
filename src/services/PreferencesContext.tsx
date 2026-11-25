@@ -1,9 +1,10 @@
-import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase } from './supabase';
 import { useAuth } from './AuthProvider';
 import { ThemeMode } from '../theme/tokens';
 import { scheduleRhythmRemindersAsync } from './localReminders';
+import { resolveCloudAuth } from './cloudSyncHelpers';
 
 export type DateFormat = 'system' | 'us' | 'uk' | 'iso';
 export type DashboardSort = 'custom' | 'alphabetical' | 'consistency' | 'completion';
@@ -56,19 +57,30 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const userRef = useRef(user);
+  const sessionRef = useRef(session);
+  const preferencesRef = useRef(preferences);
+  useEffect(() => {
+    userRef.current = user;
+    sessionRef.current = session;
+    preferencesRef.current = preferences;
+  });
   const ownerId = user?.id ?? undefined;
   const key = storageKey(ownerId);
   const clearError = useCallback(() => setError(null), []);
 
   const persist = useCallback(async (next: DaymarkPreferences, sync = true) => {
     setPreferences(next);
+    preferencesRef.current = next;
     void scheduleRhythmRemindersAsync(next);
-    try { await AsyncStorage.setItem(key, JSON.stringify(next)); }
+    const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
+    const activeKey = storageKey(cloudAuth?.userId ?? userRef.current?.id ?? undefined);
+    try { await AsyncStorage.setItem(activeKey, JSON.stringify(next)); }
     catch { setError('Settings could not be saved on this device.'); }
-    if (sync && session && user && !user.isGuest && isSupabaseConfigured) {
+    if (sync && cloudAuth) {
       try {
         let { error: syncError } = await supabase.from('user_preferences').upsert({
-          user_id: user.id,
+          user_id: cloudAuth.userId,
           wake_time: next.wakeTime || null,
           sleep_time: next.sleepTime || null,
           week_start: next.weekStart,
@@ -86,7 +98,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
         // Fallback if user's remote Supabase database does not yet have wake_time/sleep_time columns
         if (syncError && (syncError.code === '42703' || syncError.code === 'PGRST204' || String(syncError.message).includes('column'))) {
           const fallback = await supabase.from('user_preferences').upsert({
-            user_id: user.id,
+            user_id: cloudAuth.userId,
             week_start: next.weekStart,
             timezone: next.timezone,
             date_format: next.dateFormat,
@@ -114,7 +126,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
         }
       }
     }
-  }, [key, session, user]);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -122,9 +134,10 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
       let local = defaultPreferences();
       try { const saved = await AsyncStorage.getItem(key); if (saved) local = { ...local, ...(JSON.parse(saved) as Partial<DaymarkPreferences>) }; }
       catch { if (mounted) setError('Saved settings could not be read.'); }
-      if (session && user && !user.isGuest && isSupabaseConfigured) {
+      const cloudAuth = await resolveCloudAuth(user, session);
+      if (cloudAuth) {
         try {
-          const { data, error: queryError } = await supabase.from('user_preferences').select('*').eq('user_id', user.id).maybeSingle();
+          const { data, error: queryError } = await supabase.from('user_preferences').select('*').eq('user_id', cloudAuth.userId).maybeSingle();
           if (queryError) {
             if (!isMissingOrOffline(queryError)) throw queryError;
           } else if (data) {
@@ -148,6 +161,7 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
       }
       if (!mounted) return;
       setPreferences(local);
+      preferencesRef.current = local;
       void scheduleRhythmRemindersAsync(local);
       try { await AsyncStorage.setItem(key, JSON.stringify(local)); } catch { setError('Settings could not be saved on this device.'); }
       setIsLoading(false);
@@ -155,9 +169,10 @@ export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
     void load(); return () => { mounted = false; };
   }, [key, session, user, persist]);
 
-  const updatePreferences = (changes: PreferencesChanges) => {
-    const next: DaymarkPreferences = { ...preferences, ...changes, notifications: { ...preferences.notifications, ...(changes.notifications ?? {}) }, updatedAt: new Date().toISOString() };
+  const updatePreferences = useCallback((changes: PreferencesChanges) => {
+    const current = preferencesRef.current;
+    const next: DaymarkPreferences = { ...current, ...changes, notifications: { ...current.notifications, ...(changes.notifications ?? {}) }, updatedAt: new Date().toISOString() };
     setError(null); void persist(next);
-  };
+  }, [persist]);
   return <PreferencesContext.Provider value={{ preferences, isLoading, error, updatePreferences, clearError }}>{children}</PreferencesContext.Provider>;
 };

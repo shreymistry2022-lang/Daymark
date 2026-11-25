@@ -1,12 +1,13 @@
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase } from './supabase';
 import { useAuth } from './AuthProvider';
 import { useHabits } from './HabitContext';
 import { buildPerformanceReport, PerformanceReport, recentReportStarts } from '../domain/reportEngine';
 import { addLocalDays, parseLocalDate, toLocalDateString } from '../domain/habitEngine';
 import { usePreferences } from './PreferencesContext';
 import { dateKeyInTimezone } from '../domain/preferencesEngine';
+import { resolveCloudAuth } from './cloudSyncHelpers';
 
 interface ReportsValue { reports: PerformanceReport[]; isLoading: boolean; error: string | null }
 const ReportsContext = createContext<ReportsValue | null>(null);
@@ -33,9 +34,10 @@ export const ReportsProvider = ({ children }: { children: ReactNode }) => {
       let local: PerformanceReport[] = [];
       try { local = JSON.parse((await AsyncStorage.getItem(key)) ?? '[]') as PerformanceReport[]; if (mounted) setReports(local); }
       catch { if (mounted) setError('Saved report history could not be read.'); }
-      if (session && user && !user.isGuest && isSupabaseConfigured) {
+      const cloudAuth = await resolveCloudAuth(user, session);
+      if (cloudAuth) {
         try {
-          const { data, error: queryError } = await supabase.from('performance_reports').select('period_type,period_start,report_data').eq('user_id', user.id).order('period_start', { ascending: false });
+          const { data, error: queryError } = await supabase.from('performance_reports').select('period_type,period_start,report_data').eq('user_id', cloudAuth.userId).order('period_start', { ascending: false });
           if (queryError) throw queryError;
           const byId = new Map(local.map(report => [report.id, report]));
           for (const row of data ?? []) {
@@ -65,12 +67,13 @@ export const ReportsProvider = ({ children }: { children: ReactNode }) => {
     const history = reports.filter(report => !generatedIds.has(report.id));
     const combined = [...generated, ...history];
     setTimeout(() => { void persist(combined); }, 0);
-    if (session && user && !user.isGuest && isSupabaseConfigured) {
-      const rows = generated.map(report => ({ user_id: user.id, period_type: report.periodType, period_start: report.periodStart, period_end: report.periodEnd, report_data: report, generated_at: report.generatedAt }));
-      void supabase.from('performance_reports').upsert(rows, { onConflict: 'user_id,period_type,period_start' }).then(({ error: syncError }) => {
-        if (syncError) { console.warn('Reports saved locally; cloud sync failed:', syncError); setError('Reports are saved locally, but cloud sync failed.'); }
-      });
-    }
+    void (async () => {
+      const cloudAuth = await resolveCloudAuth(user, session);
+      if (!cloudAuth) return;
+      const rows = generated.map(report => ({ user_id: cloudAuth.userId, period_type: report.periodType, period_start: report.periodStart, period_end: report.periodEnd, report_data: report, generated_at: report.generatedAt }));
+      const { error: syncError } = await supabase.from('performance_reports').upsert(rows, { onConflict: 'user_id,period_type,period_start' });
+      if (syncError) { console.warn('Reports saved locally; cloud sync failed:', syncError); setError('Reports are saved locally, but cloud sync failed.'); }
+    })();
   // allHabits is the single source for report refreshes; reports is intentionally omitted to avoid a save loop.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading, allHabits, session, user, persist, preferences.timezone]);
