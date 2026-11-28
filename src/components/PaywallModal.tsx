@@ -1,13 +1,26 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Purchases, { PurchasesPackage } from 'react-native-purchases';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { SUBSCRIPTIONS_ENABLED } from '../services/subscriptionEntitlements';
+import { useTheme } from '../theme/ThemeProvider';
+import { radii, spacing } from '../theme/tokens';
 
 type Props = { visible: boolean; onClose: () => void };
-const BLUE = '#315CFF';
-const LIME = '#C8F169';
+
 const MONTHLY_PRODUCT_ID = process.env.EXPO_PUBLIC_REVENUECAT_MONTHLY_PRODUCT_ID || 'daymark_pro_monthly';
 const ANNUAL_PRODUCT_ID = process.env.EXPO_PUBLIC_REVENUECAT_ANNUAL_PRODUCT_ID || 'daymark_pro_annual';
 
@@ -19,9 +32,69 @@ const findPackage = (items: PurchasesPackage[], term: 'monthly' | 'annual') => i
     : key.includes('annual') || key.includes('year'));
 });
 
+const PRO_UNLOCK_FEATURES: {
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  title: string;
+  desc: string;
+}[] = [
+  {
+    icon: 'infinite-outline',
+    color: '#10B981',
+    title: 'Unlimited number of habits',
+    desc: 'Create as many active habits as you like beyond the 5-habit limit.',
+  },
+  {
+    icon: 'grid-outline',
+    color: '#38BDF8',
+    title: 'Complete Yearly Heatmaps',
+    desc: 'Visualize your full-year consistency and multi-month activity grids.',
+  },
+  {
+    icon: 'trending-up-outline',
+    color: '#F59E0B',
+    title: 'Charts & Advanced Analytics',
+    desc: 'Unlock 90-day & all-time trends, completion stats, and streak insights.',
+  },
+  {
+    icon: 'flag-outline',
+    color: '#7C83FF',
+    title: 'Goals & Daily Routines',
+    desc: 'Group habits into structured routines and track long-term milestones.',
+  },
+  {
+    icon: 'color-palette-outline',
+    color: '#EC4899',
+    title: 'Pure OLED Black Theme',
+    desc: 'High-contrast pure black appearance and full visual customization.',
+  },
+  {
+    icon: 'download-outline',
+    color: '#14B8A6',
+    title: 'Data Export (CSV & JSON)',
+    desc: 'Export your complete habit history, logs, and journal entries anytime.',
+  },
+  {
+    icon: 'document-text-outline',
+    color: '#A78BFA',
+    title: 'Personal Progress Reports',
+    desc: 'Weekly & monthly summary reports to review your momentum.',
+  },
+  {
+    icon: 'sparkles',
+    color: '#FB7185',
+    title: 'Support Indie Development',
+    desc: 'Your subscription directly supports ongoing improvements to Daymark.',
+  },
+];
+
 export const PaywallModal = ({ visible, onClose }: Props) => {
+  const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   const { isPro, entitlement, isConfigured, canPurchase, isLoading, packages, purchase, restore } = useSubscription();
+  const [selectedPlan, setSelectedPlan] = useState<'annual' | 'monthly'>('annual');
   const [busy, setBusy] = useState(false);
+
   const monthly = useMemo(() => findPackage(packages, 'monthly'), [packages]);
   const annual = useMemo(() => findPackage(packages, 'annual'), [packages]);
   const renewalPrice = packages.find(item => item.product.identifier === entitlement?.productIdentifier)?.product.priceString;
@@ -36,14 +109,14 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
     return (
       <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
         <View style={styles.promoBackdrop}>
-          <View style={styles.promoCard}>
-            <Ionicons name="sparkles" size={44} color={LIME} />
-            <Text style={[styles.title, { fontSize: 26, textAlign: 'center', marginTop: 14 }]}>All Features Included</Text>
-            <Text style={[styles.subtitle, { textAlign: 'center', marginTop: 8 }]}>
-              Welcome to Daymark! You have complete complimentary access to all habits, custom themes, analytics, routines, and daily rhythm reminders.
+          <View style={[styles.promoCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons name="sparkles" size={40} color={colors.accent} />
+            <Text style={[styles.promoTitle, { color: colors.primaryText }]}>All Features Included</Text>
+            <Text style={[styles.promoSubtitle, { color: colors.secondaryText }]}>
+              Welcome to Daymark! You have complete complimentary access to all habits, themes, analytics, routines, and reminders.
             </Text>
-            <TouchableOpacity style={styles.promoBtn} onPress={onClose}>
-              <Text style={styles.continueText}>Continue</Text>
+            <TouchableOpacity style={[styles.ctaPill, { backgroundColor: colors.accent }]} onPress={onClose}>
+              <Text style={styles.ctaPillText}>Continue</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -93,97 +166,214 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
     catch { Alert.alert('Unable to open subscriptions', 'Manage your plan from your Apple App Store or Google Play account settings.'); }
   };
 
+  const handleContinue = () => {
+    if (isPro) {
+      if (isConfigured && Platform.OS !== 'web') {
+        void manage();
+      } else {
+        onClose();
+      }
+      return;
+    }
+    void buy(selectedPlan === 'annual' ? annual : monthly);
+  };
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.root}>
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close paywall" style={styles.close} onPress={onClose}>
-          <Ionicons name="close" size={22} color="#D4D8E2" />
-        </TouchableOpacity>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Text style={styles.brand}>DAYMARK <Text style={{ color: LIME }}>PRO</Text></Text>
-          <Text style={styles.title}>Your progress{'\n'}has no limits.</Text>
-          <Text style={styles.subtitle}>Build stronger routines. Understand your consistency. See the bigger picture.</Text>
+      <View style={[styles.root, { backgroundColor: colors.background, paddingTop: Math.max(insets.top, 12) }]}>
+        <View style={[styles.handleBar, { backgroundColor: colors.border }]} />
 
-          <View style={styles.benefits}>
-            {['Unlimited habits', 'Complete yearly heatmaps', 'Advanced analytics', 'Unlimited routines', 'Smart reminders', 'Personal progress reports', 'Premium themes'].map(label => (
-              <View key={label} style={styles.benefit}>
-                <Ionicons name="checkmark-circle" size={19} color={LIME} />
-                <Text style={styles.benefitText}>{label}</Text>
+        {/* Centered Header with Circle Back Button */}
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Close paywall"
+            style={[styles.circleBackBtn, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
+            onPress={onClose}
+            activeOpacity={0.75}
+          >
+            <Ionicons name="chevron-back" size={20} color={colors.primaryText} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: colors.primaryText }]}>
+            Unlock Daymark <Text style={{ color: colors.accent }}>Pro</Text>
+          </Text>
+          <View style={styles.headerSpacer} />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {isLoading ? <ActivityIndicator color={colors.accent} style={{ marginVertical: 14 }} /> : null}
+
+          {/* Plan Selection Cards (Reference Radio Style) */}
+          <View style={styles.plansStack}>
+            {/* Annual Plan ($23.99/year with 7-day free trial) */}
+            <TouchableOpacity
+              accessibilityRole="radio"
+              accessibilityState={{ checked: selectedPlan === 'annual' }}
+              activeOpacity={0.85}
+              disabled={busy}
+              onPress={() => setSelectedPlan('annual')}
+              style={[
+                styles.planCard,
+                {
+                  backgroundColor: selectedPlan === 'annual' ? `${colors.accent}14` : colors.card,
+                  borderColor: selectedPlan === 'annual' ? colors.accent : colors.border,
+                  borderWidth: selectedPlan === 'annual' ? 1.5 : 1,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.radioOuter,
+                  {
+                    borderColor: selectedPlan === 'annual' ? colors.accent : colors.mutedText,
+                    backgroundColor: selectedPlan === 'annual' ? colors.accent : 'transparent',
+                  },
+                ]}
+              >
+                {selectedPlan === 'annual' ? <View style={styles.radioInnerDot} /> : null}
               </View>
-            ))}
+
+              <View style={styles.planMeta}>
+                <View style={styles.planTitleRow}>
+                  <Text style={[styles.planTitle, { color: colors.primaryText }]}>Annual</Text>
+                  <View style={[styles.savePill, { backgroundColor: `${colors.accent}26` }]}>
+                    <Text style={[styles.savePillText, { color: colors.accent }]}>SAVE 50%</Text>
+                  </View>
+                </View>
+                <Text style={[styles.planSub, { color: colors.secondaryText }]}>
+                  7-day free trial · Recurring billing. Cancel anytime.
+                </Text>
+              </View>
+
+              <View style={styles.priceCol}>
+                <Text style={[styles.priceValue, { color: colors.primaryText }]}>
+                  {annual?.product.priceString || '$23.99'}
+                </Text>
+                <Text style={[styles.pricePeriod, { color: colors.secondaryText }]}>/ year</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Monthly Plan ($3.99/month) */}
+            <TouchableOpacity
+              accessibilityRole="radio"
+              accessibilityState={{ checked: selectedPlan === 'monthly' }}
+              activeOpacity={0.85}
+              disabled={busy}
+              onPress={() => setSelectedPlan('monthly')}
+              style={[
+                styles.planCard,
+                {
+                  backgroundColor: selectedPlan === 'monthly' ? `${colors.accent}14` : colors.card,
+                  borderColor: selectedPlan === 'monthly' ? colors.accent : colors.border,
+                  borderWidth: selectedPlan === 'monthly' ? 1.5 : 1,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.radioOuter,
+                  {
+                    borderColor: selectedPlan === 'monthly' ? colors.accent : colors.mutedText,
+                    backgroundColor: selectedPlan === 'monthly' ? colors.accent : 'transparent',
+                  },
+                ]}
+              >
+                {selectedPlan === 'monthly' ? <View style={styles.radioInnerDot} /> : null}
+              </View>
+
+              <View style={styles.planMeta}>
+                <Text style={[styles.planTitle, { color: colors.primaryText }]}>Monthly</Text>
+                <Text style={[styles.planSub, { color: colors.secondaryText }]}>
+                  Recurring billing. Cancel anytime.
+                </Text>
+              </View>
+
+              <View style={styles.priceCol}>
+                <Text style={[styles.priceValue, { color: colors.primaryText }]}>
+                  {monthly?.product.priceString || '$3.99'}
+                </Text>
+                <Text style={[styles.pricePeriod, { color: colors.secondaryText }]}>/ month</Text>
+              </View>
+            </TouchableOpacity>
           </View>
 
-          {isLoading ? <ActivityIndicator color={LIME} style={{ marginVertical: 18 }} /> : null}
-          {/* Annual Plan (Best Value - $23.99/year with 7-day trial) */}
-          <TouchableOpacity
-            style={[styles.plan, styles.annual]}
-            onPress={() => void buy(annual)}
-            disabled={busy}
-            activeOpacity={0.8}
-          >
-            <View style={styles.bestValue}><Text style={styles.bestValueText}>SAVE 50% • BEST VALUE</Text></View>
-            <View style={styles.planRow}>
-              <View>
-                <Text style={styles.planTitle}>Annual</Text>
-                <Text style={styles.planSubtitle}>7-Day Free Trial included</Text>
-              </View>
-              <Text style={styles.price}>
-                {annual?.product.priceString || '$23.99'}
-                <Text style={styles.period}> / year</Text>
-              </Text>
-            </View>
-            <Text style={styles.planCaption}>
-              {annual ? '7-day free trial, then renews annually. Cancel anytime.' : 'Just ~$1.99/month. 7-day free trial, then $23.99/year.'}
+          {/* Restore Purchase Link */}
+          <TouchableOpacity style={styles.restoreLinkBtn} onPress={() => void handleRestore()} disabled={busy}>
+            <Text style={[styles.restoreLinkText, { color: colors.accent }]}>
+              Already subscribed? Restore purchase
             </Text>
           </TouchableOpacity>
 
-          {/* Monthly Plan ($3.99/month) */}
-          <TouchableOpacity
-            style={styles.plan}
-            onPress={() => void buy(monthly)}
-            disabled={busy}
-            activeOpacity={0.8}
-          >
-            <View style={styles.planRow}>
-              <View>
-                <Text style={styles.planTitle}>Monthly</Text>
-                <Text style={styles.planSubtitle}>Flexible month-to-month</Text>
-              </View>
-              <Text style={styles.price}>
-                {monthly?.product.priceString || '$3.99'}
-                <Text style={styles.period}> / month</Text>
-              </Text>
-            </View>
-            <Text style={styles.planCaption}>Renews automatically every month. Cancel anytime.</Text>
-          </TouchableOpacity>
-
-          {busy ? <ActivityIndicator color={LIME} style={{ margin: 12 }} /> : null}
+          {/* Active Pro Status or Store Notice */}
           {isPro && entitlement ? (
-            <Text style={styles.notice}>
+            <Text style={[styles.statusNotice, { color: colors.secondaryText }]}>
               {entitlement.periodType === 'TRIAL'
                 ? `Trial started ${trialStart ?? 'as shown by your store'}; renews ${activePeriodEnd ?? 'at the end of the trial'}${renewalPrice ? ` at ${renewalPrice}` : ''}.`
                 : `Pro ${entitlement.willRenew ? 'renews' : 'access ends'} ${activePeriodEnd ?? 'according to your store'}${renewalPrice && entitlement.willRenew ? ` at ${renewalPrice}` : ''}.`}
-              {' '}{entitlement.willRenew ? 'Automatically renews unless cancelled in your store account.' : 'You can keep Pro until the current period ends.'}
             </Text>
           ) : isPro ? (
-            <Text style={styles.notice}>
-              Daymark Pro is active on your account (Complimentary / VIP Access). All premium features are unlocked.
+            <Text style={[styles.statusNotice, { color: colors.accent }]}>
+              Daymark Pro is active on your account. All premium features are unlocked.
+            </Text>
+          ) : !isConfigured && Platform.OS !== 'web' ? (
+            <Text style={[styles.statusNotice, { color: colors.mutedText }]}>
+              Plans connect directly through Google Play once store billing is linked.
+            </Text>
+          ) : isConfigured && !canPurchase ? (
+            <Text style={[styles.statusNotice, { color: colors.mutedText }]}>
+              Sign in with an account to purchase and sync Pro across devices.
             </Text>
           ) : null}
-          {!isConfigured && !isPro ? <Text style={styles.notice}>Store plans are not configured yet. Pro stays locked until a verified store entitlement is available.</Text> : null}
-          {!isConfigured && !isPro && Platform.OS !== 'web' ? <Text style={styles.notice}>Real purchases require a development or release build with the RevenueCat SDK keys configured.</Text> : null}
-          {isConfigured && !canPurchase && !isPro ? <Text style={styles.notice}>Sign in with an account to purchase and sync Pro across devices.</Text> : null}
-          {isConfigured && !isLoading && !monthly && !annual && !isPro ? <Text style={styles.notice}>No subscription plans are available right now.</Text> : null}
-          <Text style={styles.terms}>Subscriptions renew automatically unless cancelled through your store account. The store purchase sheet displays the applicable trial, renewal date and localized price before confirmation.</Text>
 
-          <TouchableOpacity style={styles.restore} onPress={() => void handleRestore()} disabled={busy}><Text style={styles.restoreText}>Restore Purchases</Text></TouchableOpacity>
-          {isPro ? <TouchableOpacity style={styles.restore} onPress={() => void manage()}><Text style={styles.restoreText}>Manage Subscription</Text></TouchableOpacity> : null}
-          <TouchableOpacity style={styles.continue} onPress={onClose}><Text style={styles.continueText}>Continue with Free Version</Text></TouchableOpacity>
-          <View style={styles.legalRow}>
-            <TouchableOpacity onPress={() => void openLegal(process.env.EXPO_PUBLIC_TERMS_URL || 'https://shreymistry2022-lang.github.io/Daymark/terms.html')}><Text style={styles.legal}>Terms of Service</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => void openLegal(process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://shreymistry2022-lang.github.io/Daymark/privacy.html')}><Text style={styles.legal}>Privacy Policy</Text></TouchableOpacity>
+          {/* Feature List Section (Reference Image Cards) */}
+          <Text style={[styles.unlockEyebrow, { color: colors.secondaryText }]}>
+            BY SUBSCRIBING YOU&apos;LL ALSO UNLOCK:
+          </Text>
+
+          <View style={styles.featuresStack}>
+            {PRO_UNLOCK_FEATURES.map(item => (
+              <View
+                key={item.title}
+                style={[styles.featureCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
+                <View style={[styles.featureSquircle, { backgroundColor: `${item.color}20` }]}>
+                  <Ionicons name={item.icon} size={19} color={item.color} />
+                </View>
+                <View style={styles.featureMeta}>
+                  <Text style={[styles.featureTitle, { color: colors.primaryText }]}>{item.title}</Text>
+                  <Text style={[styles.featureDesc, { color: colors.secondaryText }]}>{item.desc}</Text>
+                </View>
+              </View>
+            ))}
           </View>
         </ScrollView>
+
+        {/* Pinned Bottom Full-Pill CTA + Legal Footer */}
+        <View style={[styles.footer, { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            disabled={busy}
+            onPress={handleContinue}
+            style={[styles.ctaPill, { backgroundColor: colors.accent }]}
+          >
+            {busy ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.ctaPillText}>
+                {isPro ? (isConfigured && Platform.OS !== 'web' ? 'Manage Subscription' : 'Done') : 'Continue'}
+              </Text>
+            )}
+          </TouchableOpacity>
+          <View style={styles.legalRow}>
+            <TouchableOpacity onPress={() => void openLegal(process.env.EXPO_PUBLIC_TERMS_URL || 'https://shreymistry2022-lang.github.io/Daymark/terms.html')}>
+              <Text style={[styles.legalText, { color: colors.mutedText }]}>Terms of Service</Text>
+            </TouchableOpacity>
+            <Text style={[styles.legalDot, { color: colors.mutedText }]}>·</Text>
+            <TouchableOpacity onPress={() => void openLegal(process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://shreymistry2022-lang.github.io/Daymark/privacy.html')}>
+              <Text style={[styles.legalText, { color: colors.mutedText }]}>Privacy Policy</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     </Modal>
   );
@@ -191,33 +381,122 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
 
 const styles = StyleSheet.create({
   promoBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  promoCard: { backgroundColor: '#171920', borderRadius: 20, padding: 24, alignItems: 'center', width: '100%', maxWidth: 360, borderWidth: 1, borderColor: '#363944' },
-  promoBtn: { backgroundColor: BLUE, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 28, marginTop: 20, width: '100%', alignItems: 'center' },
-  root: { flex: 1, backgroundColor: '#101116' },
-  close: { alignSelf: 'flex-end', marginTop: 16, marginRight: 18, padding: 8 },
-  content: { paddingHorizontal: 24, paddingBottom: 32 },
-  brand: { color: '#FFFFFF', fontSize: 12, fontWeight: '900', letterSpacing: 2, marginTop: 6 },
-  title: { color: '#FFFFFF', fontSize: 38, lineHeight: 43, fontWeight: '900', letterSpacing: -1.2, marginTop: 18 },
-  subtitle: { color: '#A7ABB7', fontSize: 15, lineHeight: 22, marginTop: 12 },
-  benefits: { marginTop: 22, marginBottom: 20, gap: 13 },
-  benefit: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  benefitText: { color: '#E9EAF0', fontSize: 14, fontWeight: '600' },
-  plan: { borderWidth: 1, borderColor: '#363944', borderRadius: 16, padding: 16, marginBottom: 10, backgroundColor: '#171920' },
-  annual: { borderColor: BLUE, paddingTop: 23 },
-  bestValue: { position: 'absolute', top: 0, right: 14, backgroundColor: LIME, borderBottomLeftRadius: 7, borderBottomRightRadius: 7, paddingHorizontal: 9, paddingVertical: 4 },
-  bestValueText: { color: '#14160E', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 },
-  planRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  planTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
-  planSubtitle: { color: '#A7ABB7', fontSize: 11, marginTop: 2, fontWeight: '500' },
-  price: { color: '#FFFFFF', fontSize: 18, fontWeight: '900' },
-  period: { color: '#A7ABB7', fontSize: 12, fontWeight: '500' },
-  planCaption: { color: '#A7ABB7', fontSize: 11, marginTop: 8 },
-  notice: { color: '#D2D5DD', fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 10 },
-  terms: { color: '#858A98', fontSize: 11, lineHeight: 16, textAlign: 'center', marginTop: 10 },
-  restore: { alignItems: 'center', padding: 12 },
-  restoreText: { color: '#C9CED9', fontSize: 13, fontWeight: '700' },
-  continue: { alignItems: 'center', padding: 12, marginTop: 2 },
-  continueText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  legalRow: { flexDirection: 'row', justifyContent: 'center', gap: 24, marginTop: 12 },
-  legal: { color: '#858A98', fontSize: 11, textDecorationLine: 'underline' },
+  promoCard: { borderRadius: radii.xl, padding: 24, alignItems: 'center', width: '100%', maxWidth: 360, borderWidth: 1, gap: 12 },
+  promoTitle: { fontSize: 22, fontWeight: '800', textAlign: 'center' },
+  promoSubtitle: { fontSize: 14, lineHeight: 20, textAlign: 'center', marginBottom: 6 },
+
+  root: { flex: 1 },
+  handleBar: { width: 38, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 10 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 12,
+  },
+  circleBackBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: { fontSize: 19, fontWeight: '800' },
+  headerSpacer: { width: 38 },
+
+  scrollContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: 6,
+    paddingBottom: 24,
+  },
+  plansStack: { gap: 10 },
+  planCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radii.lg,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    gap: 12,
+  },
+  radioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioInnerDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+  },
+  planMeta: { flex: 1 },
+  planTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  planTitle: { fontSize: 16, fontWeight: '800' },
+  savePill: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: radii.full },
+  savePillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
+  planSub: { fontSize: 12, marginTop: 3, lineHeight: 16 },
+  priceCol: { alignItems: 'flex-end' },
+  priceValue: { fontSize: 17, fontWeight: '800' },
+  pricePeriod: { fontSize: 11, fontWeight: '600', marginTop: 1 },
+
+  restoreLinkBtn: {
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  restoreLinkText: { fontSize: 13, fontWeight: '700' },
+  statusNotice: { fontSize: 12, lineHeight: 17, textAlign: 'center', marginBottom: 10 },
+
+  unlockEyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  featuresStack: { gap: 8 },
+  featureCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    padding: 13,
+    gap: 12,
+  },
+  featureSquircle: {
+    width: 38,
+    height: 38,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  featureMeta: { flex: 1 },
+  featureTitle: { fontSize: 14, fontWeight: '700' },
+  featureDesc: { fontSize: 12, marginTop: 2, lineHeight: 16 },
+
+  footer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
+  ctaPill: {
+    height: 52,
+    borderRadius: radii.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  ctaPillText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  legalRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+  },
+  legalText: { fontSize: 11 },
+  legalDot: { fontSize: 11 },
 });
