@@ -22,6 +22,7 @@ import { HABIT_CATEGORIES } from '../constants/categories';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canCreateHabit } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
+import { HabitDotGrid } from '../components/HabitDotGrid';
 import { addLocalDays, calculateCompletionStats, calculateStreakStats, getHabitDayStatus, isPausedOnDate, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
 import { formatGapLabel, formatReminderTime } from '../services/localReminders';
 import { HabitTrackingControl } from '../components/HabitTrackingControl';
@@ -32,7 +33,7 @@ import { usePreferences } from '../services/PreferencesContext';
 export const HabitsScreen = () => {
   const { habits, archivedHabits, allHabits, toggleHabit, recordHabitLog, addHabit, updateHabit, archiveHabit, restoreHabit, pauseHabit, resumeHabit, deleteHabit, todayDateStr } = useHabits();
   const { preferences } = usePreferences();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { isPro } = useSubscription();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
@@ -47,6 +48,7 @@ export const HabitsScreen = () => {
   const [showArchived, setShowArchived] = useState(false);
   const selectedHabit = selectedHabitId ? allHabits.find(habit => habit.id === selectedHabitId) ?? null : null;
   const [paywallVisible, setPaywallVisible] = useState(false);
+
   const requestCreateHabit = () => {
     if (!canCreateHabit(habits.length, isPro)) setPaywallVisible(true);
     else setCreateModalVisible(true);
@@ -63,7 +65,6 @@ export const HabitsScreen = () => {
     return () => clearTimeout(timeout);
   }, [route.params?.focusHabitId, allHabits, navigation]);
 
-  // Available categories: 'All' + all 14 standard categories
   const categoriesList = ['All', ...HABIT_CATEGORIES.map(c => c.name)];
   const todayReferenceDate = useMemo(() => parseLocalDate(todayDateStr) ?? new Date(), [todayDateStr]);
 
@@ -107,29 +108,42 @@ export const HabitsScreen = () => {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <View>
-            <Text style={[styles.eyebrow, { color: colors.accent }]}>CATALOG & TRACKING</Text>
-            <Text style={[styles.title, { color: colors.primaryText }]}>All Habits</Text>
-            <TouchableOpacity onPress={() => setShowArchived(value => !value)} accessibilityRole="button" accessibilityLabel={showArchived ? 'Show active habits' : `Show archived habits, ${archivedHabits.length}`}>
-              <Text style={{ color: colors.accent, fontWeight: '600', marginTop: 6 }}>{showArchived ? 'Active' : `Archived (${archivedHabits.length})`}</Text>
+          <Text style={[styles.title, { color: colors.primaryText }]}>Habits</Text>
+          <View style={styles.headerRight}>
+            <TouchableOpacity
+              onPress={() => setShowArchived(value => !value)}
+              accessibilityRole="button"
+              accessibilityLabel={showArchived ? 'Show active habits' : `Show archived habits, ${archivedHabits.length}`}
+              style={[
+                styles.archivePill,
+                {
+                  backgroundColor: showArchived ? `${colors.accent}20` : colors.secondaryBackground,
+                  borderColor: showArchived ? colors.accent : colors.border,
+                },
+              ]}
+            >
+              <Text style={{ color: showArchived ? colors.accent : colors.secondaryText, fontWeight: '700', fontSize: 12 }}>
+                {showArchived ? 'Active' : `Archived (${archivedHabits.length})`}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Create new habit"
+              style={[styles.circleAddBtn, { backgroundColor: colors.accent }]}
+              activeOpacity={0.8}
+              onPress={requestCreateHabit}
+            >
+              <Ionicons name="add" size={22} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            style={[styles.newHabitBtn, { backgroundColor: colors.accent }]}
-            activeOpacity={0.7}
-            onPress={requestCreateHabit}
-          >
-            <Ionicons name="add" size={20} color="#000" />
-            <Text style={styles.newHabitBtnText}>New Habit</Text>
-          </TouchableOpacity>
         </View>
 
-        {/* Search Bar */}
+        {/* Pill Search Bar */}
         <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Ionicons name="search-outline" size={20} color={colors.secondaryText} />
+          <Ionicons name="search-outline" size={18} color={colors.secondaryText} />
           <TextInput
             style={[styles.searchInput, { color: colors.primaryText }]}
-            placeholder="Search habits by name..."
+            placeholder="Search habits..."
             placeholderTextColor={colors.mutedText}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -141,12 +155,8 @@ export const HabitsScreen = () => {
           )}
         </View>
 
-        {/* Filter Chips (14 categories) */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
-        >
+        {/* Filter Chips */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
           {categoriesList.map(cat => {
             const isActive = selectedCategory === cat;
             const categoryDef = HABIT_CATEGORIES.find(c => c.name === cat);
@@ -166,17 +176,12 @@ export const HabitsScreen = () => {
                 {categoryDef && (
                   <Ionicons
                     name={categoryDef.icon}
-                    size={14}
+                    size={13}
                     color={isActive ? colors.background : categoryDef.color}
-                    style={{ marginRight: 6 }}
+                    style={{ marginRight: 5 }}
                   />
                 )}
-                <Text
-                  style={[
-                    styles.filterChipText,
-                    { color: isActive ? colors.background : colors.secondaryText },
-                  ]}
-                >
+                <Text style={[styles.filterChipText, { color: isActive ? colors.background : colors.secondaryText }]}>
                   {cat}
                 </Text>
               </TouchableOpacity>
@@ -184,7 +189,7 @@ export const HabitsScreen = () => {
           })}
         </ScrollView>
 
-        {/* Habit Rows */}
+        {/* Habit Cards */}
         <View style={styles.habitList}>
           {filteredHabits.map(habit => {
             const isCompleted = getHabitDayStatus(habit, todayDateStr, todayReferenceDate) === 'completed';
@@ -196,22 +201,22 @@ export const HabitsScreen = () => {
                   styles.habitRow,
                   {
                     backgroundColor: colors.card,
-                    borderColor: isCompleted ? `${colors.accent}40` : colors.border,
+                    borderColor: isCompleted ? `${habit.color}45` : colors.border,
                   },
                 ]}
-                activeOpacity={0.7}
+                activeOpacity={0.8}
                 onPress={() => setSelectedHabitId(habit.id)}
               >
-                <View style={[styles.iconCircle, { backgroundColor: `${habit.color}1F` }]}>
-                  <Ionicons name={habit.icon} size={22} color={habit.color} />
+                <View style={[styles.iconSquircle, { backgroundColor: `${habit.color}20` }]}>
+                  <Ionicons name={habit.icon} size={20} color={habit.color} />
                 </View>
 
                 <View style={styles.habitInfo}>
-                  <Text style={[styles.habitName, { color: colors.primaryText }]}>{habit.name}</Text>
+                  <Text style={[styles.habitName, { color: colors.primaryText }]} numberOfLines={1}>{habit.name}</Text>
                   <View style={styles.streakBadge}>
-                    <Text style={[styles.categoryBadge, { color: colors.secondaryText }]}>{habit.category}</Text>
-                    <Text style={[styles.scheduleText, { color: colors.accent }]}>• 🔥 {habit.streak}d streak</Text>
-                    <Text style={[styles.scheduleText, { color: colors.mutedText }]}>• {habit.targetFrequency}</Text>
+                    <Text style={[styles.scheduleText, { color: colors.secondaryText }]}>
+                      {habit.category} · 🔥 {habit.streak}d · {habit.targetFrequency}
+                    </Text>
                   </View>
                   {enabledReminders.length > 0 && (
                     <View style={[styles.reminderPill, { backgroundColor: `${habit.color}18`, opacity: isCompleted ? 0.6 : 1 }]}>
@@ -225,9 +230,8 @@ export const HabitsScreen = () => {
                   )}
                 </View>
 
-                {/* Interactive checkmark button */}
                 <TouchableOpacity
-                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   style={[
                     styles.checkButton,
                     {
@@ -235,50 +239,37 @@ export const HabitsScreen = () => {
                       backgroundColor: isCompleted ? habit.color : colors.secondaryBackground,
                     },
                   ]}
-                  activeOpacity={0.6}
+                  activeOpacity={0.7}
                   onPress={() => {
                     if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
                     toggleHabit(habit.id);
                   }}
                 >
-                  <Ionicons
-                    name={isCompleted ? 'checkmark' : 'checkmark-outline'}
-                    size={18}
-                    color={isCompleted ? '#000' : colors.mutedText}
-                  />
+                  <Ionicons name="checkmark" size={18} color={isCompleted ? '#FFFFFF' : colors.mutedText} />
                 </TouchableOpacity>
               </TouchableOpacity>
             );
           })}
 
           {filteredHabits.length === 0 && (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="search" size={40} color={colors.secondaryText} />
+            <View style={[styles.emptyContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="search" size={34} color={colors.secondaryText} />
               <Text style={[styles.emptyText, { color: colors.secondaryText }]}>No matching habits</Text>
               <TouchableOpacity
-                style={[styles.emptyAddBtn, { backgroundColor: colors.card, borderColor: colors.accent }]}
-                onPress={() => setCreateModalVisible(true)}
+                style={[styles.emptyAddBtn, { backgroundColor: colors.accent }]}
+                onPress={requestCreateHabit}
               >
-                <Text style={[styles.emptyAddBtnText, { color: colors.accent }]}>+ Create New Habit</Text>
+                <Text style={styles.emptyAddBtnText}>+ New Habit</Text>
               </TouchableOpacity>
             </View>
           )}
         </View>
       </ScrollView>
 
-      {/* Floating Action Button */}
-      <TouchableOpacity
-        style={[styles.fab, { backgroundColor: colors.accent, bottom: insets.bottom + 80 }]}
-        activeOpacity={0.8}
-        onPress={() => setCreateModalVisible(true)}
-      >
-        <Ionicons name="add" size={28} color="#000" />
-      </TouchableOpacity>
-
-      {/* Habit Detail Modal */}
+      {/* Habit Detail Modal (Reference Image 5 Minimalist Style) */}
       {selectedHabit && (
         <Modal
-          animationType="fade"
+          animationType="slide"
           transparent={true}
           visible={!!selectedHabit}
           onRequestClose={() => setSelectedHabitId(null)}
@@ -286,42 +277,105 @@ export const HabitsScreen = () => {
           <View style={styles.modalBackdrop}>
             <View style={[styles.modalBody, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailScroll}>
+                {/* Minimalist Circle Header */}
                 <View style={styles.modalHeader}>
-                  <View style={[styles.modalIcon, { backgroundColor: `${selectedHabit.color}25` }]}>
-                    <Ionicons name={selectedHabit.icon} size={28} color={selectedHabit.color} />
-                  </View>
-                  <TouchableOpacity onPress={() => setSelectedHabitId(null)}>
-                    <Ionicons name="close" size={24} color={colors.secondaryText} />
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Close habit detail"
+                    onPress={() => setSelectedHabitId(null)}
+                    style={[styles.modalCircleBtn, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
+                  >
+                    <Ionicons name="chevron-back" size={20} color={colors.primaryText} />
                   </TouchableOpacity>
+                  <View style={styles.modalHeaderActions}>
+                    {!showArchived ? (
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit habit"
+                        onPress={() => { setEditingHabit(selectedHabit); setCreateModalVisible(true); }}
+                        style={[styles.modalCircleBtn, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
+                      >
+                        <Ionicons name="create-outline" size={18} color={colors.primaryText} />
+                      </TouchableOpacity>
+                    ) : null}
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Delete habit"
+                      onPress={() => handleDelete(selectedHabit.id, selectedHabit.name)}
+                      style={[styles.modalCircleBtn, { backgroundColor: `${colors.error}18`, borderColor: `${colors.error}40` }]}
+                    >
+                      <Ionicons name="trash-outline" size={18} color={colors.error} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
-                <Text style={[styles.modalHabitName, { color: colors.primaryText }]}>{selectedHabit.name}</Text>
-                <Text style={[styles.modalCategoryText, { color: colors.secondaryText }]}>
-                  Category: <Text style={{ color: selectedHabit.color }}>{selectedHabit.category}</Text>
-                  {'  '}•{'  '}Frequency: {selectedHabit.targetFrequency}
-                </Text>
-                {!!selectedHabit.description && <Text style={{ color: colors.secondaryText, marginTop: 8 }}>{selectedHabit.description}</Text>}
-                <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>{selectedHabit.habitKind === 'quit' ? 'Quit habit' : 'Positive habit'} · {selectedHabit.trackingMethod ?? 'yes_no'}{selectedHabit.trackingMethod !== 'yes_no' ? ` · Target ${selectedHabit.targetValue ?? 1} ${selectedHabit.unit ?? ''}` : ''}</Text>
-                <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Since {selectedHabit.startDate ?? '—'}{selectedHabit.endDate ? ` · Ends ${selectedHabit.endDate}` : ''}</Text>
-                {isPausedOnDate(selectedHabit, todayDateStr) && <Text style={{ color: colors.accent, marginTop: 8 }}>Paused today · streaks are protected</Text>}
-                {!!selectedHabit.pausedPeriods?.length && <Text style={{ color: colors.mutedText, marginTop: 6, fontSize: 12 }}>Pause history: {selectedHabit.pausedPeriods.map(period => `${period.startDate}–${period.endDate ?? 'ongoing'}`).join(', ')}</Text>}
+                {/* Habit Identity */}
+                <View style={styles.detailHeroRow}>
+                  <View style={[styles.modalIcon, { backgroundColor: `${selectedHabit.color}22` }]}>
+                    <Ionicons name={selectedHabit.icon} size={26} color={selectedHabit.color} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.modalHabitName, { color: colors.primaryText }]}>{selectedHabit.name}</Text>
+                    <Text style={[styles.modalCategoryText, { color: colors.secondaryText }]}>
+                      {selectedHabit.description?.trim() || selectedHabit.category}
+                    </Text>
+                  </View>
+                </View>
 
+                {/* Activity Heatmap Card (Reference Image 5) */}
+                <View style={[styles.detailHeatmapCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
+                  <HabitDotGrid
+                    habit={selectedHabit}
+                    todayDateStr={todayDateStr}
+                    isDark={isDark}
+                    mutedTextColor={colors.mutedText}
+                    weeks={18}
+                    dotSize={10}
+                    dotGap={3}
+                    showMonthLabels
+                  />
+                </View>
+
+                {/* Quick Metric Pills */}
+                <View style={styles.detailBadgesRow}>
+                  <View style={[styles.statPill, { backgroundColor: `${selectedHabit.color}1C` }]}>
+                    <Ionicons name="flame" size={14} color={selectedHabit.color} />
+                    <Text style={[styles.statPillText, { color: selectedHabit.color }]}>{selectedHabit.streak}d streak</Text>
+                  </View>
+                  <View style={[styles.statPill, { backgroundColor: colors.secondaryBackground }]}>
+                    <Ionicons name="repeat" size={14} color={colors.secondaryText} />
+                    <Text style={[styles.statPillText, { color: colors.secondaryText }]}>{selectedHabit.targetFrequency}</Text>
+                  </View>
+                  <View style={[styles.statPill, { backgroundColor: colors.secondaryBackground }]}>
+                    <Text style={[styles.statPillText, { color: colors.secondaryText }]}>{selectedHabitRecentRate}% · 30d</Text>
+                  </View>
+                </View>
+
+                {/* Stats Summary Card */}
                 <View style={styles.modalStatsRow}>
                   <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                    <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabit.streak}</Text>
-                    <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Current streak</Text>
-                  </View>
-                  <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                    <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabitStats?.bestStreak ?? 0}</Text>
+                    <Text style={[styles.statNumber, { color: selectedHabit.color }]}>{selectedHabitStats?.bestStreak ?? 0}</Text>
                     <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Best streak</Text>
                   </View>
                   <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                    <Text style={[styles.statNumber, { color: colors.accent }]}>{selectedHabitRecentRate}%</Text>
-                    <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Last 30 days</Text>
+                    <Text style={[styles.statNumber, { color: selectedHabit.color }]}>{selectedHabitStats?.totalSuccessfulScheduledDays ?? 0}</Text>
+                    <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Days done</Text>
                   </View>
                 </View>
-                <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>{selectedHabitStats?.totalSuccessfulScheduledDays ?? 0} successful scheduled days recorded</Text>
 
+                {isPausedOnDate(selectedHabit, todayDateStr) && (
+                  <Text style={{ color: colors.accent, fontSize: 12, marginBottom: 10 }}>
+                    Paused today · streaks are protected
+                  </Text>
+                )}
+
+                {!!selectedHabit.reminders?.length && (
+                  <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>
+                    🔔 Reminders: {selectedHabit.reminders.filter(reminder => reminder.enabled).map(reminder => formatReminderTime(reminder.hour, reminder.minute)).join(', ') || 'All disabled'}
+                  </Text>
+                )}
+
+                {/* Complete Today Pill CTA */}
                 {isTrackableOnDate(selectedHabit, todayDateStr) ? selectedHabit.habitKind === 'quit' ? (
                   <HabitTrackingControl habit={selectedHabit} date={todayDateStr} onSave={recordHabitLog} />
                 ) : (
@@ -331,8 +385,11 @@ export const HabitsScreen = () => {
                       <TouchableOpacity
                         style={[
                           styles.toggleActionBtn,
-                          { backgroundColor: colors.secondaryBackground },
-                          isSelectedDone && styles.toggleActionBtnDone,
+                          {
+                            backgroundColor: isSelectedDone ? selectedHabit.color : colors.secondaryBackground,
+                            borderColor: isSelectedDone ? selectedHabit.color : colors.border,
+                            borderWidth: 1,
+                          },
                         ]}
                         activeOpacity={0.8}
                         onPress={() => {
@@ -341,65 +398,49 @@ export const HabitsScreen = () => {
                         }}
                       >
                         <Ionicons
-                          name={
-                            isSelectedDone
-                              ? 'checkmark-circle'
-                              : 'ellipse-outline'
-                          }
+                          name={isSelectedDone ? 'checkmark-circle' : 'ellipse-outline'}
                           size={20}
-                          color="#FFF"
+                          color={isSelectedDone ? '#FFFFFF' : colors.primaryText}
                         />
-                        <Text style={styles.toggleActionText}>
-                          {isSelectedDone
-                            ? 'Completed Today'
-                            : 'Mark Completed for Today'}
+                        <Text style={[styles.toggleActionText, { color: isSelectedDone ? '#FFFFFF' : colors.primaryText }]}>
+                          {isSelectedDone ? 'Completed Today' : 'Complete Today'}
                         </Text>
                       </TouchableOpacity>
                     );
                   })()
-                ) : <Text style={[styles.detailMetadata, { color: colors.secondaryText, marginBottom: spacing.md }]}>{selectedHabit.archivedAt ? 'Archived habits are read-only.' : isPausedOnDate(selectedHabit, todayDateStr) ? 'Paused today. Tracking resumes after the pause.' : 'This habit is not scheduled today.'}</Text>}
-                {!!selectedHabit.reminders?.length && <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>Reminders: {selectedHabit.reminders.filter(reminder => reminder.enabled).map(reminder => formatReminderTime(reminder.hour, reminder.minute)).join(', ') || 'All disabled'}</Text>}
-
-                <TouchableOpacity
-                  style={styles.deleteButton}
-                  activeOpacity={0.7}
-                  onPress={() => handleDelete(selectedHabit.id, selectedHabit.name)}
-                >
-                  <Ionicons name="trash-outline" size={18} color={colors.error} />
-                  <Text style={[styles.deleteText, { color: colors.error }]}>Delete Habit</Text>
-                </TouchableOpacity>
-                {showArchived ? (
-                  <TouchableOpacity style={styles.deleteButton} onPress={() => { restoreHabit(selectedHabit.id); setSelectedHabitId(null); }}>
-                    <Ionicons name="refresh-outline" size={18} color={colors.accent} />
-                    <Text style={[styles.deleteText, { color: colors.accent }]}>Restore Habit</Text>
-                  </TouchableOpacity>
                 ) : (
-                  <>
-                    {isPausedOnDate(selectedHabit, todayDateStr) ? (
-                      <TouchableOpacity style={styles.deleteButton} onPress={() => { resumeHabit(selectedHabit.id); setSelectedHabitId(null); }}>
-                        <Ionicons name="play-outline" size={18} color={colors.accent} />
-                        <Text style={[styles.deleteText, { color: colors.accent }]}>Resume Habit</Text>
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.deleteButton}
-                        activeOpacity={0.7}
-                        onPress={() => setPauseModalHabit(selectedHabit)}
-                      >
-                        <Ionicons name="pause-outline" size={18} color={colors.secondaryText} />
-                        <Text style={[styles.deleteText, { color: colors.secondaryText }]}>Pause Habit</Text>
-                      </TouchableOpacity>
-                    )}
-                    <TouchableOpacity style={styles.deleteButton} onPress={() => { setEditingHabit(selectedHabit); setCreateModalVisible(true); }}>
-                      <Ionicons name="create-outline" size={18} color={colors.accent} />
-                      <Text style={[styles.deleteText, { color: colors.accent }]}>Edit Habit</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.deleteButton} onPress={() => { archiveHabit(selectedHabit.id); setSelectedHabitId(null); }}>
-                      <Ionicons name="archive-outline" size={18} color={colors.secondaryText} />
-                      <Text style={[styles.deleteText, { color: colors.secondaryText }]}>Archive Habit</Text>
-                    </TouchableOpacity>
-                  </>
+                  <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>
+                    {selectedHabit.archivedAt ? 'Archived habits are read-only.' : isPausedOnDate(selectedHabit, todayDateStr) ? 'Paused today.' : 'Not scheduled today.'}
+                  </Text>
                 )}
+
+                {/* Grouped Quick Management Actions */}
+                <View style={[styles.detailActionsRow, { borderColor: colors.border }]}>
+                  {showArchived ? (
+                    <TouchableOpacity style={[styles.detailActionPill, { backgroundColor: colors.secondaryBackground }]} onPress={() => { restoreHabit(selectedHabit.id); setSelectedHabitId(null); }}>
+                      <Ionicons name="refresh-outline" size={16} color={colors.accent} />
+                      <Text style={[styles.detailActionText, { color: colors.accent }]}>Restore</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <>
+                      {isPausedOnDate(selectedHabit, todayDateStr) ? (
+                        <TouchableOpacity style={[styles.detailActionPill, { backgroundColor: colors.secondaryBackground }]} onPress={() => { resumeHabit(selectedHabit.id); setSelectedHabitId(null); }}>
+                          <Ionicons name="play-outline" size={16} color={colors.accent} />
+                          <Text style={[styles.detailActionText, { color: colors.accent }]}>Resume</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity style={[styles.detailActionPill, { backgroundColor: colors.secondaryBackground }]} onPress={() => setPauseModalHabit(selectedHabit)}>
+                          <Ionicons name="pause-outline" size={16} color={colors.secondaryText} />
+                          <Text style={[styles.detailActionText, { color: colors.secondaryText }]}>Pause</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity style={[styles.detailActionPill, { backgroundColor: colors.secondaryBackground }]} onPress={() => { archiveHabit(selectedHabit.id); setSelectedHabitId(null); }}>
+                        <Ionicons name="archive-outline" size={16} color={colors.secondaryText} />
+                        <Text style={[styles.detailActionText, { color: colors.secondaryText }]}>Archive</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
               </ScrollView>
             </View>
           </View>
@@ -452,61 +493,42 @@ export const HabitsScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.lg,
-  },
+  screen: { flex: 1 },
+  scrollContent: { paddingHorizontal: spacing.lg },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginTop: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    marginTop: 2,
-  },
-  newHabitBtn: {
-    flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: radii.full,
-    gap: 4,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
   },
-  newHabitBtnText: {
-    color: '#000',
-    fontWeight: '700',
-    fontSize: 13,
+  title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.4 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  archivePill: {
+    height: 38,
+    paddingHorizontal: 14,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  circleAddBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: radii.md,
+    borderRadius: radii.full,
     paddingHorizontal: spacing.md,
     borderWidth: 1,
     marginBottom: spacing.md,
   },
-  searchInput: {
-    flex: 1,
-    height: 46,
-    fontSize: 15,
-    marginLeft: spacing.sm,
-  },
-  filterRow: {
-    gap: 8,
-    marginBottom: spacing.lg,
-  },
+  searchInput: { flex: 1, height: 44, fontSize: 14, marginLeft: spacing.sm },
+  filterRow: { gap: 8, marginBottom: spacing.md },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -515,13 +537,8 @@ const styles = StyleSheet.create({
     borderRadius: radii.full,
     borderWidth: 1,
   },
-  filterChipText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  habitList: {
-    gap: spacing.sm,
-  },
+  filterChipText: { fontSize: 12, fontWeight: '600' },
+  habitList: { gap: spacing.sm },
   habitRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -529,133 +546,121 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderWidth: 1,
   },
-  iconCircle: {
-    width: 44,
-    height: 44,
+  iconSquircle: {
+    width: 42,
+    height: 42,
     borderRadius: radii.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.md,
   },
-  habitInfo: {
-    flex: 1,
-  },
-  habitName: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  streakBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-    flexWrap: 'wrap',
-    gap: 4,
-  },
-  categoryBadge: {
-    fontSize: 12,
-  },
-  scheduleText: {
-    fontSize: 12,
-  },
+  habitInfo: { flex: 1, paddingRight: 8 },
+  habitName: { fontSize: 16, fontWeight: '700' },
+  streakBadge: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
+  scheduleText: { fontSize: 12 },
   reminderPill: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 4,
-    marginTop: 5,
-    paddingHorizontal: 7,
-    paddingVertical: 2.5,
-    borderRadius: radii.sm,
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radii.full,
   },
-  reminderText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
+  reminderText: { fontSize: 11, fontWeight: '600' },
   checkButton: {
-    width: 34,
-    height: 34,
-    borderRadius: radii.sm,
-    borderWidth: 2,
+    width: 36,
+    height: 36,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
   emptyContainer: {
-    paddingVertical: 48,
+    paddingVertical: 42,
+    borderRadius: radii.xl,
+    borderWidth: 1,
     alignItems: 'center',
+    marginTop: spacing.md,
   },
-  emptyText: {
-    fontSize: 16,
-    marginTop: 12,
-  },
+  emptyText: { fontSize: 15, fontWeight: '600', marginTop: 10 },
   emptyAddBtn: {
     marginTop: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
     borderRadius: radii.full,
-    borderWidth: 1,
   },
-  emptyAddBtnText: {
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-  },
+  emptyAddBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    padding: spacing.lg,
   },
   modalBody: {
     width: '100%',
-    maxWidth: 380,
-    borderRadius: radii.xl,
-    padding: spacing.xl,
+    maxWidth: 460,
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    padding: spacing.lg,
     borderWidth: 1,
-    maxHeight: '90%',
+    maxHeight: '92%',
   },
-  detailScroll: { paddingBottom: spacing.sm },
-  detailMetadata: { fontSize: 12, marginTop: 7, lineHeight: 18 },
+  detailScroll: { paddingBottom: spacing.md },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  modalHeaderActions: { flexDirection: 'row', gap: 8 },
+  modalCircleBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailHeroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
     marginBottom: spacing.md,
   },
   modalIcon: {
-    width: 48,
-    height: 48,
+    width: 50,
+    height: 50,
     borderRadius: radii.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modalHabitName: {
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 4,
+  modalHabitName: { fontSize: 22, fontWeight: '800' },
+  modalCategoryText: { fontSize: 13, marginTop: 2 },
+  detailHeatmapCard: {
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: spacing.md,
   },
-  modalCategoryText: {
-    fontSize: 13,
-    marginBottom: spacing.lg,
-  },
-  modalStatsRow: {
+  detailBadgesRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: spacing.lg,
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: spacing.md,
   },
+  statPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: radii.full,
+  },
+  statPillText: { fontSize: 12, fontWeight: '700' },
+  modalStatsRow: { flexDirection: 'row', gap: 10, marginBottom: spacing.md },
   modalStatCard: {
     flex: 1,
     borderRadius: radii.md,
@@ -663,40 +668,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
   },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: '800',
-  },
-  statLabel: {
-    fontSize: 12,
-    marginTop: 2,
-  },
+  statNumber: { fontSize: 22, fontWeight: '800' },
+  statLabel: { fontSize: 11, fontWeight: '600', marginTop: 2 },
+  detailMetadata: { fontSize: 12, marginBottom: spacing.md, lineHeight: 18 },
   toggleActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 14,
-    borderRadius: radii.md,
+    height: 50,
+    borderRadius: radii.full,
     marginBottom: spacing.md,
   },
-  toggleActionBtnDone: {
-    backgroundColor: '#059669',
+  toggleActionText: { fontSize: 15, fontWeight: '700' },
+  detailActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
   },
-  toggleActionText: {
-    color: '#FFF',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  deleteButton: {
+  detailActionPill: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 10,
+    height: 44,
+    borderRadius: radii.full,
   },
-  deleteText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  detailActionText: { fontSize: 13, fontWeight: '700' },
 });

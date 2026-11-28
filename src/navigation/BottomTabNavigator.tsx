@@ -2,7 +2,8 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TodayScreen } from '../screens/TodayScreen';
 import { HabitsScreen } from '../screens/HabitsScreen';
 import { FocusTimerScreen } from '../screens/FocusTimerScreen';
@@ -15,42 +16,69 @@ const Tab = createBottomTabNavigator();
 
 export default function BottomTabNavigator() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        tabBarIcon: ({ color, focused, size }) => {
+        tabBarIcon: ({ color, focused }) => {
           let iconName: keyof typeof Ionicons.glyphMap = 'today';
 
           if (route.name === 'Today') {
-            iconName = focused ? 'today' : 'today-outline';
+            iconName = focused ? 'checkmark-done' : 'checkmark-done-outline';
           } else if (route.name === 'Habits') {
-            iconName = focused ? 'list' : 'list-outline';
+            iconName = focused ? 'grid' : 'grid-outline';
           } else if (route.name === 'Timer') {
             iconName = focused ? 'timer' : 'timer-outline';
           } else if (route.name === 'Insights') {
-            iconName = focused ? 'analytics' : 'analytics-outline';
+            iconName = focused ? 'bar-chart' : 'bar-chart-outline';
           } else if (route.name === 'Calendar') {
             iconName = focused ? 'calendar' : 'calendar-outline';
           } else if (route.name === 'Profile') {
-            iconName = focused ? 'person' : 'person-outline';
+            iconName = focused ? 'settings' : 'settings-outline';
           }
 
-          return <Ionicons name={iconName} size={size - 1} color={color} />;
+          return (
+            <View
+              style={{
+                width: 42,
+                height: 32,
+                borderRadius: 16,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: focused ? `${colors.accent}22` : 'transparent',
+              }}
+            >
+              <Ionicons name={iconName} size={20} color={color} />
+            </View>
+          );
         },
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.secondaryText,
         tabBarStyle: {
-          backgroundColor: colors.secondaryBackground,
-          borderTopColor: colors.border,
+          position: 'absolute',
+          left: 14,
+          right: 14,
+          bottom: Math.max(insets.bottom, 10),
+          backgroundColor: colors.card,
+          borderColor: colors.border,
+          borderWidth: 1,
           borderTopWidth: 1,
-          height: Platform.OS === 'ios' ? 88 : 64,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 8,
+          borderRadius: 999,
+          height: 62,
+          paddingBottom: Platform.OS === 'ios' ? 4 : 6,
           paddingTop: 6,
+          paddingHorizontal: 8,
+          elevation: 10,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.25,
+          shadowRadius: 16,
         },
         tabBarLabelStyle: {
           fontSize: 10,
-          fontWeight: '600',
+          fontWeight: '700',
+          marginTop: 1,
         },
         headerShown: false,
         sceneStyle: {

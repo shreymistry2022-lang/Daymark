@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Switch,
   Alert,
   Platform,
   Modal,
@@ -41,6 +40,37 @@ import { useGoals } from '../services/GoalsContext';
 import { useJournal } from '../services/JournalContext';
 import { useAchievements } from '../services/AchievementsContext';
 
+type SettingsRowProps = {
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  label: string;
+  valueLabel?: string;
+  onPress: () => void;
+  isLast?: boolean;
+  labelColor?: string;
+  colors: any;
+};
+
+const SettingsRow = ({ icon, iconColor, label, valueLabel, onPress, isLast, labelColor, colors }: SettingsRowProps) => (
+  <TouchableOpacity
+    style={[
+      styles.settingsRow,
+      !isLast && { borderBottomWidth: 1, borderBottomColor: colors.border },
+    ]}
+    onPress={onPress}
+    activeOpacity={0.7}
+  >
+    <View style={[styles.rowIconSquircle, { backgroundColor: `${iconColor}20` }]}>
+      <Ionicons name={icon} size={18} color={iconColor} />
+    </View>
+    <Text style={[styles.rowLabel, { color: labelColor ?? colors.primaryText }]} numberOfLines={1}>
+      {label}
+    </Text>
+    {valueLabel ? <Text style={[styles.rowValueLabel, { color: colors.secondaryText }]}>{valueLabel}</Text> : null}
+    <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
+  </TouchableOpacity>
+);
+
 export const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
@@ -49,11 +79,12 @@ export const ProfileScreen = () => {
   const { mode, setMode, colors } = useTheme();
   const { user, signOut, deleteAccount } = useAuth();
   const { isPro } = useSubscription();
-  const { preferences, updatePreferences } = usePreferences();
+  const { preferences } = usePreferences();
   const { routines, retryRoutineSync } = useRoutines();
   const { goals, retryGoalSync } = useGoals();
   const { entries, retryJournalSync } = useJournal();
   const { achievements } = useAchievements();
+
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [routinesVisible, setRoutinesVisible] = useState(false);
   const [goalsVisible, setGoalsVisible] = useState(false);
@@ -64,6 +95,7 @@ export const ProfileScreen = () => {
   const [preferencesVisible, setPreferencesVisible] = useState(false);
   const [insightsVisible, setInsightsVisible] = useState(false);
   const [feedbackVisible, setFeedbackVisible] = useState(false);
+  const [themeExpanded, setThemeExpanded] = useState(false);
   const [initialRoutineId, setInitialRoutineId] = useState<string | null>(null);
   const [initialGoalId, setInitialGoalId] = useState<string | null>(null);
   const [initialJournalId, setInitialJournalId] = useState<string | null>(null);
@@ -73,7 +105,6 @@ export const ProfileScreen = () => {
     setPreferencesVisible(false);
     if (route.params?.openPreferences) navigation.setParams({ openPreferences: undefined });
   };
-
 
   const handleExportData = async (format: 'json' | 'csv') => {
     try {
@@ -105,47 +136,43 @@ export const ProfileScreen = () => {
 
   const handleOpenUrl = async (url: string) => {
     try {
-      if (Platform.OS === 'web') {
-        window.open(url, '_blank');
-      } else {
-        await WebBrowser.openBrowserAsync(url);
-      }
+      if (Platform.OS === 'web') window.open(url, '_blank');
+      else await WebBrowser.openBrowserAsync(url);
     } catch {
       Alert.alert('Unable to open link', `Could not open ${url}. Please try again later.`);
     }
   };
 
-  const handleSignOut = async () => {
-    if (Platform.OS === 'web') {
-      const confirmed = typeof window !== 'undefined' && window.confirm
-        ? window.confirm('Are you sure you want to sign out?')
-        : true;
-      if (confirmed) {
-        await signOut();
-      }
+  const handleSyncNow = async () => {
+    if (!user || user.isGuest) {
+      Alert.alert('Guest Mode', 'Sign in with an account to back up and sync your data to the cloud.');
       return;
     }
+    await Promise.all([
+      syncAllHabitsNow(),
+      retryGoalSync(),
+      retryRoutineSync(),
+      retryJournalSync(),
+    ]);
+    Alert.alert('Cloud Sync Complete', 'All habits, goals, routines, and journal entries are synced to your account.');
+  };
 
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out? Your habits will remain safely stored on this device.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            await signOut();
-          },
-        },
-      ]
-    );
+  const handleSignOut = async () => {
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' && window.confirm ? window.confirm('Are you sure you want to sign out?') : true;
+      if (confirmed) await signOut();
+      return;
+    }
+    Alert.alert('Sign Out', 'Are you sure you want to sign out? Cloud data stays safely synced to your account.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign Out', style: 'destructive', onPress: async () => { await signOut(); } },
+    ]);
   };
 
   const handleDeleteAccount = async () => {
     Alert.alert(
       'Delete Account',
-      'Are you sure you want to permanently delete your account and all data? This action is irreversible and wipes all habits, routines, goals, and journal entries.',
+      'Are you sure you want to permanently delete your account and all data? This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -153,9 +180,7 @@ export const ProfileScreen = () => {
           style: 'destructive',
           onPress: async () => {
             const res = await deleteAccount();
-            if (res?.error) {
-              Alert.alert('Delete Account Failed', res.error);
-            }
+            if (res?.error) Alert.alert('Delete Account Failed', res.error);
           },
         },
       ]
@@ -164,365 +189,206 @@ export const ProfileScreen = () => {
 
   const displayName = user?.fullName || user?.email?.split('@')[0] || 'Daymark Member';
   const displayRole = user?.email
-    ? isPro
-      ? `${user.email} • Daymark Pro`
-      : `${user.email} • Free Member`
-    : 'Daymark Member';
+    ? isPro ? `${user.email} · Pro` : `${user.email} · Free`
+    : 'Guest Account';
+
+  const currentThemeLabel = THEME_OPTIONS.find(t => t.id === mode)?.label ?? 'Automatic';
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 110 }]}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 110 }]} showsVerticalScrollIndicator={false}>
+        {/* Centered Header (Reference Image 8) */}
         <View style={styles.header}>
-          <Text style={[styles.eyebrow, { color: colors.accent }]}>SETTINGS & ACCOUNT</Text>
-          <Text style={[styles.title, { color: colors.primaryText }]}>Profile</Text>
-        </View>
-
-        {/* User Card */}
-        <View style={[styles.profileCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={[styles.avatar, { backgroundColor: `${colors.accent}18` }]}>
-            <Ionicons name="person" size={32} color={colors.accent} />
-          </View>
-          <View style={styles.userInfo}>
-            <Text style={[styles.userName, { color: colors.primaryText }]}>{displayName}</Text>
-            <Text style={[styles.userRole, { color: colors.secondaryText }]}>{displayRole}</Text>
-          </View>
+          <Text style={[styles.title, { color: colors.primaryText }]}>Settings</Text>
           <TouchableOpacity
-            style={styles.editProfileBtn}
-            onPress={() => Alert.alert(
-              'User Details',
-              `Signed in as: ${displayName}\n${displayRole}${user?.id ? `\nUser ID: ${user.id}` : ''}`
-            )}
+            accessibilityRole="button"
+            accessibilityLabel="View user details"
+            style={[styles.circleInfoBtn, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
+            onPress={() => Alert.alert('Account Details', `Name: ${displayName}\nAccount: ${displayRole}${user?.id ? `\nUser ID: ${user.id}` : ''}`)}
           >
-            <Ionicons name="information-circle-outline" size={20} color={colors.secondaryText} />
+            <Ionicons name="person-outline" size={18} color={colors.primaryText} />
           </TouchableOpacity>
         </View>
 
-        {/* Fast Stats Row */}
-        <View style={styles.statsRow}>
-          <View style={[styles.statBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.statDigit, { color: colors.accent }]}>{habits.length}</Text>
-            <Text style={[styles.statTag, { color: colors.secondaryText }]}>Active Habits</Text>
-          </View>
-          <View style={[styles.statBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.statDigit, { color: colors.accent }]}>{stats.bestStreak}d</Text>
-            <Text style={[styles.statTag, { color: colors.secondaryText }]}>Best Streak</Text>
-          </View>
-          <View style={[styles.statBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.statDigit, { color: colors.accent }]}>{stats.totalCompletions}</Text>
-            <Text style={[styles.statTag, { color: colors.secondaryText }]}>Check-ins</Text>
-          </View>
-        </View>
-
-        {/* Dynamic Appearance / Theme Selector */}
-        <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={[styles.sectionHeader, { color: colors.secondaryText, marginBottom: 0 }]}>
-              APPEARANCE (LIVE THEME)
-            </Text>
-            <View style={[styles.activeThemeBadge, { backgroundColor: `${colors.accent}1F` }]}>
-              <Text style={[styles.activeThemeBadgeText, { color: colors.accent }]}>
-                {mode.toUpperCase()}
+        {/* Hero Pro Card (Reference Image 8) */}
+        <View style={[styles.proHeroCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.proHeroTop}>
+            <View style={[styles.proIconBadge, { backgroundColor: `${colors.accent}22` }]}>
+              <Ionicons name="sparkles" size={24} color={colors.accent} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.proHeroTitle, { color: colors.primaryText }]}>
+                Daymark <Text style={{ color: colors.accent }}>Pro</Text>
+              </Text>
+              <Text style={[styles.proHeroSub, { color: colors.secondaryText }]} numberOfLines={2}>
+                {isPro ? 'All unlimited habits, analytics & themes unlocked.' : 'Unlimited habits, routines, goals & advanced insights.'}
               </Text>
             </View>
           </View>
-          <Text style={[styles.sectionSubtext, { color: colors.mutedText }]}>
-            Instantly switch the app visual mood & contrast.
-          </Text>
-
-          <View style={styles.themeSelector}>
-            {THEME_OPTIONS.map(t => {
-              const isActive = mode === t.id;
-              return (
-                <TouchableOpacity
-                  key={t.id}
-                  style={[
-                    styles.themeOption,
-                    {
-                      backgroundColor: colors.secondaryBackground,
-                      borderColor: isActive ? colors.accent : colors.border,
-                      borderWidth: isActive ? 1.5 : 1,
-                    },
-                    isActive && {
-                      backgroundColor: `${colors.accent}0D`,
-                    },
-                  ]}
-                  onPress={() => {
-                    if (t.id === 'pure' && !canAccessFeature('premium_themes', isPro)) setPaywallVisible(true);
-                    else setMode(t.id);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name={isActive ? 'radio-button-on' : 'radio-button-off'}
-                    size={20}
-                    color={isActive ? colors.accent : colors.mutedText}
-                  />
-
-                  <View style={styles.themeOptionTextCol}>
-                    <Text
-                      style={[
-                        styles.themeText,
-                        { color: colors.primaryText },
-                        isActive && { fontWeight: '700', color: colors.primaryText },
-                      ]}
-                    >
-                      {t.label}
-                    </Text>
-                    <Text style={[styles.themeDesc, { color: colors.secondaryText }]}>
-                      {t.desc}
-                    </Text>
-                  </View>
-
-                  {/* Visual Color Swatches Preview */}
-                  <View style={styles.swatchGroup}>
-                    <View style={[styles.swatchDot, { backgroundColor: t.preview.bg, borderColor: colors.border }]} />
-                    <View style={[styles.swatchDot, { backgroundColor: t.preview.card, borderColor: colors.border }]} />
-                    <View style={[styles.swatchDot, { backgroundColor: t.preview.accent }]} />
-                  </View>
-
-                  {isActive && (
-                    <View style={[styles.checkBadge, { backgroundColor: colors.accent }]}>
-                      <Ionicons name="checkmark" size={12} color="#000" />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={[styles.proPillBtn, { backgroundColor: colors.accent }]}
+            onPress={() => {
+              if (SUBSCRIPTIONS_ENABLED) setPaywallVisible(true);
+              else Alert.alert('Daymark Full Edition', 'All features are unlocked on this build.');
+            }}
+          >
+            <Text style={styles.proPillBtnText}>
+              {isPro ? 'Manage Daymark Pro' : 'Get Daymark Pro  ➔'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
-          style={[styles.actionButton, styles.proButton]}
-          onPress={() => {
-            if (SUBSCRIPTIONS_ENABLED) {
-              setPaywallVisible(true);
-            } else {
-              Alert.alert('Daymark Full Edition', 'You have full complimentary access to all habits, custom themes, analytics, routines, and daily rhythm reminders!');
-            }
-          }}
-          activeOpacity={0.75}
-        >
-          <Ionicons name="sparkles" size={20} color="#C8F169" />
-          <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>
-            {SUBSCRIPTIONS_ENABLED ? (isPro ? 'Daymark Pro — Manage plan' : 'Explore Daymark Pro') : 'Daymark Full Edition — All Features Unlocked'}
-          </Text>
-          <Ionicons name={SUBSCRIPTIONS_ENABLED ? 'chevron-forward' : 'checkmark-circle'} size={18} color={SUBSCRIPTIONS_ENABLED ? colors.secondaryText : '#C8F169'} />
-        </TouchableOpacity>
-
-        {/* Notifications & Toggles */}
-        <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.sectionHeader, { color: colors.secondaryText }]}>SYSTEM & NOTIFICATIONS</Text>
-
-          <View style={[styles.toggleRow, { borderBottomColor: colors.border }]}>
-            <View style={styles.toggleMeta}>
-              <Text style={[styles.toggleTitle, { color: colors.primaryText }]}>Daily Reminders</Text>
-            <Text style={[styles.toggleSubtitle, { color: colors.mutedText }]}>Use your saved habit reminder schedule</Text>
-            </View>
-            <Switch
-              value={preferences.notifications.daily}
-              onValueChange={value => updatePreferences({ notifications: { daily: value } })}
-              trackColor={{ false: colors.border, true: colors.accent }}
-              thumbColor="#FFF"
-            />
+        {/* Compact Account + Cloud Sync Card (Reference Image 6) */}
+        <View style={[styles.accountCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.avatarCircle, { backgroundColor: `${colors.accent}1E` }]}>
+            <Ionicons name="person" size={22} color={colors.accent} />
           </View>
-
-          <View style={[styles.toggleRow, { borderBottomWidth: 0 }]}>
-            <View style={styles.toggleMeta}>
-              <Text style={[styles.toggleTitle, { color: colors.primaryText }]}>Haptic Feedback</Text>
-              <Text style={[styles.toggleSubtitle, { color: colors.mutedText }]}>Vibrate on habit completion</Text>
-            </View>
-            <Switch
-              value={preferences.hapticsEnabled}
-              onValueChange={value => updatePreferences({ hapticsEnabled: value })}
-              trackColor={{ false: colors.border, true: colors.accent }}
-              thumbColor="#FFF"
-            />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.userName, { color: colors.primaryText }]} numberOfLines={1}>{displayName}</Text>
+            <Text style={[styles.userRole, { color: colors.secondaryText }]} numberOfLines={1}>{displayRole}</Text>
           </View>
+          <TouchableOpacity
+            style={[styles.syncPillBtn, { backgroundColor: `${colors.accent}1A` }]}
+            onPress={() => void handleSyncNow()}
+            activeOpacity={0.75}
+          >
+            <Ionicons name="cloud-done-outline" size={14} color={colors.accent} />
+            <Text style={[styles.syncPillText, { color: colors.accent }]}>Sync</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Data & Account Actions */}
-        <View style={[styles.actionGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <TouchableOpacity style={[styles.actionButton, { borderBottomColor: colors.border }]} onPress={() => setPreferencesVisible(true)} activeOpacity={0.7}>
-            <Ionicons name="options-outline" size={20} color={colors.accent} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Personalisation & Preferences</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { borderBottomColor: colors.border }]} onPress={() => setSearchVisible(true)} activeOpacity={0.7}>
-            <Ionicons name="search-outline" size={20} color={colors.accent} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Search everything</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { borderBottomColor: colors.border }]} onPress={() => setRoutinesVisible(true)} activeOpacity={0.7}>
-            <Ionicons name="layers-outline" size={20} color={colors.accent} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Routines</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { borderBottomColor: colors.border }]} onPress={() => setGoalsVisible(true)} activeOpacity={0.7}>
-            <Ionicons name="flag-outline" size={20} color={colors.accent} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Goals</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { borderBottomColor: colors.border }]} onPress={() => setJournalVisible(true)} activeOpacity={0.7}>
-            <Ionicons name="book-outline" size={20} color={colors.accent} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Journal</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { borderBottomColor: colors.border }]} onPress={() => setAchievementsVisible(true)} activeOpacity={0.7}>
-            <Ionicons name="ribbon-outline" size={20} color={colors.accent} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Achievements</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { borderBottomColor: colors.border }]} onPress={() => setReportsVisible(true)} activeOpacity={0.7}>
-            <Ionicons name="document-text-outline" size={20} color={colors.accent} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Reports</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { borderBottomColor: colors.border }]} onPress={() => setInsightsVisible(true)} activeOpacity={0.7}>
-            <Ionicons name="analytics-outline" size={20} color={colors.accent} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Insights & Trends</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, { borderBottomColor: colors.border }]}
-            onPress={restartOnboarding}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="compass-outline" size={20} color={colors.accent} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Replay Onboarding Tour</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
+        {/* Section: APP */}
+        <Text style={[styles.groupTitle, { color: colors.secondaryText }]}>APP</Text>
+        <View style={[styles.groupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <SettingsRow
+            icon="options-outline"
+            iconColor="#7C83FF"
+            label="General & Reminders"
+            onPress={() => setPreferencesVisible(true)}
+            colors={colors}
+          />
+          <SettingsRow
+            icon="color-palette-outline"
+            iconColor="#F59E0B"
+            label="Theme"
+            valueLabel={currentThemeLabel}
+            onPress={() => setThemeExpanded(p => !p)}
+            colors={colors}
+          />
+          {themeExpanded ? (
+            <View style={[styles.themeDrawer, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
+              {THEME_OPTIONS.map(t => {
+                const isActive = mode === t.id;
+                return (
+                  <TouchableOpacity
+                    key={t.id}
+                    style={[
+                      styles.themeChip,
+                      {
+                        backgroundColor: isActive ? `${colors.accent}20` : colors.secondaryBackground,
+                        borderColor: isActive ? colors.accent : colors.border,
+                      },
+                    ]}
+                    onPress={() => {
+                      if (t.id === 'pure' && !canAccessFeature('premium_themes', isPro)) setPaywallVisible(true);
+                      else setMode(t.id);
+                    }}
+                  >
+                    <View style={[styles.swatchDot, { backgroundColor: t.preview.bg, borderColor: t.preview.accent }]} />
+                    <Text style={[styles.themeChipText, { color: isActive ? colors.accent : colors.primaryText }]}>
+                      {t.label.split(' ')[0]}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ) : null}
+          <SettingsRow icon="layers-outline" iconColor="#14B8A6" label="Routines" onPress={() => setRoutinesVisible(true)} colors={colors} />
+          <SettingsRow icon="flag-outline" iconColor="#38BDF8" label="Goals" onPress={() => setGoalsVisible(true)} colors={colors} />
+          <SettingsRow icon="book-outline" iconColor="#EC4899" label="Journal" onPress={() => setJournalVisible(true)} colors={colors} />
+          <SettingsRow icon="ribbon-outline" iconColor="#A78BFA" label="Achievements" onPress={() => setAchievementsVisible(true)} colors={colors} />
+          <SettingsRow icon="document-text-outline" iconColor="#10B981" label="Reports" onPress={() => setReportsVisible(true)} colors={colors} />
+          <SettingsRow icon="search-outline" iconColor="#94A3B8" label="Search Everything" onPress={() => setSearchVisible(true)} isLast colors={colors} />
+        </View>
 
-          <TouchableOpacity
-            style={[styles.actionButton, { borderBottomColor: colors.border }]}
+        {/* Section: BACKUP & EXPORT */}
+        <Text style={[styles.groupTitle, { color: colors.secondaryText }]}>BACKUP & EXPORT</Text>
+        <View style={[styles.groupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <SettingsRow
+            icon="cloud-upload-outline"
+            iconColor="#38BDF8"
+            label="Sync Data to Cloud"
+            valueLabel={user && !user.isGuest ? '● Auto' : 'Guest'}
+            onPress={() => void handleSyncNow()}
+            colors={colors}
+          />
+          <SettingsRow
+            icon="download-outline"
+            iconColor="#10B981"
+            label="Export Progress (CSV)"
             onPress={() => {
-              if (!canAccessFeature('advanced_export', isPro)) {
-                setPaywallVisible(true);
-                return;
-              }
-              void handleExportData('csv');
+              if (!canAccessFeature('advanced_export', isPro)) setPaywallVisible(true);
+              else void handleExportData('csv');
             }}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="download-outline" size={20} color={colors.primaryText} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Export Progress (CSV)</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, { borderBottomColor: colors.border }]}
+            colors={colors}
+          />
+          <SettingsRow
+            icon="code-download-outline"
+            iconColor="#7C83FF"
+            label="Export Backup (JSON)"
             onPress={() => {
-              if (!canAccessFeature('advanced_export', isPro)) {
-                setPaywallVisible(true);
-                return;
-              }
-              void handleExportData('json');
+              if (!canAccessFeature('advanced_export', isPro)) setPaywallVisible(true);
+              else void handleExportData('json');
             }}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="code-download-outline" size={20} color={colors.primaryText} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Export Backup (JSON)</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
+            isLast
+            colors={colors}
+          />
+        </View>
 
-          <TouchableOpacity
-            style={[styles.actionButton, { borderBottomColor: colors.border }]}
-            onPress={() => setFeedbackVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="star-outline" size={20} color="#F59E0B" />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Rate Daymark & Send Feedback</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionButton, { borderBottomColor: colors.border }]}
-            onPress={async () => {
-              if (!user || user.isGuest) {
-                Alert.alert('Guest Mode', 'Sign in with an account to back up and sync your data to the cloud.');
-                return;
-              }
-              await Promise.all([
-                syncAllHabitsNow(),
-                retryGoalSync(),
-                retryRoutineSync(),
-                retryJournalSync(),
-              ]);
-              Alert.alert('Cloud Sync Complete', 'All habits, goals, routines, and journal entries are synced to your account.');
-            }}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="cloud-upload-outline" size={20} color={colors.accent} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Sync Data to Cloud Now</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionButton, { borderBottomColor: colors.border }]}
-            onPress={() => { void checkForAppUpdates(true); }}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="cloud-download-outline" size={20} color={colors.accent} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Check for App Updates</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionButton, { borderBottomColor: colors.border }]}
-            onPress={() => Alert.alert('Support', 'Daymark Support: contact@daymark.app')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="help-circle-outline" size={20} color={colors.primaryText} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Help & Documentation</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionButton, { borderBottomColor: colors.border }]}
+        {/* Section: HELP & ABOUT */}
+        <Text style={[styles.groupTitle, { color: colors.secondaryText }]}>HELP & ABOUT</Text>
+        <View style={[styles.groupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <SettingsRow icon="compass-outline" iconColor="#FF7A00" label="Show Onboarding" onPress={restartOnboarding} colors={colors} />
+          <SettingsRow icon="paper-plane-outline" iconColor="#94A3B8" label="Send Feedback" onPress={() => setFeedbackVisible(true)} colors={colors} />
+          <SettingsRow icon="refresh-circle-outline" iconColor="#38BDF8" label="Check for Updates" onPress={() => { void checkForAppUpdates(true); }} colors={colors} />
+          <SettingsRow
+            icon="lock-closed-outline"
+            iconColor="#EC4899"
+            label="Privacy Policy"
             onPress={() => void handleOpenUrl(process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://shreymistry2022-lang.github.io/Daymark/privacy.html')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="shield-checkmark-outline" size={20} color={colors.primaryText} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Privacy Policy</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionButton, { borderBottomColor: colors.border }]}
+            colors={colors}
+          />
+          <SettingsRow
+            icon="shield-checkmark-outline"
+            iconColor="#10B981"
+            label="Terms of Service"
             onPress={() => void handleOpenUrl(process.env.EXPO_PUBLIC_TERMS_URL || 'https://shreymistry2022-lang.github.io/Daymark/terms.html')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="document-text-outline" size={20} color={colors.primaryText} />
-            <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>Terms of Service</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
-          </TouchableOpacity>
+            isLast
+            colors={colors}
+          />
+        </View>
 
-          <TouchableOpacity
-            style={[styles.actionButton, styles.signOutButton, { borderBottomColor: colors.border }]}
-            onPress={handleSignOut}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="log-out-outline" size={20} color={colors.secondaryText} />
-            <Text style={[styles.signOutText, { color: colors.primaryText }]}>Sign Out</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionButton, styles.signOutButton]}
+        {/* Section: ACCOUNT */}
+        <Text style={[styles.groupTitle, { color: colors.secondaryText }]}>ACCOUNT</Text>
+        <View style={[styles.groupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <SettingsRow icon="log-out-outline" iconColor={colors.secondaryText} label="Sign Out" onPress={handleSignOut} colors={colors} />
+          <SettingsRow
+            icon="trash-outline"
+            iconColor={colors.error}
+            label="Delete Account & Data"
+            labelColor={colors.error}
             onPress={handleDeleteAccount}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="trash-outline" size={20} color={colors.error} />
-            <Text style={[styles.signOutText, { color: colors.error }]}>Delete Account & Data</Text>
-          </TouchableOpacity>
+            isLast
+            colors={colors}
+          />
         </View>
 
-        <View style={styles.appVersionContainer}>
-          <Text style={[styles.appVersionText, { color: colors.mutedText }]}>
-            Daymark v{updateInfo.appVersion} · Runtime: {updateInfo.runtimeVersion} ({updateInfo.updateId})
-          </Text>
-        </View>
+        <Text style={[styles.appVersionText, { color: colors.mutedText }]}>
+          Daymark {updateInfo.appVersion} ({updateInfo.updateId})
+        </Text>
       </ScrollView>
+
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
       <FeedbackModal visible={feedbackVisible} onClose={() => setFeedbackVisible(false)} />
       <Modal visible={routinesVisible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setRoutinesVisible(false)}>
@@ -568,209 +434,130 @@ export const ProfileScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.lg,
-  },
+  screen: { flex: 1 },
+  scrollContent: { paddingHorizontal: spacing.lg },
   header: {
-    marginTop: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    marginTop: 2,
-  },
-  profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: radii.lg,
-    padding: spacing.lg,
-    borderWidth: 1,
+    justifyContent: 'space-between',
+    marginTop: spacing.md,
     marginBottom: spacing.md,
   },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.4 },
+  circleInfoBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.md,
   },
-  userInfo: {
-    flex: 1,
-  },
-  userName: {
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  userRole: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-  editProfileBtn: {
-    padding: spacing.sm,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: spacing.lg,
-  },
-  statBox: {
-    flex: 1,
-    borderRadius: radii.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
+
+  proHeroCard: {
+    borderRadius: radii.xl,
     borderWidth: 1,
-  },
-  statDigit: {
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  statTag: {
-    fontSize: 11,
-    marginTop: 2,
-    fontWeight: '600',
-  },
-  sectionCard: {
-    borderRadius: radii.lg,
     padding: spacing.lg,
+    marginBottom: spacing.md,
+    gap: 14,
+  },
+  proHeroTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  proIconBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: radii.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  proHeroTitle: { fontSize: 19, fontWeight: '800' },
+  proHeroSub: { fontSize: 12, marginTop: 2, lineHeight: 17 },
+  proPillBtn: {
+    height: 46,
+    borderRadius: radii.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  proPillBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+
+  accountCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radii.lg,
     borderWidth: 1,
+    padding: 14,
+    gap: 12,
     marginBottom: spacing.lg,
   },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  avatarCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
-    marginBottom: 4,
+    justifyContent: 'center',
   },
-  sectionHeader: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-  },
-  sectionSubtext: {
-    fontSize: 12,
-    marginBottom: spacing.md,
-  },
-  activeThemeBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radii.full,
-  },
-  activeThemeBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  themeSelector: {
-    gap: 10,
-  },
-  themeOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    gap: 12,
-  },
-  themeOptionTextCol: {
-    flex: 1,
-  },
-  swatchGroup: {
+  userName: { fontSize: 15, fontWeight: '700' },
+  userRole: { fontSize: 12, marginTop: 1 },
+  syncPillBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    marginRight: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radii.full,
   },
-  swatchDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 1,
-  },
-  checkBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  themeText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  themeDesc: {
+  syncPillText: { fontSize: 12, fontWeight: '700' },
+
+  groupTitle: {
     fontSize: 11,
-    marginTop: 2,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: 8,
+    marginLeft: 4,
   },
-  toggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-  },
-  toggleMeta: {
-    flex: 1,
-  },
-  toggleTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  toggleSubtitle: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  actionGroup: {
+  groupCard: {
     borderRadius: radii.lg,
     borderWidth: 1,
     overflow: 'hidden',
+    marginBottom: spacing.lg,
   },
-  actionButton: {
+  settingsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.lg,
-    borderBottomWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    gap: 12,
   },
-  proButton: {
-    backgroundColor: '#171920',
-    borderColor: '#363944',
-    borderWidth: 1,
-    borderRadius: radii.lg,
-    marginTop: spacing.md,
-  },
-  actionButtonText: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    marginLeft: spacing.md,
-  },
-  signOutButton: {
-    borderBottomWidth: 0,
-  },
-  signOutText: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    marginLeft: spacing.md,
-  },
-  appVersionContainer: {
+  rowIconSquircle: {
+    width: 34,
+    height: 34,
+    borderRadius: radii.sm,
     alignItems: 'center',
-    marginVertical: spacing.xl,
+    justifyContent: 'center',
   },
+  rowLabel: { flex: 1, fontSize: 15, fontWeight: '600' },
+  rowValueLabel: { fontSize: 13, fontWeight: '600', marginRight: 2 },
+
+  themeDrawer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: 12,
+  },
+  themeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radii.full,
+    borderWidth: 1,
+  },
+  swatchDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 1.5 },
+  themeChipText: { fontSize: 12, fontWeight: '700' },
+
   appVersionText: {
     fontSize: 12,
-    fontWeight: '500',
-    letterSpacing: 0.5,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: spacing.md,
   },
 });

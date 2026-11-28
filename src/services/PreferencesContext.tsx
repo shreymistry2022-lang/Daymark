@@ -26,7 +26,7 @@ export type PreferencesChanges = Partial<Omit<DaymarkPreferences, 'updatedAt' | 
 interface PreferencesValue { preferences: DaymarkPreferences; isLoading: boolean; error: string | null; updatePreferences: (changes: PreferencesChanges) => void; clearError: () => void; }
 const PreferencesContext = createContext<PreferencesValue | null>(null);
 const storageKey = (id?: string) => `@daymark_preferences_v1:${id ?? 'guest'}`;
-export const DEFAULT_ACCENTS = ['#4169E1', '#5C7CFA', '#14B8A6', '#38BDF8', '#FF7A00', '#E879F9', '#F43F5E'];
+export const DEFAULT_ACCENTS = ['#7C83FF', '#4169E1', '#14B8A6', '#38BDF8', '#FF7A00', '#E879F9', '#F43F5E'];
 const defaultPreferences = (): DaymarkPreferences => ({ themeMode: 'automatic', weekStart: 1, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', dateFormat: 'system', hapticsEnabled: true, soundEnabled: true, notifications: { daily: true, routine: true }, dashboardSort: 'custom', accentColor: DEFAULT_ACCENTS[0], wakeTime: null, sleepTime: null, updatedAt: new Date(0).toISOString() });
 const validTheme = (value: unknown): value is ThemeMode => value === 'midnight' || value === 'pure' || value === 'light' || value === 'automatic';
 

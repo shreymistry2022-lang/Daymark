@@ -791,9 +791,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   presetChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
     borderWidth: 1,
   },
   presetChipText: {
@@ -809,7 +809,7 @@ const styles = StyleSheet.create({
   stopButton: {
     flex: 1,
     height: 50,
-    borderRadius: 12,
+    borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -819,7 +819,7 @@ const styles = StyleSheet.create({
   stopIconSquare: {
     width: 11,
     height: 11,
-    borderRadius: 2,
+    borderRadius: 3,
   },
   stopButtonText: {
     fontSize: 15,
@@ -828,7 +828,7 @@ const styles = StyleSheet.create({
   playPauseButton: {
     flex: 1,
     height: 50,
-    borderRadius: 12,
+    borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -838,7 +838,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   historySection: {
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1,
     padding: 16,
     gap: 10,

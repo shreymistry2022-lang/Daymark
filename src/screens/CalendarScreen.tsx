@@ -163,7 +163,7 @@ export const CalendarScreen = () => {
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 110 }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
@@ -473,7 +473,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: radii.md,
+    borderRadius: radii.full,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     marginBottom: spacing.md,
@@ -546,7 +546,7 @@ const styles = StyleSheet.create({
   daySquare: {
     width: 38,
     height: 38,
-    borderRadius: radii.sm,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,

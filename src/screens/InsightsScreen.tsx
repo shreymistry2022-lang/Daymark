@@ -246,22 +246,22 @@ const styles = StyleSheet.create({
   },
   header: {
     marginTop: spacing.md,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   eyebrow: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 1.5,
+    letterSpacing: 1.3,
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '800',
-    letterSpacing: -0.5,
+    letterSpacing: -0.4,
     marginTop: 2,
   },
   tabContainer: {
     flexDirection: 'row',
-    borderRadius: radii.md,
+    borderRadius: radii.full,
     padding: 4,
     marginBottom: spacing.lg,
     borderWidth: 1,
@@ -270,7 +270,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 8,
     alignItems: 'center',
-    borderRadius: radii.sm,
+    borderRadius: radii.full,
   },
   tabText: {
     fontSize: 13,
