@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
+  PanResponder,
   ScrollView,
   StyleSheet,
   Text,
@@ -29,6 +30,7 @@ import { formatReminderTime } from '../services/localReminders';
 import { radii, spacing } from '../theme/tokens';
 import { HabitDotGrid } from './HabitDotGrid';
 import { HabitTrackingControl } from './HabitTrackingControl';
+import { MonthYearPickerModal } from './MonthYearPickerModal';
 
 interface HabitDetailModalProps {
   habit: Habit | null;
@@ -86,6 +88,7 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
   const todayRef = useMemo(() => parseLocalDate(todayDateStr) ?? new Date(), [todayDateStr]);
   const [viewYear, setViewYear] = useState(todayRef.getFullYear());
   const [viewMonth, setViewMonth] = useState(todayRef.getMonth());
+  const [monthPickerVisible, setMonthPickerVisible] = useState(false);
   const [selectedDate, setSelectedDate] = useState(todayDateStr);
 
   // Quick Note Modal State
@@ -94,6 +97,28 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
   const [noteDate, setNoteDate] = useState(todayDateStr);
   const [noteText, setNoteText] = useState('');
   const [noteError, setNoteError] = useState('');
+
+  const monthPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 18 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.3,
+        onPanResponderRelease: (_, gs) => {
+          const delta = gs.dx < -45 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.2
+            ? 1
+            : gs.dx > 45 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.2
+              ? -1
+              : 0;
+          if (!delta) return;
+          if (preferences.hapticsEnabled) {
+            void Haptics.selectionAsync().catch(() => {});
+          }
+          const next = new Date(viewYear, viewMonth + delta, 1);
+          setViewYear(next.getFullYear());
+          setViewMonth(next.getMonth());
+        },
+      }),
+    [viewYear, viewMonth, preferences.hapticsEnabled],
+  );
 
   useEffect(() => {
     if (!habit) return;
@@ -321,7 +346,7 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
               ))}
             </View>
 
-            <View style={styles.monthGrid}>
+            <View style={styles.monthGrid} {...monthPanResponder.panHandlers}>
               {monthRows.map((row, rIdx) => (
                 <View key={rIdx} style={styles.monthRow}>
                   {row.map(cell => {
@@ -392,12 +417,14 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
             <View style={styles.calendarFooter}>
               <TouchableOpacity
                 accessibilityRole="button"
-                onPress={jumpToToday}
+                accessibilityLabel="Choose month and year"
+                onPress={() => setMonthPickerVisible(true)}
                 style={[styles.monthPickerPill, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
               >
                 <Text style={[styles.monthPickerText, { color: colors.primaryText }]}>
                   {MONTH_SHORT[viewMonth]} {viewYear}
                 </Text>
+                <Ionicons name="chevron-down" size={14} color={colors.secondaryText} />
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -632,6 +659,19 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
             </View>
           </View>
         </Modal>
+
+        <MonthYearPickerModal
+          visible={monthPickerVisible}
+          monthIndex={viewMonth}
+          year={viewYear}
+          accentColor={habit.color}
+          onCancel={() => setMonthPickerVisible(false)}
+          onConfirm={(nextMonth, nextYear) => {
+            setViewMonth(nextMonth);
+            setViewYear(nextYear);
+            setMonthPickerVisible(false);
+          }}
+        />
       </View>
     </Modal>
   );
@@ -740,7 +780,9 @@ const styles = StyleSheet.create({
     borderRadius: radii.full,
     borderWidth: 1,
     paddingHorizontal: 14,
-    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   monthPickerText: { fontSize: 13, fontWeight: '700' },
   todayPill: {
