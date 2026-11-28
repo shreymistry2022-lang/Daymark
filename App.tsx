@@ -2,6 +2,7 @@
 import React, { Component, ErrorInfo, ReactNode, useEffect, useState } from 'react';
 import { Alert, AppState, Text, TouchableOpacity, View } from 'react-native';
 import * as Updates from 'expo-updates';
+import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
@@ -14,8 +15,12 @@ import BottomTabNavigator from './src/navigation/BottomTabNavigator';
 import { OnboardingScreen } from './src/screens/onboarding/OnboardingScreen';
 import { CelebrationOverlay } from './src/components/CelebrationOverlay';
 import { NotificationPermissionModal } from './src/components/NotificationPermissionModal';
-import { BrandOpeningScreen } from './src/components/BrandOpeningScreen';
-import { checkNotificationPermissionStatus, setupNotificationChannelsAsync, subscribeToReminderAlerts } from './src/services/localReminders';
+import {
+  checkNotificationPermissionStatus,
+  COMPLETE_HABIT_ACTION,
+  setupNotificationChannelsAsync,
+  subscribeToReminderAlerts,
+} from './src/services/localReminders';
 import { checkForAppUpdates } from './src/services/updateService';
 import { maybeRunDailyGoogleDriveBackup } from './src/services/googleDriveBackup';
 import { SubscriptionProvider } from './src/services/SubscriptionProvider';
@@ -77,11 +82,14 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
 function RootNavigator() {
   const { deviceOwnerId, isReady: isIdentityReady } = useDeviceIdentity();
   const {
+    habits,
     hasCompletedOnboarding,
     completeOnboarding,
     isLoadingData,
     isCelebrationVisible,
     dismissCelebration,
+    toggleHabit,
+    todayDateStr,
     exportDataJson,
     stats,
   } = useHabits();
@@ -98,6 +106,25 @@ function RootNavigator() {
       );
     });
   }, []);
+
+  useEffect(() => {
+    if (isLoadingData) return;
+    const handleResponse = (response: Notifications.NotificationResponse | null) => {
+      if (!response) return;
+      if (response.actionIdentifier !== COMPLETE_HABIT_ACTION) return;
+      const ownerId = response.notification.request.content.data?.ownerId;
+      if (typeof ownerId !== 'string') return;
+      const target = habits.find(h => h.id === ownerId);
+      if (target && !target.completedDates.includes(todayDateStr)) {
+        toggleHabit(ownerId, todayDateStr);
+      }
+      void Notifications.dismissNotificationAsync(response.notification.request.identifier).catch(() => {});
+    };
+
+    void Notifications.getLastNotificationResponseAsync().then(handleResponse).catch(() => {});
+    const sub = Notifications.addNotificationResponseReceivedListener(handleResponse);
+    return () => sub.remove();
+  }, [isLoadingData, habits, todayDateStr, toggleHabit]);
 
   useEffect(() => {
     // Check for OTA updates in background shortly after launch
@@ -165,14 +192,10 @@ function RootNavigator() {
     },
   };
 
-  const [isSplashDone, setIsSplashDone] = useState(false);
-  const isReady = isIdentityReady && !isLoadingData;
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
-      {/* Main navigation mounted underneath and ready */}
       {isIdentityReady && (
         <NavigationContainer theme={navTheme}>
           {!hasCompletedOnboarding ? (
@@ -191,14 +214,6 @@ function RootNavigator() {
             onGranted={handleDismissPermission}
           />
         </NavigationContainer>
-      )}
-
-      {/* GetYourGuide style Brand Opening: Logo -> DAYMARK -> Dot -> Aperture Reveal */}
-      {!isSplashDone && (
-        <BrandOpeningScreen
-          isReady={isReady}
-          onFinish={() => setIsSplashDone(true)}
-        />
       )}
     </View>
   );

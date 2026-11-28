@@ -187,150 +187,28 @@ export const getRandomMotivationalQuote = (seed?: string | number): string => {
   return MOTIVATIONAL_HABIT_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_HABIT_QUOTES.length)];
 };
 
+export const HABIT_REMINDER_CATEGORY = 'HABIT_REMINDER_ACTIONS';
+export const COMPLETE_HABIT_ACTION = 'COMPLETE_HABIT';
+
 export interface HabitNotificationContent {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   body: string;
   color: string;
 }
 
 /**
- * Builds rich, personalized, category-aware, streak-aware and motivation-enhanced notification content
- * so every habit reminder inspires and motivates the user.
+ * Builds simple, compact notification content for habit reminders.
  */
 export const buildHabitNotificationContent = (owner: LocalReminderOwner): HabitNotificationContent => {
-  const color = owner.color || '#10B981';
+  const color = owner.color || (owner.habitKind === 'quit' ? '#EF4444' : '#10B981');
   const name = owner.name.trim();
-
-  // 1. Quit / Break habit
-  if (owner.habitKind === 'quit') {
-    let body = owner.description?.trim() || 'Protect your streak. You have the strength and resolve to choose differently today.';
-    if (owner.streak && owner.streak >= 2) {
-      body += `\n🔥 Day ${owner.streak} clean! Keep the chain unbroken.`;
-    }
-    return {
-      title: `🛡️ Stay Strong · ${name}`,
-      subtitle: 'Commitment Guard',
-      body,
-      color: owner.color || '#EF4444',
-    };
-  }
-
-  // 2. Category & keyword detection for positive habits
-  const text = `${owner.category || ''} ${owner.name || ''}`.toLowerCase();
-  let titlePrefix = '✨ Habit Reminder';
-  let subtitle = 'Daily Routine';
-  let defaultBody = 'A small step today keeps your momentum and progress moving forward.';
-
-  if (text.includes('water') || text.includes('hydrat') || text.includes('drink')) {
-    titlePrefix = '💧 Hydration Check';
-    subtitle = 'Nutrition & Water';
-    defaultBody = 'Drink a fresh glass of water to keep your body energized and mind clear.';
-  } else if (text.includes('sleep') || text.includes('rest') || text.includes('bed') || text.includes('wind down')) {
-    titlePrefix = '🌙 Bedtime & Rest';
-    subtitle = 'Sleep & Recovery';
-    defaultBody = 'Time to power down and let your mind and body recharge for tomorrow.';
-  } else if (
-    text.includes('fit') ||
-    text.includes('exercis') ||
-    text.includes('workout') ||
-    text.includes('gym') ||
-    text.includes('run') ||
-    text.includes('walk') ||
-    text.includes('step')
-  ) {
-    titlePrefix = '⚡ Movement & Vitality';
-    subtitle = 'Fitness & Movement';
-    defaultBody = 'Time for your workout! Movement fuels energy, clarity, and strength.';
-  } else if (
-    text.includes('mind') ||
-    text.includes('meditat') ||
-    text.includes('calm') ||
-    text.includes('journal') ||
-    text.includes('gratitude') ||
-    text.includes('breath')
-  ) {
-    titlePrefix = '🧘 Mindful Pause';
-    subtitle = 'Mindfulness & Peace';
-    defaultBody = 'Take a deep breath and center your focus. A moment of calm creates daily peace.';
-  } else if (
-    text.includes('focus') ||
-    text.includes('work') ||
-    text.includes('career') ||
-    text.includes('deep') ||
-    text.includes('study') ||
-    text.includes('code')
-  ) {
-    titlePrefix = '🎯 Deep Focus';
-    subtitle = 'Focus & Career';
-    defaultBody = 'Silence distractions and step into flow. Big achievements start with focused blocks.';
-  } else if (
-    text.includes('read') ||
-    text.includes('book') ||
-    text.includes('learn') ||
-    text.includes('skill') ||
-    text.includes('language')
-  ) {
-    titlePrefix = '📖 Expand Your Mind';
-    subtitle = 'Learning & Reading';
-    defaultBody = 'Open your book or lesson. A few minutes of daily growth compounds tremendously.';
-  } else if (
-    text.includes('financ') ||
-    text.includes('wealth') ||
-    text.includes('money') ||
-    text.includes('budget')
-  ) {
-    titlePrefix = '💰 Financial Freedom';
-    subtitle = 'Financial Discipline';
-    defaultBody = 'Stay intentional with your resources and keep your financial goals in sight.';
-  } else if (
-    text.includes('detox') ||
-    text.includes('screen') ||
-    text.includes('phone') ||
-    text.includes('scroll')
-  ) {
-    titlePrefix = '📵 Screen Reset';
-    subtitle = 'Digital Detox';
-    defaultBody = 'Step away from screens and connect with the real world around you.';
-  } else if (
-    text.includes('outdoor') ||
-    text.includes('nature') ||
-    text.includes('sun') ||
-    text.includes('park')
-  ) {
-    titlePrefix = '🌿 Fresh Air & Nature';
-    subtitle = 'Outdoor & Nature';
-    defaultBody = 'Step outside, catch the sunlight, and refresh your mind and spirit.';
-  } else if (
-    text.includes('clean') ||
-    text.includes('home') ||
-    text.includes('organ') ||
-    text.includes('tidy')
-  ) {
-    titlePrefix = '✨ Space & Clarity';
-    subtitle = 'Home & Organization';
-    defaultBody = 'A clean, tidy space brings peace of mind and effortless clarity.';
-  } else if (
-    text.includes('social') ||
-    text.includes('relation') ||
-    text.includes('friend') ||
-    text.includes('family')
-  ) {
-    titlePrefix = '🤝 Connect & Care';
-    subtitle = 'Relationships & Social';
-    defaultBody = 'Reach out to someone you care about or share a moment of kindness.';
-  }
-
-  let body = owner.description?.trim() || defaultBody;
-  if (owner.streak && owner.streak >= 2) {
-    body += `\n🔥 ${owner.streak}-day streak! Keep the chain unbroken.`;
-  }
-  const quote = getRandomMotivationalQuote(owner.id);
-  body += `\n✨ "${quote}"`;
+  const body =
+    owner.description?.trim() ||
+    (owner.habitKind === 'quit' ? 'Stay strong today.' : 'Time to check in.');
 
   return {
-    title: `${titlePrefix} · ${name}`,
-    subtitle,
+    title: name,
     body,
     color,
   };
@@ -505,6 +383,18 @@ const ensureWebWatcherStarted = () => {
 };
 
 export const setupNotificationChannelsAsync = async (): Promise<void> => {
+  if (Platform.OS === 'web') return;
+  try {
+    await Notifications.setNotificationCategoryAsync(HABIT_REMINDER_CATEGORY, [
+      {
+        identifier: COMPLETE_HABIT_ACTION,
+        buttonTitle: 'Complete',
+        options: { opensAppToForeground: false },
+      },
+    ]);
+  } catch (err) {
+    console.warn('Could not register notification actions:', err);
+  }
   if (Platform.OS !== 'android') return;
   try {
     await Notifications.setNotificationChannelAsync('habit-reminders', {
@@ -798,8 +688,9 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
       scheduledIds.push(await Notifications.scheduleNotificationAsync({
         content: {
           title: content.title,
-          subtitle: content.subtitle,
+          ...(content.subtitle ? { subtitle: content.subtitle } : {}),
           body: content.body,
+          categoryIdentifier: HABIT_REMINDER_CATEGORY,
           data: {
             ownerId: owner.id,
             reminderId: reminder.id,
@@ -827,8 +718,9 @@ export const replaceLocalReminders = async (owner: LocalReminderOwner, previousR
         scheduledIds.push(await Notifications.scheduleNotificationAsync({
           content: {
             title: content.title,
-            subtitle: content.subtitle,
+            ...(content.subtitle ? { subtitle: content.subtitle } : {}),
             body: content.body,
+            categoryIdentifier: HABIT_REMINDER_CATEGORY,
             data: {
               ownerId: owner.id,
               reminderId: reminder.id,
@@ -977,18 +869,17 @@ export const schedulePendingHabitsReminderAsync = async (
   const checkHour = options.hour ?? 19; // Default 7:00 PM evening check-in
   const checkMinute = options.minute ?? 0;
 
-  const motivationalQuote = getRandomMotivationalQuote(pendingHabits.length + checkHour);
   let title = '';
   let body = '';
 
   if (pendingHabits.length > 0) {
     const pendingNames = pendingHabits.slice(0, 3).map(h => h.name.trim()).join(', ');
     const moreCount = pendingHabits.length > 3 ? ` +${pendingHabits.length - 3} more` : '';
-    title = `⚡ ${pendingHabits.length} Pending Habit${pendingHabits.length > 1 ? 's' : ''} Today`;
-    body = `Pending: ${pendingNames}${moreCount}\n✨ "${motivationalQuote}"\nTake 5 minutes to complete them and keep your streak strong! 💪`;
+    title = `${pendingHabits.length} habit${pendingHabits.length > 1 ? 's' : ''} left today`;
+    body = `${pendingNames}${moreCount}`;
   } else {
-    title = '🏆 Perfect Day Achieved!';
-    body = `All ${activeTodayHabits.length} habits completed today!\n✨ "${motivationalQuote}"\nOutstanding consistency. Rest well tonight! 🌟`;
+    title = 'All habits done today';
+    body = `Completed all ${activeTodayHabits.length} habits.`;
   }
 
   if (Platform.OS === 'web') {
@@ -1038,7 +929,6 @@ export const schedulePendingHabitsReminderAsync = async (
     const scheduledId = await Notifications.scheduleNotificationAsync({
       content: {
         title,
-        subtitle: 'Daily Habit Check-In',
         body,
         sound: options.soundEnabled !== false,
         color: '#10B981',

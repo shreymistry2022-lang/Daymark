@@ -5,6 +5,7 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 jest.mock('expo-notifications', () => ({
   setNotificationHandler: jest.fn(),
   setNotificationChannelAsync: jest.fn(),
+  setNotificationCategoryAsync: jest.fn(),
   getPermissionsAsync: jest.fn().mockResolvedValue({ granted: true }),
   requestPermissionsAsync: jest.fn().mockResolvedValue({ granted: true }),
   scheduleNotificationAsync: jest.fn().mockResolvedValue('test-notification-id'),
@@ -42,58 +43,20 @@ import {
 import * as Notifications from 'expo-notifications';
 
 describe('localReminders notification content generator', () => {
-  it('formats Sleep habit with bedtime emoji, title, and restorative copy', () => {
+  it('formats positive habit with simple title and short body', () => {
     const content = buildHabitNotificationContent({
       id: 'h1',
-      name: 'Sleep',
-      category: 'Sleep & Recovery',
-      color: '#6366F1',
-    });
-    expect(content.title).toBe('🌙 Bedtime & Rest · Sleep');
-    expect(content.subtitle).toBe('Sleep & Recovery');
-    expect(content.body).toContain('recharge for tomorrow');
-    expect(content.color).toBe('#6366F1');
-  });
-
-  it('formats Hydration habit with water droplet emoji and hydration prompt', () => {
-    const content = buildHabitNotificationContent({
-      id: 'h2',
       name: 'Drink Water',
       category: 'Nutrition & Water',
       color: '#06B6D4',
     });
-    expect(content.title).toBe('💧 Hydration Check · Drink Water');
-    expect(content.subtitle).toBe('Nutrition & Water');
-    expect(content.body).toContain('fresh glass of water');
+    expect(content.title).toBe('Drink Water');
+    expect(content.subtitle).toBeUndefined();
+    expect(content.body).toBe('Time to check in.');
     expect(content.color).toBe('#06B6D4');
   });
 
-  it('formats Exercise / Fitness habit with vitality emoji and movement copy', () => {
-    const content = buildHabitNotificationContent({
-      id: 'h3',
-      name: 'Exercise',
-      category: 'Fitness & Movement',
-      color: '#10B981',
-    });
-    expect(content.title).toBe('⚡ Movement & Vitality · Exercise');
-    expect(content.subtitle).toBe('Fitness & Movement');
-    expect(content.body).toContain('workout');
-    expect(content.color).toBe('#10B981');
-  });
-
-  it('formats Deep Work / Career habit with focus emoji and productivity copy', () => {
-    const content = buildHabitNotificationContent({
-      id: 'h4',
-      name: 'Deep Work',
-      category: 'Focus & Career',
-      color: '#3B82F6',
-    });
-    expect(content.title).toBe('🎯 Deep Focus · Deep Work');
-    expect(content.subtitle).toBe('Focus & Career');
-    expect(content.body).toContain('distractions');
-  });
-
-  it('formats Quit / Break habit with protective shield emoji and commitment copy', () => {
+  it('formats Quit / Break habit with simple title and short body', () => {
     const content = buildHabitNotificationContent({
       id: 'h5',
       name: 'Quit Smoking',
@@ -101,21 +64,9 @@ describe('localReminders notification content generator', () => {
       color: '#EF4444',
       streak: 7,
     });
-    expect(content.title).toBe('🛡️ Stay Strong · Quit Smoking');
-    expect(content.subtitle).toBe('Commitment Guard');
-    expect(content.body).toContain('Day 7 clean');
+    expect(content.title).toBe('Quit Smoking');
+    expect(content.body).toBe('Stay strong today.');
     expect(content.color).toBe('#EF4444');
-  });
-
-  it('incorporates active streak when streak >= 2', () => {
-    const content = buildHabitNotificationContent({
-      id: 'h6',
-      name: 'Meditation',
-      category: 'Mindfulness',
-      streak: 5,
-    });
-    expect(content.title).toBe('🧘 Mindful Pause · Meditation');
-    expect(content.body).toContain('🔥 5-day streak!');
   });
 
   it('preserves user custom description if provided', () => {
@@ -125,8 +76,8 @@ describe('localReminders notification content generator', () => {
       category: 'Learning & Reading',
       description: 'Finish chapter 4 of Atomic Habits.',
     });
-    expect(content.title).toBe('📖 Expand Your Mind · Read 20 Pages');
-    expect(content.body).toContain('Finish chapter 4 of Atomic Habits.');
+    expect(content.title).toBe('Read 20 Pages');
+    expect(content.body).toBe('Finish chapter 4 of Atomic Habits.');
   });
 });
 
@@ -218,7 +169,7 @@ describe('schedulePendingHabitsReminderAsync & motivational engine', () => {
     expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
       expect.objectContaining({
         content: expect.objectContaining({
-          title: expect.stringContaining('2 Pending Habits Today'),
+          title: expect.stringContaining('2 habits left today'),
           body: expect.stringContaining('Exercise, Read 20 Pages'),
         }),
       })
