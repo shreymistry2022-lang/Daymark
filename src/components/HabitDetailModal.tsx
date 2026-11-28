@@ -20,9 +20,9 @@ import {
   addLocalDays,
   calculateCompletionStats,
   calculateStreakStats,
+  canLogHabitOnDate,
   getHabitDayStatus,
   isPausedOnDate,
-  isTrackableOnDate,
   parseLocalDate,
 } from '../domain/habitEngine';
 import { formatReminderTime } from '../services/localReminders';
@@ -207,7 +207,7 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
     }
     setSelectedDate(cell.dateStr);
     if (!habit.archivedAt && habit.habitKind !== 'quit' && habit.trackingMethod === 'yes_no') {
-      if (isTrackableOnDate(habit, cell.dateStr, todayRef)) {
+      if (canLogHabitOnDate(habit, cell.dateStr, todayRef)) {
         onToggleDate(habit.id, cell.dateStr);
       }
     }
@@ -335,7 +335,7 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
                     const trackable =
                       cell.inCurrentMonth &&
                       !isFuture &&
-                      isTrackableOnDate(habit, cell.dateStr, todayRef);
+                      canLogHabitOnDate(habit, cell.dateStr, todayRef);
                     const hasNote = cell.inCurrentMonth && notesByDate.has(cell.dateStr);
 
                     return (
@@ -434,7 +434,7 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
           </View>
 
           {/* Value / Quit Day Control for Selected Date */}
-          {needsValueControl && isTrackableOnDate(habit, selectedDate, todayRef) && !habit.archivedAt && (
+          {needsValueControl && canLogHabitOnDate(habit, selectedDate, todayRef) && !habit.archivedAt && (
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Text style={[styles.subCardLabel, { color: colors.secondaryText }]}>
                 LOG FOR {selectedDate === todayDateStr ? 'TODAY' : selectedDate}
@@ -489,7 +489,7 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
           </View>
 
           {/* Complete Today CTA (for yes/no habits) */}
-          {!needsValueControl && isTrackableOnDate(habit, todayDateStr, todayRef) && !habit.archivedAt && (
+          {!needsValueControl && canLogHabitOnDate(habit, todayDateStr, todayRef) && !habit.archivedAt && (
             <TouchableOpacity
               style={[
                 styles.primaryCta,

@@ -111,6 +111,26 @@ export const isTrackableOnDate = (habit: SchedulableHabit, dateString: string, n
   return isScheduledOnDate(habit, dateString) || (schedule.frequency === 'weekly_target' && !schedule.weekdays?.length);
 };
 
+/** Checks whether a user can log/backfill a date, including dates prior to the habit's initial startDate. */
+export const canLogHabitOnDate = (habit: SchedulableHabit, dateString: string, now = new Date()): boolean => {
+  const date = parseLocalDate(dateString);
+  if (!date || dateString > toLocalDateString(now)) return false;
+  const config = configForDate(habit, dateString);
+  if ((config.endDate && dateString > config.endDate) || isPausedOnDate(habit, dateString)) return false;
+  const schedule = normalizeSchedule(config);
+  if (schedule.frequency === 'weekly_target' && !schedule.weekdays?.length) return true;
+  const weekday = isoWeekday(date);
+  switch (schedule.frequency) {
+    case 'weekdays': return weekday >= 1 && weekday <= 5;
+    case 'weekends': return weekday >= 6;
+    case 'selected_weekdays': return Boolean(schedule.weekdays?.includes(weekday));
+    case 'monthly_dates': return Boolean(schedule.monthDays?.includes(date.getDate()));
+    case 'weekly_target': return Boolean(schedule.weekdays?.includes(weekday));
+    case 'daily':
+    default: return true;
+  }
+};
+
 export const isWeeklyTargetMet = (habit: SchedulableHabit, weekStart: string, now = new Date()): boolean => {
   const config = configForDate(habit, weekStart);
   const schedule = normalizeSchedule(config);
@@ -152,6 +172,7 @@ export const getHabitDayStatus = (habit: SchedulableHabit, date: string, now = n
   const config = configForDate(habit, date);
   const today = toLocalDateString(now);
   if (date > today) return 'future';
+  if (config.habitKind !== 'quit' && logSuccessful(habit, date, today)) return 'completed';
   if (config.startDate && date < config.startDate) return 'not_started';
   if (config.endDate && date > config.endDate) return 'ended';
   if (isPausedOnDate(habit, date)) return 'paused';
@@ -172,7 +193,10 @@ export const getHabitDayStatus = (habit: SchedulableHabit, date: string, now = n
 
 export const calculateStreakStats = (habit: SchedulableHabit, now = new Date()): StreakStats => {
   const today = toLocalDateString(now);
-  const start = habit.startDate ?? [...(habit.completedDates ?? []), ...(habit.logs ?? []).map(log => log.date)].sort()[0] ?? today;
+  const earliestCompleted = [...(habit.completedDates ?? []), ...(habit.logs ?? []).filter(l => l.outcome === 'completed').map(log => log.date)].sort()[0];
+  const start = habit.startDate && earliestCompleted
+    ? (earliestCompleted < habit.startDate ? earliestCompleted : habit.startDate)
+    : (habit.startDate ?? earliestCompleted ?? today);
   const startDate = parseLocalDate(start);
   if (!startDate || start > today) return { currentStreak: 0, bestStreak: 0, totalSuccessfulScheduledDays: 0, streakHistory: [] };
 

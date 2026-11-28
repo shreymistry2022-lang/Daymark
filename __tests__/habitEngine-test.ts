@@ -1,4 +1,4 @@
-import { calculateCompletionStats, calculateStreakStats, getHabitDayStatus, isScheduledOnDate, isTrackableOnDate, isWeeklyTargetMet } from '../src/domain/habitEngine';
+import { calculateCompletionStats, calculateStreakStats, canLogHabitOnDate, getHabitDayStatus, isScheduledOnDate, isTrackableOnDate, isWeeklyTargetMet } from '../src/domain/habitEngine';
 import { SchedulableHabit } from '../src/domain/habitEngine';
 
 const today = (year: number, monthIndex: number, day: number) => new Date(year, monthIndex, day, 12, 0, 0, 0);
@@ -127,5 +127,17 @@ describe('habit scheduling engine', () => {
     // Quit habit starting today
     const quit = dailyHabit({ startDate: startDay, habitKind: 'quit' });
     expect(getHabitDayStatus(quit, startDay, now)).toBe('pending');
+  });
+
+  it('allows backfilling/logging dates prior to startDate while preserving not_started for unlogged days', () => {
+    const habit = dailyHabit({
+      startDate: '2026-11-15',
+      completedDates: ['2026-11-10'],
+    });
+    const now = today(2026, 10, 28);
+    expect(canLogHabitOnDate(habit, '2026-11-10', now)).toBe(true);
+    expect(canLogHabitOnDate(habit, '2026-11-29', now)).toBe(false); // future
+    expect(getHabitDayStatus(habit, '2026-11-10', now)).toBe('completed');
+    expect(getHabitDayStatus(habit, '2026-11-11', now)).toBe('not_started');
   });
 });

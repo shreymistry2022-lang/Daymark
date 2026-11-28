@@ -7,7 +7,7 @@ import { supabase, isSupabaseConfigured } from './supabase';
 import { useAuth } from './AuthProvider';
 import { canCreateHabit } from './subscriptionEntitlements';
 import { useSubscription } from './SubscriptionProvider';
-import { addLocalDays, calculateCompletionStats, calculateStreakStats, getHabitDayStatus, isScheduledOnDate, isTrackableOnDate, normalizeSchedule, parseLocalDate } from '../domain/habitEngine';
+import { addLocalDays, calculateCompletionStats, calculateStreakStats, canLogHabitOnDate, getHabitDayStatus, isScheduledOnDate, normalizeSchedule, parseLocalDate } from '../domain/habitEngine';
 import { HabitConfigurationSnapshot, HabitKind, HabitLog, HabitPause, HabitReminder, HabitSchedule, TrackingMethod } from '../domain/habitTypes';
 import { replaceLocalHabitReminders, cleanupDuplicateNotificationsAsync, schedulePendingHabitsReminderAsync } from './localReminders';
 import { usePreferences } from './PreferencesContext';
@@ -642,12 +642,22 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
 
   const toggleHabit = (id: string, dateStr: string = todayStr) => {
     const target = habits.find(habit => habit.id === id);
-    if (!target || target.archivedAt || target.habitKind === 'quit' || !isTrackableOnDate(target, dateStr, todayReferenceDate)) return;
+    if (!target || target.archivedAt || target.habitKind === 'quit' || !canLogHabitOnDate(target, dateStr, todayReferenceDate)) return;
     const completed = target.completedDates.includes(dateStr);
     const logs = (target.logs ?? []).filter(log => log.date !== dateStr);
     const targetVal = target.targetValue && target.targetValue > 0 ? target.targetValue : 1;
+    const expandedStart = !completed && (!target.startDate || dateStr < target.startDate) ? dateStr : target.startDate;
+    const expandedEffective =
+      !completed &&
+      !(target.configurationHistory?.length) &&
+      target.configurationEffectiveFrom &&
+      dateStr < target.configurationEffectiveFrom
+        ? dateStr
+        : target.configurationEffectiveFrom;
     const updatedHabit: Habit = {
       ...target,
+      startDate: expandedStart,
+      configurationEffectiveFrom: expandedEffective,
       completedDates: completed ? target.completedDates.filter(date => date !== dateStr) : [...target.completedDates, dateStr].sort(),
       logs: completed ? logs : [...logs, { date: dateStr, outcome: 'completed', value: targetVal, createdAt: new Date().toISOString() }],
     };
@@ -846,7 +856,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     if (log.value !== undefined && (!Number.isFinite(log.value) || log.value < 0)) return { error: 'Enter a valid non-negative value.' };
     const habit = habits.find(item => item.id === id);
     if (!habit || habit.archivedAt) return { error: 'This habit is not active.' };
-    if (!isTrackableOnDate(habit, log.date, todayReferenceDate)) return { error: 'This habit is not scheduled for the selected date, or it is paused.' };
+    if (!canLogHabitOnDate(habit, log.date, todayReferenceDate)) return { error: 'This habit is not scheduled for the selected date, or it is paused.' };
     if (log.outcome === 'lapse' && habit.habitKind !== 'quit') return { error: 'Only quit habits can record a lapse.' };
     const updatedLog: HabitLog = { ...log, updatedAt: new Date().toISOString() };
     const logs = [...(habit.logs ?? []).filter(item => item.date !== log.date), updatedLog].sort((a, b) => a.date.localeCompare(b.date));
@@ -858,7 +868,14 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     const completedDates = isSuccessful
       ? Array.from(new Set([...habit.completedDates, log.date])).sort()
       : habit.completedDates.filter(value => value !== log.date);
-    const changed = { ...habit, logs, completedDates };
+    const expandedStart = !habit.startDate || log.date < habit.startDate ? log.date : habit.startDate;
+    const expandedEffective =
+      !(habit.configurationHistory?.length) &&
+      habit.configurationEffectiveFrom &&
+      log.date < habit.configurationEffectiveFrom
+        ? log.date
+        : habit.configurationEffectiveFrom;
+    const changed = { ...habit, startDate: expandedStart, configurationEffectiveFrom: expandedEffective, logs, completedDates };
     const updated = habits.map(item => item.id === id ? changed : item);
     if (log.date === todayStr) {
       const scheduled = updated.filter(item => !item.archivedAt && isScheduledOnDate(item, todayStr));
