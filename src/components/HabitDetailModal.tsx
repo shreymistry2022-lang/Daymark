@@ -227,9 +227,6 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
 
   const handleTapDay = (cell: CalendarCell) => {
     if (!cell.inCurrentMonth || cell.dateStr > todayDateStr) return;
-    if (preferences.hapticsEnabled) {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
     setSelectedDate(cell.dateStr);
     if (!habit.archivedAt && habit.habitKind !== 'quit' && habit.trackingMethod === 'yes_no') {
       if (canLogHabitOnDate(habit, cell.dateStr, todayRef)) {
@@ -527,7 +524,6 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
               ]}
               activeOpacity={0.8}
               onPress={() => {
-                if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                 onToggleDate(habit.id, todayDateStr);
               }}
             >

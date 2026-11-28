@@ -646,8 +646,46 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferences.notifications.daily, preferences.soundEnabled, isLoadingData]);
 
+  const pendingToggleSyncIdsRef = useRef<Set<string>>(new Set());
+  const toggleSideEffectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleDeferredToggleEffects = useCallback((changedHabitId: string, shouldReschedulePendingReminder: boolean) => {
+    pendingToggleSyncIdsRef.current.add(changedHabitId);
+    if (toggleSideEffectTimerRef.current) {
+      clearTimeout(toggleSideEffectTimerRef.current);
+    }
+    toggleSideEffectTimerRef.current = setTimeout(() => {
+      toggleSideEffectTimerRef.current = null;
+      const latestHabits = habitsRef.current;
+      const idsToSync = Array.from(pendingToggleSyncIdsRef.current);
+      pendingToggleSyncIdsRef.current.clear();
+
+      void AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(latestHabits)).catch(() => { });
+      const uid = userRef.current?.id && !userRef.current.isGuest
+        ? userRef.current.id
+        : sessionRef.current?.user?.id;
+      if (uid) {
+        void AsyncStorage.setItem(userHabitsStorageKey(uid), JSON.stringify(latestHabits)).catch(() => { });
+      }
+
+      for (const id of idsToSync) {
+        const item = latestHabits.find(h => h.id === id);
+        if (item) void syncHabitToCloud(item);
+      }
+
+      if (shouldReschedulePendingReminder) {
+        void schedulePendingHabitsReminderAsync(latestHabits, {
+          notificationsEnabled: preferences.notifications.daily,
+          soundEnabled: preferences.soundEnabled,
+          todayDateStr: todayStr,
+          timezone: preferences.timezone,
+        });
+      }
+    }, 260);
+  }, [preferences.notifications.daily, preferences.soundEnabled, preferences.timezone, syncHabitToCloud, todayStr]);
+
   const toggleHabit = (id: string, dateStr: string = todayStr) => {
-    const target = habits.find(habit => habit.id === id);
+    const target = habitsRef.current.find(habit => habit.id === id);
     if (!target || target.archivedAt || target.habitKind === 'quit' || !canLogHabitOnDate(target, dateStr, todayReferenceDate)) return;
     const completed = target.completedDates.includes(dateStr);
     const logs = (target.logs ?? []).filter(log => log.date !== dateStr);
@@ -667,18 +705,17 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       completedDates: completed ? target.completedDates.filter(date => date !== dateStr) : [...target.completedDates, dateStr].sort(),
       logs: completed ? logs : [...logs, { date: dateStr, outcome: 'completed', value: targetVal, createdAt: new Date().toISOString() }],
     };
-    const next = habits.map(habit => habit.id === id ? updatedHabit : habit);
-    const scheduledToday = next.filter(habit => !habit.archivedAt && isScheduledOnDate(habit, todayStr));
-    const wasAllComplete = habits.filter(habit => !habit.archivedAt && isScheduledOnDate(habit, todayStr)).every(habit => getHabitDayStatus(habit, todayStr, todayReferenceDate) === 'completed');
-    const isAllComplete = scheduledToday.length > 0 && scheduledToday.every(habit => getHabitDayStatus(habit, todayStr, todayReferenceDate) === 'completed');
-    if (dateStr === todayStr && !wasAllComplete && isAllComplete) setIsCelebrationVisible(true);
-    saveAndSync(next, updatedHabit);
-    void schedulePendingHabitsReminderAsync(next, {
-      notificationsEnabled: preferences.notifications.daily,
-      soundEnabled: preferences.soundEnabled,
-      todayDateStr: todayStr,
-      timezone: preferences.timezone,
-    });
+    const next = habitsRef.current.map(habit => habit.id === id ? updatedHabit : habit);
+    // Update UI state immediately; defer storage, cloud, and OS notification rescheduling off the tap frame.
+    habitsRef.current = next;
+    setHabits(next);
+    if (dateStr === todayStr && !completed) {
+      const scheduledToday = next.filter(habit => !habit.archivedAt && isScheduledOnDate(habit, todayStr));
+      if (scheduledToday.length > 0 && scheduledToday.every(habit => getHabitDayStatus(habit, todayStr, todayReferenceDate) === 'completed')) {
+        setIsCelebrationVisible(true);
+      }
+    }
+    scheduleDeferredToggleEffects(updatedHabit.id, dateStr === todayStr);
   };
 
   const addHabit = (newHabit: Omit<Habit, 'id' | 'streak' | 'completedDates'>) => {
@@ -965,34 +1002,54 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
 
   const archivedHabits = useMemo(() => habits.filter(habit => Boolean(habit.archivedAt)), [habits]);
   const activeHabits = useMemo(() => habits.filter(habit => !habit.archivedAt), [habits]);
+  const streakStatsMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof calculateStreakStats>>();
+    for (const habit of activeHabits) {
+      map.set(habit.id, calculateStreakStats(habit, todayReferenceDate));
+    }
+    return map;
+  }, [activeHabits, todayReferenceDate]);
   const sortedActiveHabits = useMemo(() => [...activeHabits].sort((a, b) => {
     if (preferences.dashboardSort === 'alphabetical') return a.name.localeCompare(b.name);
-    if (preferences.dashboardSort === 'consistency') return calculateStreakStats(b, todayReferenceDate).currentStreak - calculateStreakStats(a, todayReferenceDate).currentStreak;
-    if (preferences.dashboardSort === 'completion') return calculateCompletionStats(b, addLocalDays(todayStr, -29), todayStr, todayReferenceDate).percentage - calculateCompletionStats(a, addLocalDays(todayStr, -29), todayStr, todayReferenceDate).percentage;
+    if (preferences.dashboardSort === 'consistency') {
+      return (streakStatsMap.get(b.id)?.currentStreak ?? 0) - (streakStatsMap.get(a.id)?.currentStreak ?? 0);
+    }
+    if (preferences.dashboardSort === 'completion') {
+      return calculateCompletionStats(b, addLocalDays(todayStr, -29), todayStr, todayReferenceDate).percentage
+        - calculateCompletionStats(a, addLocalDays(todayStr, -29), todayStr, todayReferenceDate).percentage;
+    }
     return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
-  }), [activeHabits, preferences.dashboardSort, todayStr, todayReferenceDate]);
+  }), [activeHabits, preferences.dashboardSort, streakStatsMap, todayStr, todayReferenceDate]);
   const habitsWithCurrentStreak = useMemo(() => sortedActiveHabits.map(habit => ({
     ...habit,
-    streak: calculateStreakStats(habit, todayReferenceDate).currentStreak,
-  })), [sortedActiveHabits, todayReferenceDate]);
+    streak: streakStatsMap.get(habit.id)?.currentStreak ?? 0,
+  })), [sortedActiveHabits, streakStatsMap]);
   const scheduledTodayHabits = useMemo(() => sortedActiveHabits.filter(habit => isScheduledOnDate(habit, todayStr)), [sortedActiveHabits, todayStr]);
   const completedToday = scheduledTodayHabits.filter(habit => getHabitDayStatus(habit, todayStr, todayReferenceDate) === 'completed').length;
   const totalToday = scheduledTodayHabits.length;
   const completionRate = totalToday > 0 ? Math.round((completedToday / totalToday) * 100) : 0;
-  const bestStreak = activeHabits.length > 0 ? Math.max(...activeHabits.map(habit => calculateStreakStats(habit, todayReferenceDate).bestStreak)) : 0;
+  const bestStreak = useMemo(
+    () => (activeHabits.length > 0 ? Math.max(...activeHabits.map(habit => streakStatsMap.get(habit.id)?.bestStreak ?? 0)) : 0),
+    [activeHabits, streakStatsMap],
+  );
   const totalCompletions = activeHabits.reduce((acc, habit) => acc + habit.completedDates.length, 0);
 
   useEffect(() => {
     if (isLoadingData) return;
-    DaymarkTodayWidget.updateSnapshot({
-      completed: completedToday,
-      total: totalToday,
-      habits: scheduledTodayHabits.slice(0, 3).map(habit => {
-        const completed = getHabitDayStatus(habit, todayStr, todayReferenceDate) === 'completed';
-        return `${completed ? '✓' : '○'} ${habit.name}`;
-      }),
-      dateLabel: new Date(`${todayStr}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
-    });
+    const timer = setTimeout(() => {
+      DaymarkTodayWidget.updateSnapshot({
+        completed: completedToday,
+        total: totalToday,
+        habits: scheduledTodayHabits.slice(0, 3).map(habit => {
+          const completed = getHabitDayStatus(habit, todayStr, todayReferenceDate) === 'completed';
+          return `${completed ? '✓' : '○'} ${habit.name}`;
+        }),
+        dateLabel: new Date(`${todayStr}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+      });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [isLoadingData, completedToday, totalToday, scheduledTodayHabits, todayStr, todayReferenceDate]);
 
   return (

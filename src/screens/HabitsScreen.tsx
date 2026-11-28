@@ -25,7 +25,6 @@ import { PaywallModal } from '../components/PaywallModal';
 import { getHabitDayStatus, parseLocalDate } from '../domain/habitEngine';
 import { formatGapLabel, formatReminderTime } from '../services/localReminders';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import * as Haptics from 'expo-haptics';
 import { usePreferences } from '../services/PreferencesContext';
 
 export const HabitsScreen = () => {
@@ -237,7 +236,6 @@ export const HabitsScreen = () => {
                   ]}
                   activeOpacity={0.7}
                   onPress={() => {
-                    if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
                     toggleHabit(habit.id);
                   }}
                 >

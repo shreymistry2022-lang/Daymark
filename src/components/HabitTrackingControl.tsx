@@ -4,8 +4,6 @@ import { Habit } from '../services/HabitContext';
 import { HabitLog } from '../domain/habitTypes';
 import { useTheme } from '../theme/ThemeProvider';
 import { radii, spacing } from '../theme/tokens';
-import * as Haptics from 'expo-haptics';
-import { usePreferences } from '../services/PreferencesContext';
 
 interface Props {
   habit: Habit;
@@ -15,7 +13,6 @@ interface Props {
 
 export const HabitTrackingControl = ({ habit, date, onSave }: Props) => {
   const { colors } = useTheme();
-  const { preferences } = usePreferences();
   const savedValue = habit.logs?.find(log => log.date === date)?.value ?? (habit.completedDates.includes(date) ? (habit.targetValue ?? 1) : 0);
   const isLapse = habit.logs?.find(log => log.date === date)?.outcome === 'lapse';
   const [draft, setDraft] = useState(String(savedValue));
@@ -27,7 +24,6 @@ export const HabitTrackingControl = ({ habit, date, onSave }: Props) => {
     setDraft(String(value));
     const result = onSave(habit.id, { date, value, outcome: value >= target ? 'completed' : undefined });
     if (result.error) Alert.alert('Could not save progress', result.error);
-    else if (preferences.hapticsEnabled) void Haptics.selectionAsync().catch(() => {});
   };
 
   if (habit.habitKind === 'quit') {
@@ -39,7 +35,6 @@ export const HabitTrackingControl = ({ habit, date, onSave }: Props) => {
         onPress={() => {
           const result = onSave(habit.id, { date, outcome: isLapse ? 'completed' : 'lapse' });
           if (result.error) Alert.alert('Could not save update', result.error);
-          else if (preferences.hapticsEnabled) void Haptics.selectionAsync().catch(() => {});
         }}
       >
         <Text style={[styles.actionText, { color: isLapse ? colors.error : colors.secondaryText }]}>{isLapse ? 'Lapse recorded · Undo' : 'Record lapse'}</Text>

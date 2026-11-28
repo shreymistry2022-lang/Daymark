@@ -726,7 +726,6 @@ export const CalendarScreen = () => {
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                         activeOpacity={0.65}
                         onPress={() => {
-                          if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                           toggleHabit(h.id, selectedDateStr);
                         }}
                         style={[

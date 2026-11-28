@@ -21,7 +21,6 @@ import { canCreateHabit, SUBSCRIPTIONS_ENABLED } from '../services/subscriptionE
 import { PaywallModal } from '../components/PaywallModal';
 import { HabitTrackingControl } from '../components/HabitTrackingControl';
 import { HabitDotGrid } from '../components/HabitDotGrid';
-import * as Haptics from 'expo-haptics';
 import { usePreferences } from '../services/PreferencesContext';
 import { getWeekDates } from '../domain/preferencesEngine';
 import { addLocalDays, getHabitDayStatus, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
@@ -43,7 +42,6 @@ interface MinimalHabitCardProps {
   dateReference: Date;
   colors: any;
   isDark: boolean;
-  hapticsEnabled: boolean;
   showReorder: boolean;
   onOpenDetails: (habitId: string) => void;
   onToggle: (habitId: string, dateStr: string) => void;
@@ -61,7 +59,6 @@ const MinimalHabitCard = React.memo(({
   dateReference,
   colors,
   isDark,
-  hapticsEnabled,
   showReorder,
   onOpenDetails,
   onToggle,
@@ -69,24 +66,17 @@ const MinimalHabitCard = React.memo(({
   onMoveUp,
   onMoveDown,
 }: MinimalHabitCardProps) => {
-  const serverCompleted = getHabitDayStatus(habit, selectedDate, dateReference) === 'completed';
-  const [optimisticState, setOptimisticState] = useState<{ key: string; completed: boolean } | null>(null);
-  const currentKey = `${habit.id}-${selectedDate}-${habit.completedDates.length}-${habit.logs?.length ?? 0}`;
-  const isCompleted = optimisticState?.key === currentKey ? optimisticState.completed : serverCompleted;
+  const isCompleted = getHabitDayStatus(habit, selectedDate, dateReference) === 'completed';
   const enabledReminders = (habit.reminders ?? []).filter(r => r.enabled);
   const [checkScale] = useState(() => new Animated.Value(1));
 
   const handlePressCheckbox = useCallback(() => {
-    if (hapticsEnabled) {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
     Animated.sequence([
-      Animated.timing(checkScale, { toValue: 0.82, duration: 60, useNativeDriver: true }),
-      Animated.spring(checkScale, { toValue: 1, friction: 4, tension: 45, useNativeDriver: true }),
+      Animated.timing(checkScale, { toValue: 0.85, duration: 50, useNativeDriver: true }),
+      Animated.spring(checkScale, { toValue: 1, friction: 5, tension: 65, useNativeDriver: true }),
     ]).start();
-    setOptimisticState({ key: currentKey, completed: !isCompleted });
     onToggle(habit.id, selectedDate);
-  }, [hapticsEnabled, checkScale, currentKey, isCompleted, onToggle, habit.id, selectedDate]);
+  }, [checkScale, onToggle, habit.id, selectedDate]);
 
   const reminderSummary = enabledReminders.length > 0
     ? enabledReminders.length > 1
@@ -192,7 +182,23 @@ const MinimalHabitCard = React.memo(({
       </View>
     </TouchableOpacity>
   );
-});
+}, (prev, next) => (
+  prev.habit.id === next.habit.id &&
+  prev.habit.name === next.habit.name &&
+  prev.habit.category === next.habit.category &&
+  prev.habit.color === next.habit.color &&
+  prev.habit.icon === next.habit.icon &&
+  prev.habit.streak === next.habit.streak &&
+  prev.habit.completedDates === next.habit.completedDates &&
+  prev.habit.logs === next.habit.logs &&
+  prev.habit.reminders === next.habit.reminders &&
+  prev.habitIndex === next.habitIndex &&
+  prev.totalCount === next.totalCount &&
+  prev.selectedDate === next.selectedDate &&
+  prev.todayDateStr === next.todayDateStr &&
+  prev.isDark === next.isDark &&
+  prev.showReorder === next.showReorder
+));
 
 MinimalHabitCard.displayName = 'MinimalHabitCard';
 
@@ -247,11 +253,8 @@ export const TodayScreen = () => {
   }, [navigation]);
 
   const handleToggleHabit = useCallback((habitId: string, dateStr: string) => {
-    if (preferences.hapticsEnabled) {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
     toggleHabit(habitId, dateStr);
-  }, [preferences.hapticsEnabled, toggleHabit]);
+  }, [toggleHabit]);
 
   const gridColumns = width >= 400 ? 3 : 2;
   const gridCardWidth = (width - spacing.lg * 2 - 10 * (gridColumns - 1)) / gridColumns;
@@ -502,7 +505,6 @@ export const TodayScreen = () => {
                 dateReference={dateReference}
                 colors={colors}
                 isDark={isDark}
-                hapticsEnabled={preferences.hapticsEnabled}
                 showReorder={preferences.dashboardSort === 'custom' && selectedCategory === 'All'}
                 onOpenDetails={handleOpenDetails}
                 onToggle={handleToggleHabit}

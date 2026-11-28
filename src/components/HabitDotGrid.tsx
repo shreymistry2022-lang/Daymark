@@ -160,6 +160,27 @@ export const HabitDotGrid = React.memo(({
       </View>
     </View>
   );
-});
+}, (prev, next) => (
+  prev.habit.id === next.habit.id &&
+  prev.habit.completedDates === next.habit.completedDates &&
+  prev.habit.logs === next.habit.logs &&
+  prev.habit.color === next.habit.color &&
+  prev.habit.startDate === next.habit.startDate &&
+  prev.habit.endDate === next.habit.endDate &&
+  prev.habit.pausedPeriods === next.habit.pausedPeriods &&
+  prev.habit.schedule === next.habit.schedule &&
+  prev.habit.targetValue === next.habit.targetValue &&
+  prev.habit.trackingMethod === next.habit.trackingMethod &&
+  prev.habit.habitKind === next.habit.habitKind &&
+  prev.todayDateStr === next.todayDateStr &&
+  prev.isDark === next.isDark &&
+  prev.mutedTextColor === next.mutedTextColor &&
+  prev.weeks === next.weeks &&
+  prev.dotSize === next.dotSize &&
+  prev.dotGap === next.dotGap &&
+  prev.showMonthLabels === next.showMonthLabels &&
+  prev.showWeekdayLabels === next.showWeekdayLabels &&
+  prev.mode === next.mode
+));
 
 HabitDotGrid.displayName = 'HabitDotGrid';
