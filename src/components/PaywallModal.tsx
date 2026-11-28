@@ -23,13 +23,15 @@ type Props = { visible: boolean; onClose: () => void };
 
 const MONTHLY_PRODUCT_ID = process.env.EXPO_PUBLIC_REVENUECAT_MONTHLY_PRODUCT_ID || 'daymark_pro_monthly';
 const ANNUAL_PRODUCT_ID = process.env.EXPO_PUBLIC_REVENUECAT_ANNUAL_PRODUCT_ID || 'daymark_pro_annual';
+const LIFETIME_PRODUCT_ID = process.env.EXPO_PUBLIC_REVENUECAT_LIFETIME_PRODUCT_ID || 'daymark_pro_lifetime';
 
-const findPackage = (items: PurchasesPackage[], term: 'monthly' | 'annual') => items.find(item => {
+const findPackage = (items: PurchasesPackage[], term: 'monthly' | 'annual' | 'lifetime') => items.find(item => {
   const key = `${item.identifier} ${item.product.identifier}`.toLowerCase();
-  const productId = term === 'monthly' ? MONTHLY_PRODUCT_ID : ANNUAL_PRODUCT_ID;
-  return item.product.identifier === productId || (term === 'monthly'
-    ? key.includes('monthly') || key.includes('month')
-    : key.includes('annual') || key.includes('year'));
+  const productId = term === 'monthly' ? MONTHLY_PRODUCT_ID : term === 'annual' ? ANNUAL_PRODUCT_ID : LIFETIME_PRODUCT_ID;
+  if (item.product.identifier === productId) return true;
+  if (term === 'monthly') return key.includes('monthly') || key.includes('month');
+  if (term === 'annual') return key.includes('annual') || key.includes('year');
+  return key.includes('lifetime') || key.includes('forever');
 });
 
 const PRO_UNLOCK_FEATURES: {
@@ -92,11 +94,12 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const { isPro, entitlement, isConfigured, canPurchase, isLoading, packages, purchase, restore } = useSubscription();
-  const [selectedPlan, setSelectedPlan] = useState<'annual' | 'monthly'>('annual');
+  const [selectedPlan, setSelectedPlan] = useState<'annual' | 'monthly' | 'lifetime'>('annual');
   const [busy, setBusy] = useState(false);
 
   const monthly = useMemo(() => findPackage(packages, 'monthly'), [packages]);
   const annual = useMemo(() => findPackage(packages, 'annual'), [packages]);
+  const lifetime = useMemo(() => findPackage(packages, 'lifetime'), [packages]);
   const renewalPrice = packages.find(item => item.product.identifier === entitlement?.productIdentifier)?.product.priceString;
   const activePeriodEnd = entitlement?.expirationDate
     ? new Date(entitlement.expirationDate).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
@@ -178,7 +181,7 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
       }
       return;
     }
-    void buy(selectedPlan === 'annual' ? annual : monthly);
+    void buy(selectedPlan === 'annual' ? annual : selectedPlan === 'monthly' ? monthly : lifetime);
   };
 
   return (
@@ -208,7 +211,7 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
 
           {/* Plan Selection Cards (Reference Radio Style) */}
           <View style={styles.plansStack}>
-            {/* Annual Plan ($23.99/year with 7-day free trial) */}
+            {/* Annual Plan ($14.99/year with 7-day free trial) */}
             <TouchableOpacity
               accessibilityRole="radio"
               accessibilityState={{ checked: selectedPlan === 'annual' }}
@@ -240,7 +243,7 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
                 <View style={styles.planTitleRow}>
                   <Text style={[styles.planTitle, { color: colors.primaryText }]}>Annual</Text>
                   <View style={[styles.savePill, { backgroundColor: `${colors.accent}26` }]}>
-                    <Text style={[styles.savePillText, { color: colors.accent }]}>SAVE 50%</Text>
+                    <Text style={[styles.savePillText, { color: colors.accent }]}>SAVE 58%</Text>
                   </View>
                 </View>
                 <Text style={[styles.planSub, { color: colors.secondaryText }]}>
@@ -250,13 +253,13 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
 
               <View style={styles.priceCol}>
                 <Text style={[styles.priceValue, { color: colors.primaryText }]}>
-                  {annual?.product.priceString || '$23.99'}
+                  {annual?.product.priceString || '$14.99'}
                 </Text>
                 <Text style={[styles.pricePeriod, { color: colors.secondaryText }]}>/ year</Text>
               </View>
             </TouchableOpacity>
 
-            {/* Monthly Plan ($3.99/month) */}
+            {/* Monthly Plan ($2.99/month) */}
             <TouchableOpacity
               accessibilityRole="radio"
               accessibilityState={{ checked: selectedPlan === 'monthly' }}
@@ -293,9 +296,57 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
 
               <View style={styles.priceCol}>
                 <Text style={[styles.priceValue, { color: colors.primaryText }]}>
-                  {monthly?.product.priceString || '$3.99'}
+                  {monthly?.product.priceString || '$2.99'}
                 </Text>
                 <Text style={[styles.pricePeriod, { color: colors.secondaryText }]}>/ month</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Lifetime Plan ($24.99 one-time) */}
+            <TouchableOpacity
+              accessibilityRole="radio"
+              accessibilityState={{ checked: selectedPlan === 'lifetime' }}
+              activeOpacity={0.85}
+              disabled={busy}
+              onPress={() => setSelectedPlan('lifetime')}
+              style={[
+                styles.planCard,
+                {
+                  backgroundColor: selectedPlan === 'lifetime' ? `${colors.accent}14` : colors.card,
+                  borderColor: selectedPlan === 'lifetime' ? colors.accent : colors.border,
+                  borderWidth: selectedPlan === 'lifetime' ? 1.5 : 1,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.radioOuter,
+                  {
+                    borderColor: selectedPlan === 'lifetime' ? colors.accent : colors.mutedText,
+                    backgroundColor: selectedPlan === 'lifetime' ? colors.accent : 'transparent',
+                  },
+                ]}
+              >
+                {selectedPlan === 'lifetime' ? <View style={styles.radioInnerDot} /> : null}
+              </View>
+
+              <View style={styles.planMeta}>
+                <View style={styles.planTitleRow}>
+                  <Text style={[styles.planTitle, { color: colors.primaryText }]}>Lifetime</Text>
+                  <View style={[styles.savePill, { backgroundColor: '#10B98126' }]}>
+                    <Text style={[styles.savePillText, { color: '#10B981' }]}>ONE-TIME</Text>
+                  </View>
+                </View>
+                <Text style={[styles.planSub, { color: colors.secondaryText }]}>
+                  Pay once, own Daymark Pro forever.
+                </Text>
+              </View>
+
+              <View style={styles.priceCol}>
+                <Text style={[styles.priceValue, { color: colors.primaryText }]}>
+                  {lifetime?.product.priceString || '$24.99'}
+                </Text>
+                <Text style={[styles.pricePeriod, { color: colors.secondaryText }]}>forever</Text>
               </View>
             </TouchableOpacity>
           </View>
