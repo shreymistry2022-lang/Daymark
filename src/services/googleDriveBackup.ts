@@ -1,6 +1,6 @@
 // src/services/googleDriveBackup.ts
 // Google Drive AppDataFolder backup & restore using @react-native-google-signin/google-signin.
-import { Platform } from 'react-native';
+import { Platform, TurboModuleRegistry } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
@@ -28,6 +28,8 @@ let configured = false;
 
 const getGoogleSignin = () => {
   if (Platform.OS === 'web' || isExpoGo) return null;
+  // Check non-enforcing TurboModuleRegistry first so 1.0.5 APKs without native RNGoogleSignin never crash
+  if (!TurboModuleRegistry.get('RNGoogleSignin')) return null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require('@react-native-google-signin/google-signin');
