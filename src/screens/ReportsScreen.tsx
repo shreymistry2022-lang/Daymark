@@ -25,7 +25,7 @@ export const ReportsScreen = ({ onClose }: Props) => {
         title="Reports"
         colors={colors}
         onClose={onClose}
-        closeIcon="close"
+        closeIcon="chevron-back"
         closeAccessibilityLabel="Close reports"
         showHandle
       />
@@ -208,10 +208,10 @@ const styles = StyleSheet.create({
   noticeText: { flex: 1, fontSize: 12 },
   loading: { alignItems: 'center', padding: 40 },
   muted: { fontSize: 12, lineHeight: 18, marginTop: 4 },
-  empty: { alignItems: 'center', padding: spacing.xl, borderWidth: 1, borderRadius: radii.lg },
+  empty: { alignItems: 'center', padding: spacing.xl, borderWidth: 1, borderRadius: radii.xl },
   emptyBadge: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   heading: { fontSize: 17, fontWeight: '800', marginTop: spacing.md },
-  card: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md },
+  card: { borderWidth: 1, borderRadius: radii.xl, padding: spacing.lg },
   cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
   period: { fontSize: 13, fontWeight: '700' },
   rateBox: { alignItems: 'flex-end' },

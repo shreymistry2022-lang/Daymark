@@ -102,17 +102,36 @@ export const GoalsScreen = ({ onClose, initialGoalId, onInitialGoalHandled }: Pr
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel="Create goal"
-            style={[styles.addButton, { backgroundColor: colors.accent }]}
+            style={[styles.circleAddBtn, { backgroundColor: colors.accent }]}
             onPress={() => openEditor()}
+            activeOpacity={0.85}
           >
-            <Ionicons name="add" size={18} color="#FFF" />
-            <Text style={styles.addText}>New</Text>
+            <Ionicons name="add" size={20} color="#FFF" />
           </TouchableOpacity>
         }
       />
+      <View style={[styles.segmentedTabs, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        {[
+          { key: 'active', label: `Active (${goals.filter(g => !g.archivedAt).length})`, archived: false },
+          { key: 'archived', label: `Archived (${goals.filter(g => g.archivedAt).length})`, archived: true },
+        ].map(tab => {
+          const isActive = showArchived === tab.archived;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              accessibilityRole="button"
+              onPress={() => setShowArchived(tab.archived)}
+              style={[styles.segmentedTabBtn, isActive && { backgroundColor: colors.accent }]}
+            >
+              <Text style={[styles.segmentedTabText, { color: isActive ? '#FFFFFF' : colors.secondaryText }]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]} keyboardShouldPersistTaps="handled">
         {!allowed && <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border }]}><Ionicons name="lock-closed-outline" size={18} color={colors.accent} /><Text style={[styles.noticeText, { color: colors.secondaryText }]}>Goal tracking is included with Daymark Pro. Your saved goals remain visible.</Text><TouchableOpacity onPress={() => setPaywallVisible(true)}><Text style={{ color: colors.accent, fontWeight: '700' }}>See Pro</Text></TouchableOpacity></View>}
-        <TouchableOpacity accessibilityRole="button" onPress={() => setShowArchived(value => !value)} style={styles.archiveToggle}><Text style={{ color: colors.accent, fontWeight: '700' }}>{showArchived ? 'Show active goals' : `Archive (${goals.filter(goal => goal.archivedAt).length})`}</Text></TouchableOpacity>
         {goalError && (
           <View style={[styles.notice, { backgroundColor: `${colors.error}14`, borderColor: `${colors.error}44` }]}>
             <Ionicons name="alert-circle-outline" size={18} color={colors.error} />
@@ -125,9 +144,22 @@ export const GoalsScreen = ({ onClose, initialGoalId, onInitialGoalHandled }: Pr
             const progress = calculateGoalProgress(goal, habits, todayDateStr, parseLocalDate(todayDateStr) ?? new Date());
           const linked = goal.habitIds.map(id => habits.find(habit => habit.id === id)).filter(Boolean);
           return <View key={goal.id} style={[styles.goalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={styles.goalHead}><View style={{ flex: 1 }}><Text style={[styles.goalName, { color: colors.primaryText }]}>{goal.name}</Text><Text style={[styles.goalMeta, { color: colors.secondaryText }]}>{goal.category} · {goal.startDate}{goal.targetDate ? ` → ${goal.targetDate}` : ''}</Text></View>{goal.completedAt && <Ionicons name="checkmark-circle" size={23} color={colors.accent} />}</View>
+            <View style={styles.goalHead}>
+              <View style={[styles.goalIconBox, { backgroundColor: `${colors.accent}1E` }]}>
+                <Ionicons name={goal.completedAt ? 'checkmark-circle' : 'flag-outline'} size={20} color={colors.accent} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.goalName, { color: colors.primaryText }]}>{goal.name}</Text>
+                <Text style={[styles.goalMeta, { color: colors.secondaryText }]}>{goal.category} · {goal.startDate}{goal.targetDate ? ` → ${goal.targetDate}` : ''}</Text>
+              </View>
+              {progress.percentage != null && (
+                <View style={[styles.pctPill, { backgroundColor: `${colors.accent}1A` }]}>
+                  <Text style={[styles.pctPillText, { color: colors.accent }]}>{progress.percentage}%</Text>
+                </View>
+              )}
+            </View>
             {!!goal.description && <Text style={[styles.description, { color: colors.secondaryText }]}>{goal.description}</Text>}
-            <View style={styles.progressSummary}><Text style={[styles.progressValue, { color: colors.primaryText }]}>{progress.currentValue.toLocaleString()}{goal.targetValue != null ? ` / ${goal.targetValue.toLocaleString()}` : ''} {goal.unit || (goal.targetValue == null ? 'successful habit days' : '')}</Text><Text style={[styles.goalMeta, { color: colors.accent }]}>{progress.percentage == null ? `${progress.linkedHabits} linked habits` : `${progress.percentage}%`}</Text></View>
+            <View style={styles.progressSummary}><Text style={[styles.progressValue, { color: colors.primaryText }]}>{progress.currentValue.toLocaleString()}{goal.targetValue != null ? ` / ${goal.targetValue.toLocaleString()}` : ''} {goal.unit || (goal.targetValue == null ? 'days' : '')}</Text><Text style={[styles.goalMeta, { color: colors.secondaryText }]}>{progress.linkedHabits} habit{progress.linkedHabits === 1 ? '' : 's'}</Text></View>
             {progress.percentage != null && <View style={[styles.progressTrack, { backgroundColor: colors.secondaryBackground }]}><View style={[styles.progressFill, { width: `${progress.percentage}%`, backgroundColor: colors.accent }]} /></View>}
             <View style={styles.habitChips}>{linked.length ? linked.map(habit => habit && <View key={habit.id} style={[styles.habitChip, { backgroundColor: colors.secondaryBackground }]}><View style={[styles.habitDot, { backgroundColor: habit.color }]} /><Text numberOfLines={1} style={[styles.habitChipText, { color: colors.secondaryText }]}>{habit.name}</Text></View>) : <Text style={[styles.goalMeta, { color: colors.mutedText }]}>No active linked habits</Text>}</View>
             {!!goal.milestones.length && <View style={styles.milestoneSection}><Text style={[styles.milestoneHeading, { color: colors.secondaryText }]}>MILESTONES</Text>{goal.milestones.map(milestone => { const reached = Boolean(milestone.reachedAt); const eligible = milestone.targetValue != null && progress.currentValue >= milestone.targetValue; return <View key={milestone.id} style={styles.milestoneRow}><Ionicons name={reached ? 'checkmark-circle' : 'ellipse-outline'} size={17} color={reached ? colors.accent : colors.mutedText} /><Text style={[styles.milestoneText, { color: colors.primaryText }]}>{milestone.title} · {milestone.targetValue}{goal.unit ? ` ${goal.unit}` : ''}</Text>{!reached && <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Mark milestone ${milestone.title} reached`} disabled={!allowed || !eligible} onPress={() => { const result = markMilestoneReached(goal.id, milestone.id); if (result.error) Alert.alert('Milestone not reached yet', result.error); }}><Text style={{ color: eligible ? colors.accent : colors.mutedText, fontSize: 11, fontWeight: '700' }}>Mark</Text></TouchableOpacity>}</View>; })}</View>}
@@ -155,9 +187,13 @@ export const GoalsScreen = ({ onClose, initialGoalId, onInitialGoalHandled }: Pr
 };
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 }, content: { paddingHorizontal: spacing.lg }, addButton: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radii.full, paddingHorizontal: 14, paddingVertical: 8 }, addText: { color: '#FFF', fontSize: 13, fontWeight: '700' },
-  notice: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: spacing.md }, noticeText: { flex: 1, fontSize: 12, lineHeight: 17 }, archiveToggle: { paddingVertical: spacing.sm, alignSelf: 'flex-end' }, error: { fontSize: 12, marginBottom: spacing.sm }, loading: { alignItems: 'center', paddingVertical: 70 }, empty: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.xl, alignItems: 'center', marginTop: spacing.xl }, emptyIcon: { width: 54, height: 54, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md }, emptyTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' }, emptyText: { fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 8, marginBottom: spacing.lg },
-  goalCard: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, marginBottom: spacing.md }, goalHead: { flexDirection: 'row', alignItems: 'center' }, goalName: { fontSize: 17, fontWeight: '800' }, goalMeta: { fontSize: 11, marginTop: 4 }, description: { fontSize: 12, lineHeight: 18, marginTop: 8 }, progressSummary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.md, marginBottom: 6 }, progressValue: { fontSize: 14, fontWeight: '700' }, progressTrack: { height: 6, borderRadius: radii.full, overflow: 'hidden' }, progressFill: { height: '100%', borderRadius: radii.full }, habitChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.md }, habitChip: { flexDirection: 'row', alignItems: 'center', borderRadius: radii.full, paddingHorizontal: 9, paddingVertical: 6, maxWidth: '100%' }, habitDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 }, habitChipText: { fontSize: 11, maxWidth: 180 },
+  screen: { flex: 1 }, content: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
+  circleAddBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  segmentedTabs: { flexDirection: 'row', marginHorizontal: spacing.lg, borderWidth: 1, borderRadius: radii.full, padding: 4 },
+  segmentedTabBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: radii.full },
+  segmentedTabText: { fontSize: 13, fontWeight: '700' },
+  notice: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: spacing.md }, noticeText: { flex: 1, fontSize: 12, lineHeight: 17 }, error: { fontSize: 12, marginBottom: spacing.sm }, loading: { alignItems: 'center', paddingVertical: 70 }, empty: { borderWidth: 1, borderRadius: radii.xl, padding: spacing.xl, alignItems: 'center', marginTop: spacing.xl }, emptyIcon: { width: 54, height: 54, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md }, emptyTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' }, emptyText: { fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 8, marginBottom: spacing.lg },
+  goalCard: { borderWidth: 1, borderRadius: radii.xl, padding: spacing.lg, marginBottom: spacing.md }, goalHead: { flexDirection: 'row', alignItems: 'center', gap: 12 }, goalIconBox: { width: 40, height: 40, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' }, goalName: { fontSize: 16, fontWeight: '700' }, goalMeta: { fontSize: 12, marginTop: 2 }, pctPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radii.full }, pctPillText: { fontSize: 12, fontWeight: '800' }, description: { fontSize: 13, lineHeight: 19, marginTop: 10 }, progressSummary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.md, marginBottom: 6 }, progressValue: { fontSize: 13, fontWeight: '700' }, progressTrack: { height: 6, borderRadius: radii.full, overflow: 'hidden' }, progressFill: { height: '100%', borderRadius: radii.full }, habitChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.md }, habitChip: { flexDirection: 'row', alignItems: 'center', borderRadius: radii.full, paddingHorizontal: 9, paddingVertical: 6, maxWidth: '100%' }, habitDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 }, habitChipText: { fontSize: 11, maxWidth: 180 },
   milestoneSection: { marginTop: spacing.md }, milestoneHeading: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginBottom: 5 }, milestoneRow: { flexDirection: 'row', alignItems: 'center', gap: 7, minHeight: 30 }, milestoneText: { flex: 1, fontSize: 12 }, milestoneEditRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7 }, actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 16, marginTop: spacing.md }, action: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 36 }, actionText: { fontSize: 12, fontWeight: '700' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.65)' }, editor: { maxHeight: '94%', borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, borderWidth: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.sm }, sheetHandleRow: { alignItems: 'center', paddingBottom: spacing.sm }, sheetHandle: { width: 36, height: 4, borderRadius: 2 }, editorHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }, circleCloseBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, headerSpacer: { width: 36, height: 36 }, editorTitle: { fontSize: 18, fontWeight: '700' }, fieldLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginTop: spacing.md, marginBottom: 6 }, input: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: 12, fontSize: 14 }, textArea: { minHeight: 65, textAlignVertical: 'top' }, dateRow: { flexDirection: 'row', gap: 8, alignItems: 'center' }, habitOption: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 10, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', marginBottom: 7 }, habitOptionText: { flex: 1, fontSize: 13 }, option: { borderWidth: 1, borderRadius: radii.full, paddingHorizontal: 14, paddingVertical: 10 }, optionText: { fontSize: 12, fontWeight: '700' }, primaryButton: { borderRadius: radii.full, paddingVertical: 14, paddingHorizontal: 22, alignItems: 'center', marginTop: spacing.md }, primaryText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 });

@@ -277,18 +277,19 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
             </View>
           </View>
 
-          {/* Top 16-Week Heatmap Card */}
+          {/* Full-Year Scrollable Heatmap Card */}
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <HabitDotGrid
               habit={habit}
               todayDateStr={todayDateStr}
               isDark={isDark}
               mutedTextColor={colors.mutedText}
-              weeks={16}
+              weeks={53}
               dotSize={11}
               dotGap={3}
               showMonthLabels
               showWeekdayLabels
+              scrollable
             />
           </View>
 

@@ -108,11 +108,11 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel="Create routine"
-            style={[styles.addButton, { backgroundColor: colors.accent }]}
+            style={[styles.circleAddBtn, { backgroundColor: colors.accent }]}
             onPress={() => openEditor()}
+            activeOpacity={0.85}
           >
-            <Ionicons name="add" size={18} color="#FFF" />
-            <Text style={styles.addText}>New</Text>
+            <Ionicons name="add" size={20} color="#FFF" />
           </TouchableOpacity>
         }
       />
@@ -144,6 +144,9 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
           return (
             <View key={routine.id} style={[styles.routineCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={styles.routineTop}>
+                <View style={[styles.routineIconBox, { backgroundColor: '#14B8A61E' }]}>
+                  <Ionicons name="layers-outline" size={20} color="#14B8A6" />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.routineName, { color: colors.primaryText }]}>{routine.name}</Text>
                   <Text style={[styles.routineSchedule, { color: colors.secondaryText }]}>{routine.schedule.frequency.replace('_', ' ')} · {linkedHabits.length} habit{linkedHabits.length === 1 ? '' : 's'}{routine.reminders.some(reminder => reminder.enabled) ? ` · ${routine.reminders.filter(reminder => reminder.enabled).map(reminder => formatReminderTime(reminder.hour, reminder.minute)).join(', ')}` : ''}</Text>
@@ -278,12 +281,12 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
 };
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 }, content: { paddingHorizontal: spacing.lg },
-  addButton: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radii.full, paddingHorizontal: 14, paddingVertical: 8 }, addText: { color: '#FFF', fontSize: 13, fontWeight: '700' },
+  screen: { flex: 1 }, content: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  circleAddBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   notice: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: spacing.md }, noticeText: { flex: 1, fontSize: 12, lineHeight: 17 },
   errorBanner: { fontSize: 12, marginBottom: spacing.md }, loading: { alignItems: 'center', paddingVertical: 70 },
-  empty: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.xl, alignItems: 'center', marginTop: spacing.xl }, emptyIcon: { width: 54, height: 54, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md }, emptyTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' }, emptyText: { fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 8, marginBottom: spacing.lg },
-  routineCard: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, marginBottom: spacing.md }, routineTop: { flexDirection: 'row', alignItems: 'center' }, routineName: { fontSize: 17, fontWeight: '800' }, routineSchedule: { fontSize: 11, marginTop: 4, textTransform: 'capitalize' }, routineDescription: { fontSize: 12, lineHeight: 18, marginTop: 8 }, orderButtons: { flexDirection: 'row', gap: 8 },
+  empty: { borderWidth: 1, borderRadius: radii.xl, padding: spacing.xl, alignItems: 'center', marginTop: spacing.xl }, emptyIcon: { width: 54, height: 54, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md }, emptyTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' }, emptyText: { fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 8, marginBottom: spacing.lg },
+  routineCard: { borderWidth: 1, borderRadius: radii.xl, padding: spacing.lg, marginBottom: spacing.md }, routineTop: { flexDirection: 'row', alignItems: 'center', gap: 12 }, routineIconBox: { width: 40, height: 40, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' }, routineName: { fontSize: 16, fontWeight: '700' }, routineSchedule: { fontSize: 12, marginTop: 2, textTransform: 'capitalize' }, routineDescription: { fontSize: 13, lineHeight: 19, marginTop: 10 }, orderButtons: { flexDirection: 'row', gap: 6 },
   habitChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.md }, habitChip: { flexDirection: 'row', alignItems: 'center', borderRadius: radii.full, paddingHorizontal: 9, paddingVertical: 6, maxWidth: '100%' }, habitDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 }, habitChipText: { fontSize: 11, maxWidth: 170 },
   progressLine: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: spacing.md }, progressTrack: { flex: 1, height: 6, borderRadius: radii.full, overflow: 'hidden' }, progressFill: { height: '100%', borderRadius: radii.full }, progressLabel: { fontSize: 11, fontWeight: '700' },
   historyRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }, historyDay: { width: 32, height: 32, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, historyDayText: { fontSize: 11, fontWeight: '700' },

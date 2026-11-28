@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Text, View } from 'react-native';
+import React, { useMemo, useRef } from 'react';
+import { ScrollView, Text, View } from 'react-native';
 import { addLocalDays, getHabitDayStatus, parseLocalDate } from '../domain/habitEngine';
 import { Habit } from '../services/HabitContext';
 
@@ -13,10 +13,12 @@ interface HabitDotGridProps {
   dotGap?: number;
   showMonthLabels?: boolean;
   showWeekdayLabels?: boolean;
+  scrollable?: boolean;
   mode?: 'heatmap' | 'month';
 }
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', 'Sun'];
 
 export const HabitDotGrid = React.memo(({
   habit,
@@ -28,8 +30,10 @@ export const HabitDotGrid = React.memo(({
   dotGap = 3,
   showMonthLabels = false,
   showWeekdayLabels = false,
+  scrollable = false,
   mode = 'heatmap',
 }: HabitDotGridProps) => {
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const todayRef = useMemo(() => parseLocalDate(todayDateStr) ?? new Date(), [todayDateStr]);
   const emptyDotColor = isDark ? `${habit.color}1C` : `${habit.color}22`;
 
@@ -63,15 +67,18 @@ export const HabitDotGrid = React.memo(({
       for (let d = 0; d < 7; d++) {
         const dateStr = addLocalDays(gridStart, w * 7 + d);
         colDates.push(dateStr);
-        if (d === 0) {
-          const parsed = parseLocalDate(dateStr);
-          if (parsed && parsed.getMonth() !== lastMonth) {
-            lastMonth = parsed.getMonth();
-            label = MONTH_SHORT[lastMonth];
-          }
+        // Check first day of the week (or 1st of month within the week) for accurate month label placement
+        const parsed = parseLocalDate(dateStr);
+        if (parsed && parsed.getMonth() !== lastMonth && (d === 0 || parsed.getDate() === 1)) {
+          lastMonth = parsed.getMonth();
+          label = MONTH_SHORT[lastMonth];
         }
       }
       cols.push({ monthLabel: label, dates: colDates });
+    }
+    // Avoid label collision if col 0 and col 1 both have month labels
+    if (cols.length > 1 && cols[0].monthLabel && cols[1].monthLabel) {
+      cols[0].monthLabel = null;
     }
     return cols;
   }, [mode, todayDateStr, todayRef, weeks]);
@@ -108,14 +115,41 @@ export const HabitDotGrid = React.memo(({
     );
   }
 
-  return (
+  const monthHeaderHeight = 15;
+  const monthHeaderMargin = 4;
+
+  const weekdaySidebar = showWeekdayLabels ? (
+    <View style={{ width: 26, marginRight: 6 }}>
+      {showMonthLabels ? <View style={{ height: monthHeaderHeight + monthHeaderMargin }} /> : null}
+      <View style={{ gap: dotGap }}>
+        {WEEKDAY_LABELS.map((dayLabel, idx) => (
+          <View key={idx} style={{ height: dotSize, justifyContent: 'center' }}>
+            {dayLabel ? (
+              <Text numberOfLines={1} style={{ fontSize: 9, lineHeight: 11, fontWeight: '600', color: mutedTextColor }}>
+                {dayLabel}
+              </Text>
+            ) : null}
+          </View>
+        ))}
+      </View>
+    </View>
+  ) : null;
+
+  const gridBody = (
     <View>
       {showMonthLabels ? (
-        <View style={{ flexDirection: 'row', gap: dotGap, marginBottom: 4, paddingLeft: showWeekdayLabels ? 28 : 0 }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            ...(scrollable ? { gap: dotGap } : { justifyContent: 'space-between', gap: dotGap }),
+            height: monthHeaderHeight,
+            marginBottom: monthHeaderMargin,
+          }}
+        >
           {weekColumns.map((col, idx) => (
-            <View key={idx} style={{ width: dotSize, overflow: 'visible' }}>
+            <View key={idx} style={{ width: dotSize, overflow: 'visible', justifyContent: 'center' }}>
               {col.monthLabel ? (
-                <Text numberOfLines={1} style={{ fontSize: 9, fontWeight: '600', color: mutedTextColor, width: 28 }}>
+                <Text numberOfLines={1} style={{ fontSize: 10, lineHeight: 13, fontWeight: '600', color: mutedTextColor, width: 32 }}>
                   {col.monthLabel}
                 </Text>
               ) : null}
@@ -123,41 +157,54 @@ export const HabitDotGrid = React.memo(({
           ))}
         </View>
       ) : null}
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-        {showWeekdayLabels ? (
-          <View style={{ width: 24, marginRight: 4, gap: dotGap }}>
-            {['', 'Tue', '', 'Thu', '', 'Sat', ''].map((dayLabel, idx) => (
-              <View key={idx} style={{ height: dotSize, justifyContent: 'center' }}>
-                {dayLabel ? (
-                  <Text style={{ fontSize: 9, fontWeight: '600', color: mutedTextColor }}>{dayLabel}</Text>
-                ) : null}
-              </View>
-            ))}
+      <View
+        style={{
+          flexDirection: 'row',
+          ...(scrollable ? { gap: dotGap } : { justifyContent: 'space-between', gap: dotGap }),
+        }}
+      >
+        {weekColumns.map((col, wIdx) => (
+          <View key={wIdx} style={{ gap: dotGap }}>
+            {col.dates.map(dateStr => {
+              const isFuture = dateStr > todayDateStr;
+              const done = !isFuture && getHabitDayStatus(habit, dateStr, todayRef) === 'completed';
+              return (
+                <View
+                  key={dateStr}
+                  style={{
+                    width: dotSize,
+                    height: dotSize,
+                    borderRadius: Math.max(2, Math.round(dotSize * 0.32)),
+                    backgroundColor: done ? habit.color : emptyDotColor,
+                    opacity: isFuture ? 0.35 : 1,
+                  }}
+                />
+              );
+            })}
           </View>
-        ) : null}
-        <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', gap: dotGap }}>
-          {weekColumns.map((col, wIdx) => (
-            <View key={wIdx} style={{ gap: dotGap }}>
-              {col.dates.map(dateStr => {
-                const isFuture = dateStr > todayDateStr;
-                const done = !isFuture && getHabitDayStatus(habit, dateStr, todayRef) === 'completed';
-                return (
-                  <View
-                    key={dateStr}
-                    style={{
-                      width: dotSize,
-                      height: dotSize,
-                      borderRadius: Math.max(2, Math.round(dotSize * 0.32)),
-                      backgroundColor: done ? habit.color : emptyDotColor,
-                      opacity: isFuture ? 0.35 : 1,
-                    }}
-                  />
-                );
-              })}
-            </View>
-          ))}
-        </View>
+        ))}
       </View>
+    </View>
+  );
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+      {weekdaySidebar}
+      {scrollable ? (
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flex: 1 }}
+          onContentSizeChange={() => {
+            scrollRef.current?.scrollToEnd({ animated: false });
+          }}
+        >
+          {gridBody}
+        </ScrollView>
+      ) : (
+        <View style={{ flex: 1 }}>{gridBody}</View>
+      )}
     </View>
   );
 }, (prev, next) => (
@@ -180,7 +227,7 @@ export const HabitDotGrid = React.memo(({
   prev.dotGap === next.dotGap &&
   prev.showMonthLabels === next.showMonthLabels &&
   prev.showWeekdayLabels === next.showWeekdayLabels &&
+  prev.scrollable === next.scrollable &&
   prev.mode === next.mode
 ));
-
 HabitDotGrid.displayName = 'HabitDotGrid';
