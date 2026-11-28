@@ -347,6 +347,7 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
                       <AnimatedPopTouchable
                         key={cell.dateStr}
                         pressScale={0.86}
+                        containerStyle={styles.dayCellSlot}
                         disabled={!cell.inCurrentMonth || isFuture}
                         activeOpacity={0.75}
                         onPress={() => handleTapDay(cell)}
@@ -728,10 +729,13 @@ const styles = StyleSheet.create({
   weekdayHeaderText: { fontSize: 12, fontWeight: '600' },
   monthGrid: { gap: 6 },
   monthRow: { flexDirection: 'row', gap: 4 },
-  dayCell: {
+  dayCellSlot: {
     flex: 1,
     aspectRatio: 1,
     maxHeight: 46,
+  },
+  dayCell: {
+    flex: 1,
     borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',

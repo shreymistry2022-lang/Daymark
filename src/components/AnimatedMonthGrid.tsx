@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
+  LayoutAnimation,
   PanResponder,
   StyleProp,
   TouchableOpacity,
@@ -9,7 +10,16 @@ import {
   ViewStyle,
 } from 'react-native';
 
-const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+/**
+ * Safely triggers a lightweight LayoutAnimation ease transition for collapsible drawers.
+ */
+export function triggerLayoutEase() {
+  try {
+    LayoutAnimation?.configureNext?.(LayoutAnimation.Presets.easeInEaseOut);
+  } catch {
+    // Ignore on environments where LayoutAnimation is unavailable.
+  }
+}
 
 interface AnimatedMonthContainerProps {
   year: number;
@@ -151,13 +161,18 @@ export function AnimatedMonthContainer({
 interface AnimatedPopTouchableProps extends TouchableOpacityProps {
   /** Initial resting scale ratio on press-in before springing back (default 0.9). */
   pressScale?: number;
+  /** Optional layout wrapper style applied to the outer Animated.View (e.g. flex grid slot). */
+  containerStyle?: StyleProp<ViewStyle>;
 }
 
 /**
  * Touchable button with native-driver spring pop feedback for calendar tiles and checkboxes.
+ * Wraps TouchableOpacity inside Animated.View rather than createAnimatedComponent(TouchableOpacity)
+ * so Fabric host-view ref attachment remains reliable on React Native 0.88+.
  */
 export const AnimatedPopTouchable = React.memo(function AnimatedPopTouchable({
   pressScale = 0.9,
+  containerStyle,
   style,
   onPressIn,
   onPressOut,
@@ -199,15 +214,17 @@ export const AnimatedPopTouchable = React.memo(function AnimatedPopTouchable({
   };
 
   return (
-    <AnimatedTouchableOpacity
-      {...rest}
-      activeOpacity={activeOpacity}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      onPress={onPress ? handlePress : undefined}
-      style={[style, { transform: [{ scale }] }]}
-    >
-      {children}
-    </AnimatedTouchableOpacity>
+    <Animated.View style={[containerStyle, { transform: [{ scale }] }]}>
+      <TouchableOpacity
+        {...rest}
+        activeOpacity={activeOpacity}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        onPress={onPress ? handlePress : undefined}
+        style={style}
+      >
+        {children}
+      </TouchableOpacity>
+    </Animated.View>
   );
 });

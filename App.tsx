@@ -1,6 +1,7 @@
 // App.tsx
-import React, { useEffect, useState } from 'react';
-import { Alert, View } from 'react-native';
+import React, { Component, ErrorInfo, ReactNode, useEffect, useState } from 'react';
+import { Alert, Text, TouchableOpacity, View } from 'react-native';
+import * as Updates from 'expo-updates';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
@@ -26,6 +27,52 @@ import { ReportsProvider } from './src/services/ReportsContext';
 import { PreferencesProvider } from './src/services/PreferencesContext';
 
 const queryClient = new QueryClient();
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+}
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Unhandled app render error:', error, info.componentStack);
+  }
+
+  private handleRecover = () => {
+    this.setState({ hasError: false });
+    if (!__DEV__ && Updates.isEnabled) {
+      void Updates.reloadAsync().catch(() => {});
+    }
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={{ flex: 1, backgroundColor: '#0D0E12', alignItems: 'center', justifyContent: 'center', padding: 28 }}>
+          <Text style={{ color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginBottom: 8 }}>
+            Something went wrong
+          </Text>
+          <Text style={{ color: '#9CA3AF', fontSize: 14, textAlign: 'center', marginBottom: 20 }}>
+            Daymark hit an unexpected display error. Tap below to reload cleanly.
+          </Text>
+          <TouchableOpacity
+            onPress={this.handleRecover}
+            activeOpacity={0.8}
+            style={{ backgroundColor: '#7C3AED', paddingHorizontal: 22, paddingVertical: 12, borderRadius: 999 }}
+          >
+            <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '700' }}>Reload Daymark</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function RootNavigator() {
   const { user, isGuest, isLoading: isAuthLoading } = useAuth();
@@ -167,7 +214,9 @@ export default function App() {
                       <AchievementsProvider>
                         <ReportsProvider>
                           <QueryClientProvider client={queryClient}>
-                            <RootNavigator />
+                            <AppErrorBoundary>
+                              <RootNavigator />
+                            </AppErrorBoundary>
                           </QueryClientProvider>
                         </ReportsProvider>
                       </AchievementsProvider>

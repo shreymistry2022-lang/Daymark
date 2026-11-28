@@ -9,7 +9,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  LayoutAnimation,
   Platform,
   useWindowDimensions,
 } from 'react-native';
@@ -26,6 +25,7 @@ import {
   formatReminderTime,
 } from '../services/localReminders';
 import { HabitReminderModal } from './HabitReminderModal';
+import { triggerLayoutEase } from './AnimatedMonthGrid';
 import { usePreferences } from '../services/PreferencesContext';
 import { dateKeyInTimezone } from '../domain/preferencesEngine';
 
@@ -242,7 +242,7 @@ export const CreateHabitModal = ({
               accessibilityRole="button"
               accessibilityLabel="Quick habit ideas"
               onPress={() => {
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                triggerLayoutEase();
                 setShowPresets(p => !p);
               }}
               style={[styles.ideasPill, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
@@ -275,7 +275,7 @@ export const CreateHabitModal = ({
               <TouchableOpacity
                 activeOpacity={0.8}
                 onPress={() => {
-                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  triggerLayoutEase();
                   setShowIconPicker(p => !p);
                 }}
                 style={styles.heroIconWrap}
@@ -289,7 +289,7 @@ export const CreateHabitModal = ({
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => {
-                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  triggerLayoutEase();
                   setShowIconPicker(p => !p);
                 }}
               >
@@ -440,7 +440,7 @@ export const CreateHabitModal = ({
             <TouchableOpacity
               activeOpacity={0.75}
               onPress={() => {
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                triggerLayoutEase();
                 setShowRepeatSection(p => !p);
               }}
               style={[styles.navRowCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
@@ -541,7 +541,7 @@ export const CreateHabitModal = ({
             <TouchableOpacity
               activeOpacity={0.75}
               onPress={() => {
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                triggerLayoutEase();
                 setShowCategorySection(p => !p);
               }}
               style={[styles.navRowCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}

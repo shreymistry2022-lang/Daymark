@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  LayoutAnimation,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +19,7 @@ import { PaywallModal } from '../components/PaywallModal';
 import { HabitDotGrid } from '../components/HabitDotGrid';
 import { HabitTrackingControl } from '../components/HabitTrackingControl';
 import { MonthYearPickerModal } from '../components/MonthYearPickerModal';
-import { AnimatedMonthContainer, AnimatedPopTouchable } from '../components/AnimatedMonthGrid';
+import { AnimatedMonthContainer, AnimatedPopTouchable, triggerLayoutEase } from '../components/AnimatedMonthGrid';
 import {
   addLocalDays,
   calculateCompletionStats,
@@ -196,7 +195,7 @@ export const CalendarScreen = () => {
               accessibilityRole="button"
               accessibilityLabel="Choose heatmap color theme"
               onPress={() => {
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                triggerLayoutEase();
                 setShowThemePicker(v => !v);
               }}
               style={[
@@ -215,7 +214,7 @@ export const CalendarScreen = () => {
               onPress={() => {
                 if (!canAccessFeature('yearly_heatmap', isPro)) setPaywallVisible(true);
                 else {
-                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  triggerLayoutEase();
                   setShowYearOverview(value => !value);
                 }
               }}
@@ -351,7 +350,7 @@ export const CalendarScreen = () => {
             accessibilityRole="button"
             accessibilityState={{ selected: !showWeekView }}
             onPress={() => {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              triggerLayoutEase();
               setShowWeekView(false);
             }}
             style={[styles.viewToggleButton, !showWeekView && { backgroundColor: colors.accent }]}
@@ -364,7 +363,7 @@ export const CalendarScreen = () => {
             accessibilityRole="button"
             accessibilityState={{ selected: showWeekView }}
             onPress={() => {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              triggerLayoutEase();
               setShowWeekView(true);
             }}
             style={[styles.viewToggleButton, showWeekView && { backgroundColor: colors.accent }]}
@@ -609,6 +608,7 @@ export const CalendarScreen = () => {
                       <AnimatedPopTouchable
                         key={day}
                         pressScale={0.86}
+                        containerStyle={styles.dayCellSlot}
                         style={[
                           styles.dayCell,
                           { backgroundColor: activity.lapses ? '#F43F5E' : getIntensityColor(intensity) },
@@ -967,10 +967,9 @@ const styles = StyleSheet.create({
   monthGridRows: { gap: 6 },
   monthGridRow: { flexDirection: 'row', gap: 6 },
   dayCellEmpty: { flex: 1, aspectRatio: 1, maxHeight: 44 },
+  dayCellSlot: { flex: 1, aspectRatio: 1, maxHeight: 44 },
   dayCell: {
     flex: 1,
-    aspectRatio: 1,
-    maxHeight: 44,
     borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',

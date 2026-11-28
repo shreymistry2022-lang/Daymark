@@ -7,7 +7,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Animated,
-  LayoutAnimation,
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,6 +21,7 @@ import { canCreateHabit, SUBSCRIPTIONS_ENABLED } from '../services/subscriptionE
 import { PaywallModal } from '../components/PaywallModal';
 import { HabitTrackingControl } from '../components/HabitTrackingControl';
 import { HabitDotGrid } from '../components/HabitDotGrid';
+import { triggerLayoutEase } from '../components/AnimatedMonthGrid';
 import { usePreferences } from '../services/PreferencesContext';
 import { getWeekDates } from '../domain/preferencesEngine';
 import { addLocalDays, getHabitDayStatus, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
@@ -284,7 +284,7 @@ export const TodayScreen = () => {
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={() => {
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                triggerLayoutEase();
                 setShowWeekStrip(prev => !prev);
               }}
               style={[styles.summaryPill, { backgroundColor: colors.card, borderColor: selectedCompletionRate === 100 ? colors.accent : colors.border }]}
@@ -322,7 +322,7 @@ export const TodayScreen = () => {
                 },
               ]}
               onPress={() => {
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                triggerLayoutEase();
                 setShowFilters(prev => !prev);
               }}
               activeOpacity={0.7}
