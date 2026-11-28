@@ -1,10 +1,9 @@
+// src/services/PreferencesContext.tsx
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from './supabase';
-import { useAuth } from './AuthProvider';
 import { ThemeMode } from '../theme/tokens';
 import { scheduleRhythmRemindersAsync } from './localReminders';
-import { resolveCloudAuth } from './cloudSyncHelpers';
+import { useDeviceIdentity } from './DeviceIdentityProvider';
 
 export type DateFormat = 'system' | 'us' | 'uk' | 'iso';
 export type DashboardSort = 'custom' | 'alphabetical' | 'consistency' | 'completion';
@@ -25,154 +24,103 @@ export interface DaymarkPreferences {
 export type PreferencesChanges = Partial<Omit<DaymarkPreferences, 'updatedAt' | 'notifications'>> & { notifications?: Partial<DaymarkPreferences['notifications']> };
 interface PreferencesValue { preferences: DaymarkPreferences; isLoading: boolean; error: string | null; updatePreferences: (changes: PreferencesChanges) => void; clearError: () => void; }
 const PreferencesContext = createContext<PreferencesValue | null>(null);
-const storageKey = (id?: string) => `@daymark_preferences_v1:${id ?? 'guest'}`;
+const storageKey = (id: string) => `@daymark_preferences_v1:${id}`;
 export const DEFAULT_ACCENTS = ['#7C83FF', '#4169E1', '#14B8A6', '#38BDF8', '#FF7A00', '#E879F9', '#F43F5E'];
 const defaultPreferences = (): DaymarkPreferences => ({ themeMode: 'automatic', weekStart: 1, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', dateFormat: 'system', hapticsEnabled: true, soundEnabled: true, notifications: { daily: true, routine: true }, dashboardSort: 'custom', accentColor: DEFAULT_ACCENTS[0], wakeTime: null, sleepTime: null, updatedAt: new Date(0).toISOString() });
 const validTheme = (value: unknown): value is ThemeMode => value === 'midnight' || value === 'pure' || value === 'light' || value === 'automatic';
 
-const isMissingOrOffline = (err: any): boolean => {
-  if (!err) return false;
-  const msg = String(err.message || '').toLowerCase();
-  const code = String(err.code || '');
-  return (
-    code === 'PGRST205' ||
-    code === 'PGRST204' ||
-    code === '42P01' ||
-    code === '42703' ||
-    err.status === 404 ||
-    msg.includes('schema cache') ||
-    msg.includes('could not find the table') ||
-    msg.includes('does not exist') ||
-    msg.includes('failed to fetch') ||
-    msg.includes('network request failed') ||
-    msg.includes('load failed') ||
-    msg.includes('column')
-  );
-};
-
 export const usePreferences = () => { const value = useContext(PreferencesContext); if (!value) throw new Error('usePreferences must be used within PreferencesProvider'); return value; };
 
 export const PreferencesProvider = ({ children }: { children: ReactNode }) => {
-  const { user, session } = useAuth();
+  const { deviceOwnerId, isReady } = useDeviceIdentity();
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const userRef = useRef(user);
-  const sessionRef = useRef(session);
+  const deviceOwnerIdRef = useRef(deviceOwnerId);
   const preferencesRef = useRef(preferences);
   useEffect(() => {
-    userRef.current = user;
-    sessionRef.current = session;
+    deviceOwnerIdRef.current = deviceOwnerId;
     preferencesRef.current = preferences;
   });
-  const ownerId = user?.id ?? undefined;
-  const key = storageKey(ownerId);
-  const clearError = useCallback(() => setError(null), []);
 
-  const persist = useCallback(async (next: DaymarkPreferences, sync = true) => {
+  const persist = useCallback(async (next: DaymarkPreferences) => {
     setPreferences(next);
     preferencesRef.current = next;
-    void scheduleRhythmRemindersAsync(next);
-    const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
-    const activeKey = storageKey(cloudAuth?.userId ?? userRef.current?.id ?? undefined);
-    try { await AsyncStorage.setItem(activeKey, JSON.stringify(next)); }
-    catch { setError('Settings could not be saved on this device.'); }
-    if (sync && cloudAuth) {
-      try {
-        let { error: syncError } = await supabase.from('user_preferences').upsert({
-          user_id: cloudAuth.userId,
-          wake_time: next.wakeTime || null,
-          sleep_time: next.sleepTime || null,
-          week_start: next.weekStart,
-          timezone: next.timezone,
-          date_format: next.dateFormat,
-          haptics_enabled: next.hapticsEnabled,
-          sound_enabled: next.soundEnabled,
-          notification_preferences: next.notifications,
-          dashboard_sort: next.dashboardSort,
-          accent_color: next.accentColor || null,
-          theme_mode: next.themeMode,
-          updated_at: next.updatedAt,
-        }, { onConflict: 'user_id' });
-
-        // Fallback if user's remote Supabase database does not yet have wake_time/sleep_time columns
-        if (syncError && (syncError.code === '42703' || syncError.code === 'PGRST204' || String(syncError.message).includes('column'))) {
-          const fallback = await supabase.from('user_preferences').upsert({
-            user_id: cloudAuth.userId,
-            week_start: next.weekStart,
-            timezone: next.timezone,
-            date_format: next.dateFormat,
-            haptics_enabled: next.hapticsEnabled,
-            sound_enabled: next.soundEnabled,
-            notification_preferences: next.notifications,
-            dashboard_sort: next.dashboardSort,
-            accent_color: next.accentColor || null,
-            theme_mode: next.themeMode,
-            updated_at: next.updatedAt,
-          }, { onConflict: 'user_id' });
-          syncError = fallback.error;
-        }
-
-        if (syncError) {
-          console.warn('Preferences saved locally; cloud sync status:', syncError.message);
-          if (!isMissingOrOffline(syncError)) {
-            setError('Settings are saved on this device, but cloud sync failed.');
-          }
-        }
-      } catch (e) {
-        console.warn('Preferences cloud sync error:', e);
-        if (!isMissingOrOffline(e)) {
-          setError('Settings are saved on this device, but cloud sync failed.');
-        }
-      }
+    const key = storageKey(deviceOwnerIdRef.current);
+    try {
+      await AsyncStorage.setItem(key, JSON.stringify(next));
+    } catch (err) {
+      console.warn('Could not save preferences locally:', err);
+      setError('Preferences could not be saved on this device.');
     }
   }, []);
 
+  // Load preferences from AsyncStorage
   useEffect(() => {
+    if (!isReady) return;
     let mounted = true;
     const load = async () => {
-      let local = defaultPreferences();
-      try { const saved = await AsyncStorage.getItem(key); if (saved) local = { ...local, ...(JSON.parse(saved) as Partial<DaymarkPreferences>) }; }
-      catch { if (mounted) setError('Saved settings could not be read.'); }
-      const cloudAuth = await resolveCloudAuth(user, session);
-      if (cloudAuth) {
-        try {
-          const { data, error: queryError } = await supabase.from('user_preferences').select('*').eq('user_id', cloudAuth.userId).maybeSingle();
-          if (queryError) {
-            if (!isMissingOrOffline(queryError)) throw queryError;
-          } else if (data) {
-            const cloudTime = data.updated_at ?? new Date(0).toISOString();
-            if (local.updatedAt > cloudTime) await persist(local);
-            else local = {
-              ...local, weekStart: Number(data.week_start ?? local.weekStart), timezone: data.timezone ?? local.timezone,
-              dateFormat: data.date_format ?? local.dateFormat, hapticsEnabled: data.haptics_enabled ?? local.hapticsEnabled,
-              soundEnabled: data.sound_enabled ?? local.soundEnabled, notifications: { ...local.notifications, ...(data.notification_preferences ?? {}) },
-              dashboardSort: data.dashboard_sort ?? local.dashboardSort, accentColor: data.accent_color ?? local.accentColor,
-              themeMode: validTheme(data.theme_mode) ? data.theme_mode : local.themeMode,
-              wakeTime: (data.wake_time ? String(data.wake_time).slice(0, 5) : null) ?? local.wakeTime,
-              sleepTime: (data.sleep_time ? String(data.sleep_time).slice(0, 5) : null) ?? local.sleepTime,
-              updatedAt: cloudTime,
-            };
-          } else if (local.updatedAt > new Date(0).toISOString()) await persist(local);
-        } catch (syncError: any) {
-          console.warn('Preferences cloud sync unavailable:', syncError);
-          if (mounted && !isMissingOrOffline(syncError)) setError('Cloud sync is unavailable. Settings remain saved locally.');
+      setIsLoading(true);
+      const key = storageKey(deviceOwnerId);
+      try {
+        // Try user-scoped key first, fall back to guest key
+        let raw = await AsyncStorage.getItem(key);
+        if (!raw) raw = await AsyncStorage.getItem('@daymark_preferences_v1:guest');
+        if (raw && mounted) {
+          const parsed = JSON.parse(raw) as Partial<DaymarkPreferences>;
+          const merged: DaymarkPreferences = {
+            ...defaultPreferences(),
+            ...parsed,
+            themeMode: validTheme(parsed.themeMode) ? parsed.themeMode : defaultPreferences().themeMode,
+            notifications: { ...defaultPreferences().notifications, ...(parsed.notifications ?? {}) },
+          };
+          setPreferences(merged);
+          preferencesRef.current = merged;
         }
+      } catch (err) {
+        console.warn('Could not load preferences:', err);
+        if (mounted) setError('Saved preferences could not be read from this device.');
+      } finally {
+        if (mounted) setIsLoading(false);
       }
-      if (!mounted) return;
-      setPreferences(local);
-      preferencesRef.current = local;
-      void scheduleRhythmRemindersAsync(local);
-      try { await AsyncStorage.setItem(key, JSON.stringify(local)); } catch { setError('Settings could not be saved on this device.'); }
-      setIsLoading(false);
     };
-    void load(); return () => { mounted = false; };
-  }, [key, session, user, persist]);
+    void load();
+    return () => { mounted = false; };
+  }, [deviceOwnerId, isReady]);
+
+  // Schedule rhythm reminders when wake/sleep times change
+  const lastRhythmRef = useRef({ wakeTime: preferences.wakeTime, sleepTime: preferences.sleepTime });
+  useEffect(() => {
+    if (isLoading) return;
+    const { wakeTime, sleepTime } = preferences;
+    if (lastRhythmRef.current.wakeTime === wakeTime && lastRhythmRef.current.sleepTime === sleepTime) return;
+    lastRhythmRef.current = { wakeTime, sleepTime };
+    if (wakeTime || sleepTime) {
+      void scheduleRhythmRemindersAsync({ wakeTime, sleepTime }).catch(err =>
+        console.warn('Could not schedule rhythm reminders:', err)
+      );
+    }
+  }, [preferences, isLoading]);
 
   const updatePreferences = useCallback((changes: PreferencesChanges) => {
+    setError(null);
     const current = preferencesRef.current;
-    const next: DaymarkPreferences = { ...current, ...changes, notifications: { ...current.notifications, ...(changes.notifications ?? {}) }, updatedAt: new Date().toISOString() };
-    setError(null); void persist(next);
+    const next: DaymarkPreferences = {
+      ...current,
+      ...changes,
+      notifications: changes.notifications
+        ? { ...current.notifications, ...changes.notifications }
+        : current.notifications,
+      updatedAt: new Date().toISOString(),
+    };
+    void persist(next);
   }, [persist]);
-  return <PreferencesContext.Provider value={{ preferences, isLoading, error, updatePreferences, clearError }}>{children}</PreferencesContext.Provider>;
+
+  const clearError = useCallback(() => setError(null), []);
+
+  return (
+    <PreferencesContext.Provider value={{ preferences, isLoading, error, updatePreferences, clearError }}>
+      {children}
+    </PreferencesContext.Provider>
+  );
 };

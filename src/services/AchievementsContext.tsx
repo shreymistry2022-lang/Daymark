@@ -1,13 +1,12 @@
+// src/services/AchievementsContext.tsx
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from './supabase';
-import { useAuth } from './AuthProvider';
 import { useHabits } from './HabitContext';
 import { ACHIEVEMENTS, AchievementKey, AchievementProgress, calculateAchievementProgress } from '../domain/achievementEngine';
 import { usePreferences } from './PreferencesContext';
 import { dateKeyInTimezone } from '../domain/preferencesEngine';
 import { parseLocalDate } from '../domain/habitEngine';
-import { isTransientCloudError, resolveCloudAuth } from './cloudSyncHelpers';
+import { useDeviceIdentity } from './DeviceIdentityProvider';
 
 interface AchievementsValue {
   achievements: AchievementProgress[];
@@ -16,7 +15,7 @@ interface AchievementsValue {
 }
 
 const AchievementContext = createContext<AchievementsValue | null>(null);
-const storageKey = (userId?: string) => `@daymark_achievements_v1:${userId ?? 'guest'}`;
+const storageKey = (userId: string) => `@daymark_achievements_v1:${userId}`;
 
 export const useAchievements = () => {
   const value = useContext(AchievementContext);
@@ -28,7 +27,7 @@ const initialAchievementsPlaceholder = (): AchievementProgress[] =>
   ACHIEVEMENTS.map(item => ({ ...item, progress: 0, unlocked: false, unlockedAt: null }));
 
 export const AchievementsProvider = ({ children }: { children: ReactNode }) => {
-  const { user, session } = useAuth();
+  const { deviceOwnerId, isReady } = useDeviceIdentity();
   const { allHabits } = useHabits();
   const { preferences } = usePreferences();
   const [unlocked, setUnlocked] = useState<Record<string, string>>({});
@@ -37,8 +36,8 @@ export const AchievementsProvider = ({ children }: { children: ReactNode }) => {
   const [error, setError] = useState<string | null>(null);
   const queuedAwards = useRef(new Set<string>());
   const hasEvaluatedOnceRef = useRef(false);
-  const owner = user?.id ?? 'guest';
-  const key = storageKey(owner);
+
+  const key = storageKey(deviceOwnerId);
 
   const persist = useCallback(async (next: Record<string, string>) => {
     setUnlocked(next);
@@ -50,6 +49,7 @@ export const AchievementsProvider = ({ children }: { children: ReactNode }) => {
   }, [key]);
 
   useEffect(() => {
+    if (!isReady) return;
     let mounted = true;
     const load = async () => {
       setIsLoading(true);
@@ -59,54 +59,14 @@ export const AchievementsProvider = ({ children }: { children: ReactNode }) => {
       } catch {
         if (mounted) setError('Saved achievement history could not be read.');
       }
-
-      const cloudAuth = await resolveCloudAuth(user, session);
-      if (cloudAuth) {
-        try {
-          const { data, error: queryError } = await supabase
-            .from('achievements')
-            .select('achievement_key,unlocked_at')
-            .eq('user_id', cloudAuth.userId);
-          if (queryError) throw queryError;
-          const cloudKeys = new Set<string>();
-          for (const row of data ?? []) {
-            if (row.achievement_key && row.unlocked_at) {
-              local[row.achievement_key] = row.unlocked_at;
-              cloudKeys.add(row.achievement_key);
-            }
-          }
-          if (mounted) await persist(local);
-          const pending = Object.entries(local).filter(([achievement_key]) => !cloudKeys.has(achievement_key));
-          if (pending.length) {
-            const { error: uploadError } = await supabase
-              .from('achievements')
-              .upsert(
-                pending.map(([achievement_key, unlocked_at]) => ({
-                  user_id: cloudAuth.userId,
-                  achievement_key,
-                  unlocked_at,
-                })),
-                { onConflict: 'user_id,achievement_key', ignoreDuplicates: true },
-              );
-            if (uploadError) throw uploadError;
-          }
-          if (mounted) setError(null);
-        } catch (syncError) {
-          console.warn('Achievement cloud sync deferred:', syncError);
-          if (mounted && !isTransientCloudError(syncError)) {
-            setError('Achievement sync is unavailable. Your local history remains available.');
-          }
-        }
-      } else if (mounted) {
+      if (mounted) {
         setUnlocked(local);
+        setIsLoading(false);
       }
-      if (mounted) setIsLoading(false);
     };
     void load();
-    return () => {
-      mounted = false;
-    };
-  }, [key, session, user, persist]);
+    return () => { mounted = false; };
+  }, [key, isReady]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -130,26 +90,6 @@ export const AchievementsProvider = ({ children }: { children: ReactNode }) => {
       if (!awardsToSave.length) return;
       awardsToSave.forEach(item => queuedAwards.current.add(item));
       void persist(next);
-      void (async () => {
-        const cloudAuth = await resolveCloudAuth(user, session);
-        if (!cloudAuth || cancelled) return;
-        const { error: syncError } = await supabase
-          .from('achievements')
-          .upsert(
-            awardsToSave.map(achievement_key => ({
-              user_id: cloudAuth.userId,
-              achievement_key,
-              unlocked_at: next[achievement_key],
-            })),
-            { onConflict: 'user_id,achievement_key', ignoreDuplicates: true },
-          );
-        if (syncError) {
-          console.warn('Achievements saved locally; cloud sync deferred:', syncError);
-          if (!isTransientCloudError(syncError)) {
-            setError('New achievements are saved locally, but cloud sync failed.');
-          }
-        }
-      })();
     };
 
     const delayMs = hasEvaluatedOnceRef.current ? 800 : 60;
@@ -160,7 +100,7 @@ export const AchievementsProvider = ({ children }: { children: ReactNode }) => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [allHabits, isLoading, unlocked, persist, session, user, preferences.timezone]);
+  }, [allHabits, isLoading, unlocked, persist, preferences.timezone]);
 
   return <AchievementContext.Provider value={{ achievements, isLoading, error }}>{children}</AchievementContext.Provider>;
 };

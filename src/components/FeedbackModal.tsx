@@ -14,10 +14,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
-import { useAuth } from '../services/AuthProvider';
 import { radii, spacing } from '../theme/tokens';
 import {
-  openStoreReviewPage,
+  openStoreReview,
   submitCustomerFeedback,
   FeedbackSubmission,
 } from '../services/feedbackService';
@@ -31,7 +30,6 @@ type FeedbackCategory = 'general' | 'bug' | 'feature_request' | 'design';
 
 export const FeedbackModal = ({ visible, onClose }: FeedbackModalProps) => {
   const { colors } = useTheme();
-  const { user } = useAuth();
 
   const [rating, setRating] = useState<number>(0);
   const [category, setCategory] = useState<FeedbackCategory>('general');
@@ -63,8 +61,8 @@ export const FeedbackModal = ({ visible, onClose }: FeedbackModalProps) => {
       sentiment,
       category,
       feedbackText,
-      userId: user?.id ?? null,
-      userEmail: user?.email ?? null,
+      userId: null,
+      userEmail: null,
     };
 
     await submitCustomerFeedback(submission);
@@ -123,7 +121,7 @@ export const FeedbackModal = ({ visible, onClose }: FeedbackModalProps) => {
                   <TouchableOpacity
                     style={[styles.primaryActionBtn, { backgroundColor: colors.accent }]}
                     onPress={() => {
-                      void openStoreReviewPage();
+                      void openStoreReview();
                       handleClose();
                     }}
                   >
@@ -179,7 +177,7 @@ export const FeedbackModal = ({ visible, onClose }: FeedbackModalProps) => {
                     <TouchableOpacity
                       style={[styles.primaryActionBtn, { backgroundColor: colors.accent, width: '100%', marginTop: 8 }]}
                       onPress={() => {
-                        void openStoreReviewPage();
+                        void openStoreReview();
                         void handleSubmit();
                       }}
                     >

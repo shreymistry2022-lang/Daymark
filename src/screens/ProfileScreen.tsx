@@ -18,7 +18,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, THEME_OPTIONS } from '../theme/tokens';
 import { useHabits } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
-import { useAuth } from '../services/AuthProvider';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canAccessFeature, SUBSCRIPTIONS_ENABLED } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
@@ -76,14 +75,13 @@ export const ProfileScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const { habits, allHabits, stats, restartOnboarding, syncAllHabitsNow } = useHabits();
+  const { habits, allHabits, stats, restartOnboarding } = useHabits();
   const { mode, setMode, colors } = useTheme();
-  const { user, signOut, deleteAccount } = useAuth();
   const { isPro } = useSubscription();
   const { preferences } = usePreferences();
-  const { routines, retryRoutineSync } = useRoutines();
-  const { goals, retryGoalSync } = useGoals();
-  const { entries, retryJournalSync } = useJournal();
+  const { routines } = useRoutines();
+  const { goals } = useGoals();
+  const { entries } = useJournal();
   const { achievements } = useAchievements();
 
   const [paywallVisible, setPaywallVisible] = useState(false);
@@ -144,71 +142,13 @@ export const ProfileScreen = () => {
     }
   };
 
-  const handleSyncNow = async () => {
-    if (!user || user.isGuest) {
-      Alert.alert('Guest Mode', 'Sign in with an account to back up and sync your data to the cloud.');
-      return;
-    }
-    await Promise.all([
-      syncAllHabitsNow(),
-      retryGoalSync(),
-      retryRoutineSync(),
-      retryJournalSync(),
-    ]);
-    Alert.alert('Cloud Sync Complete', 'All habits, goals, routines, and journal entries are synced to your account.');
-  };
-
-  const handleSignOut = async () => {
-    if (Platform.OS === 'web') {
-      const confirmed = typeof window !== 'undefined' && window.confirm ? window.confirm('Are you sure you want to sign out?') : true;
-      if (confirmed) await signOut();
-      return;
-    }
-    Alert.alert('Sign Out', 'Are you sure you want to sign out? Cloud data stays safely synced to your account.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: async () => { await signOut(); } },
-    ]);
-  };
-
-  const handleDeleteAccount = async () => {
-    Alert.alert(
-      'Delete Account',
-      'Are you sure you want to permanently delete your account and all data? This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete Forever',
-          style: 'destructive',
-          onPress: async () => {
-            const res = await deleteAccount();
-            if (res?.error) Alert.alert('Delete Account Failed', res.error);
-          },
-        },
-      ]
-    );
-  };
-
-  const displayName = user?.fullName || user?.email?.split('@')[0] || 'Daymark Member';
-  const displayRole = user?.email
-    ? isPro ? `${user.email} · Pro` : `${user.email} · Free`
-    : 'Guest Account';
-
   const currentThemeLabel = THEME_OPTIONS.find(t => t.id === mode)?.label ?? 'Automatic';
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 110 }]} showsVerticalScrollIndicator={false}>
-        {/* Centered Header (Reference Image 8) */}
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.primaryText }]}>Settings</Text>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="View user details"
-            style={[styles.circleInfoBtn, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
-            onPress={() => Alert.alert('Account Details', `Name: ${displayName}\nAccount: ${displayRole}${user?.id ? `\nUser ID: ${user.id}` : ''}`)}
-          >
-            <Ionicons name="person-outline" size={18} color={colors.primaryText} />
-          </TouchableOpacity>
         </View>
 
         {/* Hero Pro Card (Reference Image 8) */}
@@ -237,25 +177,6 @@ export const ProfileScreen = () => {
             <Text style={styles.proPillBtnText}>
               {isPro ? 'Manage Daymark Pro' : 'Get Daymark Pro  ➔'}
             </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Compact Account + Cloud Sync Card (Reference Image 6) */}
-        <View style={[styles.accountCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={[styles.avatarCircle, { backgroundColor: `${colors.accent}1E` }]}>
-            <Ionicons name="person" size={22} color={colors.accent} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.userName, { color: colors.primaryText }]} numberOfLines={1}>{displayName}</Text>
-            <Text style={[styles.userRole, { color: colors.secondaryText }]} numberOfLines={1}>{displayRole}</Text>
-          </View>
-          <TouchableOpacity
-            style={[styles.syncPillBtn, { backgroundColor: `${colors.accent}1A` }]}
-            onPress={() => void handleSyncNow()}
-            activeOpacity={0.75}
-          >
-            <Ionicons name="cloud-done-outline" size={14} color={colors.accent} />
-            <Text style={[styles.syncPillText, { color: colors.accent }]}>Sync</Text>
           </TouchableOpacity>
         </View>
 
@@ -317,31 +238,17 @@ export const ProfileScreen = () => {
         <Text style={[styles.groupTitle, { color: colors.secondaryText }]}>BACKUP & EXPORT</Text>
         <View style={[styles.groupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <SettingsRow
-            icon="cloud-upload-outline"
-            iconColor="#38BDF8"
-            label="Sync Data to Cloud"
-            valueLabel={user && !user.isGuest ? '● Auto' : 'Guest'}
-            onPress={() => void handleSyncNow()}
-            colors={colors}
-          />
-          <SettingsRow
             icon="download-outline"
             iconColor="#10B981"
             label="Export Progress (CSV)"
-            onPress={() => {
-              if (!canAccessFeature('advanced_export', isPro)) setPaywallVisible(true);
-              else void handleExportData('csv');
-            }}
+            onPress={() => void handleExportData('csv')}
             colors={colors}
           />
           <SettingsRow
             icon="code-download-outline"
             iconColor="#7C83FF"
             label="Export Backup (JSON)"
-            onPress={() => {
-              if (!canAccessFeature('advanced_export', isPro)) setPaywallVisible(true);
-              else void handleExportData('json');
-            }}
+            onPress={() => void handleExportData('json')}
             isLast
             colors={colors}
           />
@@ -365,21 +272,6 @@ export const ProfileScreen = () => {
             iconColor="#10B981"
             label="Terms of Service"
             onPress={() => void handleOpenUrl(process.env.EXPO_PUBLIC_TERMS_URL || 'https://shreymistry2022-lang.github.io/Daymark/terms.html')}
-            isLast
-            colors={colors}
-          />
-        </View>
-
-        {/* Section: ACCOUNT */}
-        <Text style={[styles.groupTitle, { color: colors.secondaryText }]}>ACCOUNT</Text>
-        <View style={[styles.groupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <SettingsRow icon="log-out-outline" iconColor={colors.secondaryText} label="Sign Out" onPress={handleSignOut} colors={colors} />
-          <SettingsRow
-            icon="trash-outline"
-            iconColor={colors.error}
-            label="Delete Account & Data"
-            labelColor={colors.error}
-            onPress={handleDeleteAccount}
             isLast
             colors={colors}
           />

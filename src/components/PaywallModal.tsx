@@ -126,7 +126,10 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
 
   const buy = async (item?: PurchasesPackage) => {
     if (!canPurchase) {
-      Alert.alert('Account required', 'Create an account or sign in before subscribing so your verified Pro access can sync across devices.');
+      Alert.alert(
+        'Store Subscriptions Connecting',
+        'In-app subscriptions are connecting to Google Play. Once your Google Play Store subscription setup is finalized, purchases will process directly through Google Play.'
+      );
       return;
     }
     if (!item) {

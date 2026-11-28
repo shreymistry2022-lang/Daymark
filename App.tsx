@@ -7,12 +7,11 @@ import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
-import { AuthProvider, useAuth } from './src/services/AuthProvider';
+import { DeviceIdentityProvider, useDeviceIdentity } from './src/services/DeviceIdentityProvider';
 import { HabitProvider, useHabits } from './src/services/HabitContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import BottomTabNavigator from './src/navigation/BottomTabNavigator';
 import { OnboardingScreen } from './src/screens/onboarding/OnboardingScreen';
-import { AuthScreen } from './src/screens/AuthScreen';
 import { CelebrationOverlay } from './src/components/CelebrationOverlay';
 import { NotificationPermissionModal } from './src/components/NotificationPermissionModal';
 import { BrandOpeningScreen } from './src/components/BrandOpeningScreen';
@@ -75,7 +74,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
 }
 
 function RootNavigator() {
-  const { user, isGuest, isLoading: isAuthLoading } = useAuth();
+  const { deviceOwnerId, isReady: isIdentityReady } = useDeviceIdentity();
   const {
     hasCompletedOnboarding,
     completeOnboarding,
@@ -109,16 +108,14 @@ function RootNavigator() {
   useEffect(() => {
     let active = true;
     const checkPermissionNeeded = async () => {
-      // Only prompt when authenticated and finished with onboarding
-      if (!user || user.isGuest || !hasCompletedOnboarding) return;
+      if (!isIdentityReady || !hasCompletedOnboarding) return;
       try {
-        const storageKey = `@daymark_permission_prompted_${user.id}`;
+        const storageKey = `@daymark_permission_prompted_${deviceOwnerId}`;
         const alreadyPrompted = await AsyncStorage.getItem(storageKey);
         if (alreadyPrompted) return;
 
         const { granted } = await checkNotificationPermissionStatus();
         if (!granted && active) {
-          // Delay briefly to let screen transitions finish smoothly
           const timer = setTimeout(() => {
             if (active) setShowPermissionPrompt(true);
           }, 800);
@@ -133,13 +130,11 @@ function RootNavigator() {
     return () => {
       active = false;
     };
-  }, [user, hasCompletedOnboarding]);
+  }, [deviceOwnerId, isIdentityReady, hasCompletedOnboarding]);
 
   const handleDismissPermission = async () => {
     setShowPermissionPrompt(false);
-    if (user?.id) {
-      await AsyncStorage.setItem(`@daymark_permission_prompted_${user.id}`, 'true').catch(() => {});
-    }
+    await AsyncStorage.setItem(`@daymark_permission_prompted_${deviceOwnerId}`, 'true').catch(() => {});
   };
 
   const baseTheme = isDark ? DarkTheme : DefaultTheme;
@@ -158,21 +153,17 @@ function RootNavigator() {
   };
 
   const [isSplashDone, setIsSplashDone] = useState(false);
-  const isReady = !isAuthLoading && !isLoadingData;
+  const isReady = isIdentityReady && !isLoadingData;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
       {/* Main navigation mounted underneath and ready */}
-      {!isAuthLoading && (
+      {isIdentityReady && (
         <NavigationContainer theme={navTheme}>
-          {user && !user.isGuest ? (
-            <BottomTabNavigator />
-          ) : !hasCompletedOnboarding ? (
+          {!hasCompletedOnboarding ? (
             <OnboardingScreen onComplete={completeOnboarding} />
-          ) : !user ? (
-            <AuthScreen />
           ) : (
             <BottomTabNavigator />
           )}
@@ -203,7 +194,7 @@ function RootNavigator() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AuthProvider>
+      <DeviceIdentityProvider>
         <SubscriptionProvider>
           <PreferencesProvider>
             <ThemeProvider>
@@ -227,7 +218,7 @@ export default function App() {
             </ThemeProvider>
           </PreferencesProvider>
         </SubscriptionProvider>
-      </AuthProvider>
+      </DeviceIdentityProvider>
     </SafeAreaProvider>
   );
 }

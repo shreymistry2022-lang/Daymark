@@ -7,8 +7,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Animated,
-  TextInput,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -17,7 +15,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radii } from '../../theme/tokens';
 import { useHabits, Habit } from '../../services/HabitContext';
 import { usePreferences } from '../../services/PreferencesContext';
-import { useAuth, SocialProvider } from '../../services/AuthProvider';
 import { ensureLocalReminderPermission, parseTimeString } from '../../services/localReminders';
 import * as Haptics from 'expo-haptics';
 
@@ -83,10 +80,9 @@ export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {
   const insets = useSafeAreaInsets();
   const { addMultipleHabits } = useHabits();
   const { updatePreferences, preferences } = usePreferences();
-  const { signUp, signIn, signInWithProvider, continueAsGuest } = useAuth();
 
   const [currentStep, setCurrentStep] = useState<number>(1);
-  const totalSteps = 6;
+  const totalSteps = 5;
 
   // Selections
   const [selectedGoals, setSelectedGoals] = useState<string[]>(['focus', 'fitness']);
@@ -95,15 +91,6 @@ export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {
   const [wakeIndex, setWakeIndex] = useState(1); // '06:30 AM'
   const [sleepIndex, setSleepIndex] = useState(1); // '10:30 PM'
   const [reminderActive, setReminderActive] = useState(true);
-
-  // Sign up / In Form state for Step 6
-  const [authMode, setAuthMode] = useState<'signup' | 'signin'>('signup');
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Animations
   const [fadeAnim] = useState(() => new Animated.Value(1));
@@ -213,77 +200,12 @@ export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {
     });
   };
 
-  const handleGuestContinue = async () => {
+  const handleFinish = async () => {
     if (preferences.hapticsEnabled) {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
     }
     await commitStarterData();
-    continueAsGuest();
     onComplete();
-  };
-
-  const handleAuthSubmit = async () => {
-    setAuthError(null);
-    const trimmedEmail = email.trim();
-    const trimmedPass = password.trim();
-
-    if (!trimmedEmail) {
-      setAuthError('Please enter your email address.');
-      return;
-    }
-    if (!trimmedPass || trimmedPass.length < 6) {
-      setAuthError('Password must be at least 6 characters.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      if (authMode === 'signup') {
-        const res = await signUp(trimmedEmail, trimmedPass, fullName);
-        if (res.error) {
-          setAuthError(res.error);
-          return;
-        }
-        // Only seed starter habits for genuinely brand-new accounts; never overwrite existing accounts!
-        if (!res.isExistingUser) {
-          await commitStarterData();
-        }
-      } else {
-        const res = await signIn(trimmedEmail, trimmedPass);
-        if (res.error) {
-          setAuthError(res.error);
-          return;
-        }
-        // Existing account signing in: DO NOT call commitStarterData()! All cloud habits, history, and streaks will load intact.
-      }
-
-      if (preferences.hapticsEnabled) {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
-      }
-      onComplete();
-    } catch {
-      setAuthError('An unexpected error occurred. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleSocialAuth = async (provider: SocialProvider) => {
-    setAuthError(null);
-    setIsSubmitting(true);
-    try {
-      const res = await signInWithProvider(provider);
-      if (res.error) {
-        setAuthError(res.error);
-        return;
-      }
-      // Do not overwrite existing account data with starter habits on social sign-in
-      onComplete();
-    } catch {
-      setAuthError(`${provider} sign-in failed. Please try email.`);
-    } finally {
-      setIsSubmitting(false);
-    }
   };
 
   return (
@@ -421,16 +343,6 @@ export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {
                 >
                   <Text style={styles.primaryBtnText}>Start My Routine</Text>
                   <Ionicons name="arrow-forward" size={18} color="#000" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.secondaryLinkBtn}
-                  onPress={() => {
-                    setAuthMode('signin');
-                    changeStep(6);
-                  }}
-                >
-                  <Text style={styles.secondaryLinkText}>Already have an account? <Text style={{ color: colors.accent, fontWeight: '700' }}>Sign In</Text></Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -678,209 +590,11 @@ export const OnboardingScreen = ({ onComplete }: OnboardingScreenProps) => {
                 <TouchableOpacity
                   style={styles.primaryBtn}
                   activeOpacity={0.8}
-                  onPress={() => changeStep(6)}
+                  onPress={() => void handleFinish()}
                 >
-                  <Text style={styles.primaryBtnText}>Review My Blueprint</Text>
+                  <Text style={styles.primaryBtnText}>Start Tracking</Text>
                   <Ionicons name="arrow-forward" size={18} color="#000" />
                 </TouchableOpacity>
-              </View>
-            )}
-
-            {/* ================= STEP 6: BLUEPRINT & CONVINCE TO SIGN UP ================= */}
-            {currentStep === 6 && (
-              <View>
-                <View style={styles.stepHeader}>
-                  <Text style={styles.stepEyebrow}>STEP 06 • LOCK IN YOUR STREAK</Text>
-                  <Text style={styles.stepTitle}>Your Daymark Blueprint</Text>
-                  <Text style={styles.stepSub}>
-                    Everything is calibrated for sustainable momentum. Create your free account to protect your streak.
-                  </Text>
-                </View>
-
-                {/* Blueprint Momentum Card */}
-                <View style={styles.blueprintCard}>
-                  <View style={styles.blueprintHeaderRow}>
-                    <View>
-                      <Text style={styles.blueprintEyebrow}>PROJECTED OUTCOME</Text>
-                      <Text style={styles.blueprintTitle}>92% 30-Day Consistency</Text>
-                    </View>
-                    <View style={styles.blueprintBadge}>
-                      <Ionicons name="flame" size={18} color={colors.accent} />
-                      <Text style={styles.blueprintBadgeText}>READY</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.blueprintDivider} />
-
-                  <View style={styles.blueprintGrid}>
-                    <View style={styles.blueprintStat}>
-                      <Text style={styles.blueprintStatVal}>{selectedHabits.length}</Text>
-                      <Text style={styles.blueprintStatLabel}>Starter Habits</Text>
-                    </View>
-                    <View style={styles.blueprintStat}>
-                      <Text style={styles.blueprintStatVal}>~8 mins</Text>
-                      <Text style={styles.blueprintStatLabel}>Daily Commitment</Text>
-                    </View>
-                    <View style={styles.blueprintStat}>
-                      <Text style={styles.blueprintStatVal}>365d</Text>
-                      <Text style={styles.blueprintStatLabel}>Visual Heatmap</Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* The Pitch Card */}
-                <View style={styles.pitchCard}>
-                  <Text style={styles.pitchTitle}>Why create a free account?</Text>
-                  <View style={styles.pitchBenefitRow}>
-                    <Ionicons name="checkmark-circle" size={18} color="#10B981" />
-                    <Text style={styles.pitchBenefitText}><Text style={{ fontWeight: '700', color: colors.primaryText }}>Streak Protection:</Text> Never lose your habit streak if you switch phones.</Text>
-                  </View>
-                  <View style={styles.pitchBenefitRow}>
-                    <Ionicons name="checkmark-circle" size={18} color="#10B981" />
-                    <Text style={styles.pitchBenefitText}><Text style={{ fontWeight: '700', color: colors.primaryText }}>Multi-Device Cloud Sync:</Text> Keep habits updated across phone & tablet.</Text>
-                  </View>
-                  <View style={styles.pitchBenefitRow}>
-                    <Ionicons name="checkmark-circle" size={18} color="#10B981" />
-                    <Text style={styles.pitchBenefitText}><Text style={{ fontWeight: '700', color: colors.primaryText }}>100% Free Forever:</Text> All features, analytics & widgets are unlocked.</Text>
-                  </View>
-                </View>
-
-                {/* Form Mode Selector */}
-                <View style={styles.authModeToggle}>
-                  <TouchableOpacity
-                    style={[styles.authModeBtn, authMode === 'signup' && styles.authModeBtnActive]}
-                    onPress={() => { setAuthMode('signup'); setAuthError(null); }}
-                  >
-                    <Text style={[styles.authModeText, authMode === 'signup' && styles.authModeTextActive]}>Create Free Account</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.authModeBtn, authMode === 'signin' && styles.authModeBtnActive]}
-                    onPress={() => { setAuthMode('signin'); setAuthError(null); }}
-                  >
-                    <Text style={[styles.authModeText, authMode === 'signin' && styles.authModeTextActive]}>Sign In</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {authError && (
-                  <View style={styles.errorBox}>
-                    <Ionicons name="alert-circle" size={16} color={colors.error} />
-                    <Text style={styles.errorText}>{authError}</Text>
-                  </View>
-                )}
-
-                {/* Quick Account Form */}
-                <View style={styles.formContainer}>
-                  {authMode === 'signup' && (
-                    <View style={styles.inputGroup}>
-                      <Text style={styles.inputLabel}>YOUR NAME</Text>
-                      <View style={styles.inputWrap}>
-                        <Ionicons name="person-outline" size={18} color={colors.mutedText} />
-                        <TextInput
-                          style={styles.textInput}
-                          placeholder="Your name"
-                          placeholderTextColor={colors.mutedText}
-                          value={fullName}
-                          onChangeText={setFullName}
-                          autoCapitalize="words"
-                        />
-                      </View>
-                    </View>
-                  )}
-
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>EMAIL ADDRESS</Text>
-                    <View style={styles.inputWrap}>
-                      <Ionicons name="mail-outline" size={18} color={colors.mutedText} />
-                      <TextInput
-                        style={styles.textInput}
-                        placeholder="name@example.com"
-                        placeholderTextColor={colors.mutedText}
-                        value={email}
-                        onChangeText={setEmail}
-                        autoCapitalize="none"
-                        keyboardType="email-address"
-                        autoCorrect={false}
-                      />
-                    </View>
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>PASSWORD</Text>
-                    <View style={styles.inputWrap}>
-                      <Ionicons name="lock-closed-outline" size={18} color={colors.mutedText} />
-                      <TextInput
-                        style={styles.textInput}
-                        placeholder="At least 6 characters"
-                        placeholderTextColor={colors.mutedText}
-                        value={password}
-                        onChangeText={setPassword}
-                        secureTextEntry={!showPassword}
-                        autoCapitalize="none"
-                      />
-                      <TouchableOpacity onPress={() => setShowPassword(p => !p)} style={{ padding: 4 }}>
-                        <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color={colors.mutedText} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  <TouchableOpacity
-                    style={[styles.primaryBtn, { backgroundColor: colors.accent, marginTop: spacing.md }]}
-                    onPress={handleAuthSubmit}
-                    disabled={isSubmitting}
-                    activeOpacity={0.8}
-                  >
-                    {isSubmitting ? (
-                      <ActivityIndicator size="small" color="#000" />
-                    ) : (
-                      <>
-                        <Ionicons name={authMode === 'signup' ? 'shield-checkmark' : 'log-in'} size={18} color="#000" />
-                        <Text style={styles.primaryBtnText}>
-                          {authMode === 'signup' ? 'Lock In My Habits & Start' : 'Sign In & Load Habits'}
-                        </Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-
-                  {/* Social Login Buttons */}
-                  <View style={styles.socialDividerRow}>
-                    <View style={styles.dividerLine} />
-                    <Text style={styles.dividerLabel}>OR CONTINUE WITH</Text>
-                    <View style={styles.dividerLine} />
-                  </View>
-
-                  <View style={styles.socialBtnRow}>
-                    <TouchableOpacity
-                      style={styles.socialBtn}
-                      onPress={() => handleSocialAuth('google')}
-                      disabled={isSubmitting}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="logo-google" size={18} color={colors.primaryText} />
-                      <Text style={styles.socialBtnText}>Google</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.socialBtn}
-                      onPress={() => handleSocialAuth('apple')}
-                      disabled={isSubmitting}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="logo-apple" size={18} color={colors.primaryText} />
-                      <Text style={styles.socialBtnText}>Apple</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Frictionless Guest Exit */}
-                  <TouchableOpacity
-                    style={styles.guestLinkBtn}
-                    onPress={handleGuestContinue}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.guestLinkText}>
-                      Try offline first without account &rarr; <Text style={{ textDecorationLine: 'underline' }}>Continue as Guest</Text>
-                    </Text>
-                  </TouchableOpacity>
-                </View>
               </View>
             )}
           </Animated.View>

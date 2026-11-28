@@ -1,10 +1,7 @@
 // src/services/HabitContext.tsx
 import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode, useRef, useCallback } from 'react';
-import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase, isSupabaseConfigured } from './supabase';
-import { useAuth } from './AuthProvider';
 import { canCreateHabit } from './subscriptionEntitlements';
 import { useSubscription } from './SubscriptionProvider';
 import { addLocalDays, calculateCompletionStats, calculateStreakStats, canLogHabitOnDate, getHabitDayStatus, isScheduledOnDate, normalizeSchedule, parseLocalDate } from '../domain/habitEngine';
@@ -13,7 +10,7 @@ import { replaceLocalHabitReminders, cleanupDuplicateNotificationsAsync, schedul
 import { usePreferences } from './PreferencesContext';
 import { dateKeyInTimezone } from '../domain/preferencesEngine';
 import DaymarkTodayWidget from '../widgets/DaymarkTodayWidget';
-import { readStorageJson, resolveCloudAuth, writeStorageJson } from './cloudSyncHelpers';
+import { useDeviceIdentity } from './DeviceIdentityProvider';
 
 export interface Habit {
   id: string;
@@ -65,8 +62,6 @@ interface HabitContextType {
   isCelebrationVisible: boolean;
   triggerCelebration: () => void;
   dismissCelebration: () => void;
-  ensureHabitsSynced: (habitIds: string[]) => Promise<string[]>;
-  syncAllHabitsNow: () => Promise<void>;
   stats: {
     completedToday: number;
     totalToday: number;
@@ -80,11 +75,7 @@ interface HabitContextType {
 const STORAGE_KEYS = {
   HABITS: '@daymark_habits_v1',
   ONBOARDING: '@daymark_onboarding_v1',
-  DELETED_HABITS: '@daymark_deleted_habits_v1',
 };
-const pendingHabitsKey = (userId: string) => `@daymark_pending_habits_v1_${userId}`;
-const deletedHabitsKey = (userId?: string) => userId ? `@daymark_deleted_habits_v2_${userId}` : STORAGE_KEYS.DELETED_HABITS;
-const userHabitsStorageKey = (userId: string) => `@daymark_habits_user_${userId}`;
 
 const INITIAL_HABITS: Habit[] = [];
 
@@ -99,26 +90,20 @@ export const useHabits = () => {
 };
 
 export const HabitProvider = ({ children }: { children: ReactNode }) => {
-  const { user, session } = useAuth();
+  const { deviceOwnerId, isReady } = useDeviceIdentity();
   const { isPro } = useSubscription();
   const { preferences } = usePreferences();
   const [habits, setHabits] = useState<Habit[]>(INITIAL_HABITS);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean>(false);
   const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
   const [isCelebrationVisible, setIsCelebrationVisible] = useState<boolean>(false);
-  const isLoadedRef = useRef(false);
-  const deletedHabitIdsRef = useRef<string[]>([]);
-  const userRef = useRef(user);
-  const sessionRef = useRef(session);
   const habitsRef = useRef(habits);
-  const syncedHabitIdsRef = useRef<Set<string>>(new Set());
-  const [hasPendingSync, setHasPendingSync] = useState(false);
+  const deviceOwnerIdRef = useRef(deviceOwnerId);
+
   useEffect(() => {
-    userRef.current = user;
-    sessionRef.current = session;
     habitsRef.current = habits;
+    deviceOwnerIdRef.current = deviceOwnerId;
   });
-  const syncHabitToCloudRef = useRef<(habit: Habit) => Promise<boolean>>(async () => false);
 
   const todayStr = dateKeyInTimezone(new Date(), preferences.timezone);
   const todayReferenceDate = useMemo(() => parseLocalDate(todayStr) ?? new Date(), [todayStr]);
@@ -126,54 +111,28 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
   const triggerCelebration = () => setIsCelebrationVisible(true);
   const dismissCelebration = () => setIsCelebrationVisible(false);
 
-  // Load recorded data from persistent storage (and Supabase if configured)
+  // Load recorded data from local AsyncStorage
   useEffect(() => {
+    if (!isReady) return;
     let isMounted = true;
-    syncedHabitIdsRef.current.clear();
 
     const loadData = async () => {
       try {
-        // 1. Load cached habits, onboarding state, and tombstones for deleted habits
-        const activeUid = user?.id && !user.isGuest ? user.id : undefined;
-        const userHabitsKey = activeUid ? userHabitsStorageKey(activeUid) : null;
-        const userOnboardingKey = activeUid ? `@daymark_onboarding_v2_${activeUid}` : null;
-        const delKey = deletedHabitsKey(activeUid);
-        const [savedHabitsJson, savedUserHabitsJson, savedOnboarding, savedUserOnboarding, savedDeletedUserJson, savedDeletedLegacyJson] = await Promise.all([
+        const [savedHabitsJson, savedOnboarding] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.HABITS),
-          userHabitsKey ? AsyncStorage.getItem(userHabitsKey) : Promise.resolve(null),
           AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING),
-          userOnboardingKey ? AsyncStorage.getItem(userOnboardingKey) : Promise.resolve(null),
-          AsyncStorage.getItem(delKey),
-          delKey !== STORAGE_KEYS.DELETED_HABITS ? AsyncStorage.getItem(STORAGE_KEYS.DELETED_HABITS) : Promise.resolve(null),
         ]);
 
-        let deletedHabitIds: string[] = [];
-        const rawDeleted = savedDeletedUserJson ?? savedDeletedLegacyJson;
-        if (rawDeleted) {
-          try {
-            const parsed = JSON.parse(rawDeleted);
-            if (Array.isArray(parsed)) {
-              deletedHabitIds = parsed;
-              deletedHabitIdsRef.current = parsed;
-            }
-          } catch (delErr) {
-            console.warn('Failed to parse deleted habit IDs:', delErr);
-          }
-        }
-
         let localHabits: Habit[] = [];
-        const hasUserScopedHabits = Boolean(savedUserHabitsJson);
-        const rawJsonToParse = (user && !user.isGuest && savedUserHabitsJson) ? savedUserHabitsJson : savedHabitsJson;
-        if (rawJsonToParse) {
+        if (savedHabitsJson) {
           try {
-            const parsed = JSON.parse(rawJsonToParse);
+            const parsed = JSON.parse(savedHabitsJson);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              localHabits = parsed
-                .filter((item: Habit) => !deletedHabitIds.includes(item.id))
-                .map((item: Habit) => (item.habitKind !== 'quit' && (item.trackingMethod === 'count' || item.trackingMethod === 'measurable'))
+              localHabits = parsed.map((item: Habit) =>
+                item.habitKind !== 'quit' && (item.trackingMethod === 'count' || item.trackingMethod === 'measurable')
                   ? { ...item, trackingMethod: 'yes_no' as const }
                   : item
-                );
+              );
               if (isMounted) {
                 setHabits(localHabits);
                 habitsRef.current = localHabits;
@@ -184,418 +143,43 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
           }
         }
 
-        // New installs start empty. Onboarding only adds habits the user explicitly selected.
-        if (localHabits.length === 0 && (!user || user.isGuest)) {
-          localHabits = INITIAL_HABITS;
-          if (isMounted) {
-            setHabits(INITIAL_HABITS);
-            habitsRef.current = INITIAL_HABITS;
-          }
-          await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(INITIAL_HABITS)).catch(() => { });
-        }
-
-        const isFreshInstall = savedHabitsJson === null && savedOnboarding === null && savedUserOnboarding === null;
-
-        if (savedUserOnboarding === 'true' && isMounted) {
-          setHasCompletedOnboarding(true);
-        } else if (savedOnboarding !== null && isMounted) {
+        const isFreshInstall = savedHabitsJson === null && savedOnboarding === null;
+        if (savedOnboarding !== null && isMounted) {
           setHasCompletedOnboarding(savedOnboarding === 'true');
         } else if (!isFreshInstall && localHabits.length > 0 && isMounted) {
-          // Existing installs predate the persisted onboarding flag; do not restart onboarding on upgrade.
           setHasCompletedOnboarding(true);
         } else if (isMounted) {
           setHasCompletedOnboarding(false);
-        }
-
-        // 2. If user is logged in with Supabase, merge with cloud and preserve all completed dates & streaks!
-        const cloudAuth = await resolveCloudAuth(user, session);
-
-        if (cloudAuth) {
-          if (cloudAuth.session.user?.user_metadata?.onboarding_completed) {
-            if (isMounted) setHasCompletedOnboarding(true);
-            await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => { });
-            await AsyncStorage.setItem(`@daymark_onboarding_v2_${cloudAuth.userId}`, 'true').catch(() => { });
-          }
-
-          if (deletedHabitIds.length > 0) {
-            const { error: delCloudErr } = await supabase
-              .from('habits')
-              .delete()
-              .eq('user_id', cloudAuth.userId)
-              .in('id', deletedHabitIds);
-            if (!delCloudErr) {
-              deletedHabitIdsRef.current = [];
-              deletedHabitIds = [];
-              await AsyncStorage.setItem(delKey, '[]').catch(() => { });
-            }
-          }
-
-          const pendingIds = await readStorageJson<string[]>(pendingHabitsKey(cloudAuth.userId), []);
-
-          let { data: cloudRows, error } = await supabase
-            .from('habits')
-            .select('*, habit_logs(*), habit_reminders(*)')
-            .eq('user_id', cloudAuth.userId)
-            .order('created_at', { ascending: false });
-          if (error) {
-            // Older deployments may have only the original habits table; preserve access to that data.
-            const fallback = await supabase.from('habits').select('*').eq('user_id', cloudAuth.userId).order('created_at', { ascending: false });
-            cloudRows = fallback.data;
-            error = fallback.error;
-          }
-
-          if (!error && Array.isArray(cloudRows) && cloudRows.length > 0 && isMounted) {
-            const habitsNeedingCloudPush: Habit[] = [];
-            const cloudHabits: Habit[] = cloudRows.map(row => {
-              const cloudDates: string[] = Array.isArray(row.completed_dates) ? row.completed_dates : [];
-              const localMatch = localHabits.find(lh => lh.id === row.id);
-              const localDates = localMatch ? localMatch.completedDates : [];
-              const mergedDates = Array.from(new Set([...cloudDates, ...localDates])).sort();
-              const localLogs = localMatch?.logs ?? [];
-              const cloudLogs: HabitLog[] = Array.isArray(row.habit_logs) ? row.habit_logs.map((log: any) => ({
-                date: log.log_date,
-                value: typeof log.value === 'number' ? log.value : undefined,
-                outcome: log.outcome === 'lapse' ? 'lapse' : 'completed',
-                note: log.note || '',
-                createdAt: log.created_at,
-                updatedAt: log.updated_at,
-              })) : [];
-              const mergedLogs = Array.from(new Map([...cloudLogs, ...localLogs].map(log => [log.date, log])).values());
-              const cloudReminders: HabitReminder[] = Array.isArray(row.habit_reminders) ? row.habit_reminders.map((reminder: any) => ({
-                id: reminder.id,
-                hour: Number(reminder.hour),
-                minute: Number(reminder.minute),
-                weekdays: Array.isArray(reminder.weekdays) ? reminder.weekdays.map(Number) : [1, 2, 3, 4, 5, 6, 7],
-                enabled: Boolean(reminder.enabled),
-                notificationIds: Array.isArray(reminder.notification_ids) ? reminder.notification_ids : [],
-              })) : [];
-
-              const habitSchedule = row.schedule && typeof row.schedule === 'object' ? row.schedule : undefined;
-              const habitPaused = Array.isArray(row.paused_periods) && row.paused_periods.length > 0 ? row.paused_periods : localMatch?.pausedPeriods ?? [];
-              const habitStart = row.start_date || localMatch?.startDate || todayStr;
-
-              const streakStats = calculateStreakStats({
-                completedDates: mergedDates,
-                targetFrequency: row.target_frequency || 'Daily',
-                schedule: habitSchedule,
-                startDate: habitStart,
-                pausedPeriods: habitPaused,
-              }, todayReferenceDate);
-
-              const mergedHabit: Habit = {
-                id: row.id,
-                name: row.name,
-                category: row.category,
-                color: row.color,
-                icon: row.icon as keyof typeof Ionicons.glyphMap,
-                streak: streakStats.currentStreak,
-                completedDates: mergedDates,
-                targetFrequency: row.target_frequency || 'Daily',
-                description: row.description || '',
-                habitKind: row.habit_kind === 'quit' ? 'quit' : 'positive',
-                trackingMethod: row.habit_kind === 'quit' ? 'yes_no' : 'yes_no',
-                targetValue: Number(row.target_value) > 0 ? Number(row.target_value) : 1,
-                unit: row.unit || '',
-                schedule: habitSchedule,
-                startDate: habitStart,
-                endDate: row.end_date || null,
-                archivedAt: row.archived_at || null,
-                pausedPeriods: habitPaused,
-                logs: mergedLogs,
-                reminders: Array.isArray(row.reminders) && row.reminders.length > 0
-                  ? row.reminders
-                  : (cloudReminders.length ? cloudReminders : localMatch?.reminders ?? []),
-                configurationHistory: Array.isArray(row.configuration_history) ? row.configuration_history : localMatch?.configurationHistory ?? [],
-                configurationEffectiveFrom: row.configuration_effective_from || localMatch?.configurationEffectiveFrom || row.start_date || todayStr,
-                sortOrder: Number(row.sort_order ?? localMatch?.sortOrder ?? 0),
-              };
-
-              const needsPush = pendingIds.includes(row.id)
-                || mergedDates.length > cloudDates.length
-                || mergedLogs.length > cloudLogs.length;
-              if (needsPush) {
-                habitsNeedingCloudPush.push(mergedHabit);
-              } else {
-                syncedHabitIdsRef.current.add(row.id);
-              }
-              return mergedHabit;
-            });
-
-            // Keep authentic offline/pending habits for this user, but avoid injecting unowned guest starter habits.
-            const cloudIds = new Set(cloudHabits.map(habit => habit.id));
-            const offlineHabitsToKeep = localHabits.filter(local =>
-              !cloudIds.has(local.id) && (
-                hasUserScopedHabits ||
-                pendingIds.includes(local.id) ||
-                (!local.id.startsWith('local_') && !local.id.includes('onboard_'))
-              )
-            );
-            const mergedCloudHabits = [...cloudHabits, ...offlineHabitsToKeep];
-
-            setHabits(mergedCloudHabits);
-            habitsRef.current = mergedCloudHabits;
-            await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(mergedCloudHabits));
-            await AsyncStorage.setItem(userHabitsStorageKey(cloudAuth.userId), JSON.stringify(mergedCloudHabits));
-            await AsyncStorage.setItem(`@daymark_onboarding_v2_${cloudAuth.userId}`, 'true').catch(() => { });
-            setHasCompletedOnboarding(true);
-            await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => { });
-
-            for (const ch of [...habitsNeedingCloudPush, ...offlineHabitsToKeep]) {
-              await syncHabitToCloudRef.current(ch);
-            }
-          } else if (!error && Array.isArray(cloudRows) && cloudRows.length === 0) {
-            try {
-              const { data: prefRow } = await supabase
-                .from('user_preferences')
-                .select('user_id')
-                .eq('user_id', cloudAuth.userId)
-                .maybeSingle();
-              if (prefRow && isMounted) {
-                setHasCompletedOnboarding(true);
-                await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => { });
-                await AsyncStorage.setItem(`@daymark_onboarding_v2_${cloudAuth.userId}`, 'true').catch(() => { });
-              }
-            } catch {
-              // ignore
-            }
-
-            if (localHabits.length > 0) {
-              // Preserve existing timestamped IDs so any local Goals/Routines linking to them stay valid!
-              const migratedHabits: Habit[] = localHabits.map(h => {
-                const hasUniqueId = h.id.startsWith(cloudAuth.userId) || /_\d{10,}/.test(h.id);
-                return {
-                  ...h,
-                  id: hasUniqueId ? h.id : `${cloudAuth.userId}_${h.id}`,
-                };
-              });
-              if (isMounted) {
-                setHabits(migratedHabits);
-                habitsRef.current = migratedHabits;
-              }
-              await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(migratedHabits)).catch(() => { });
-              await AsyncStorage.setItem(userHabitsStorageKey(cloudAuth.userId), JSON.stringify(migratedHabits)).catch(() => { });
-              for (const mh of migratedHabits) {
-                await syncHabitToCloudRef.current(mh);
-              }
-            }
-          }
         }
       } catch (err) {
         console.error('Failed to load recorded habits:', err);
       } finally {
         if (isMounted) {
-          isLoadedRef.current = true;
           setIsLoadingData(false);
         }
       }
     };
 
     void loadData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [user, session, todayStr, todayReferenceDate]);
+    return () => { isMounted = false; };
+  }, [isReady]);
 
   const saveHabits = async (updated: Habit[]) => {
     setHabits(updated);
     habitsRef.current = updated;
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(updated));
-      const activeUid = userRef.current?.id && !userRef.current.isGuest
-        ? userRef.current.id
-        : sessionRef.current?.user?.id;
-      if (activeUid) {
-        await AsyncStorage.setItem(userHabitsStorageKey(activeUid), JSON.stringify(updated));
-      }
     } catch (err) {
       console.error('Failed to save recorded habits locally:', err);
     }
   };
 
-  const markHabitPending = useCallback(async (userId: string, habitId: string) => {
-    setHasPendingSync(true);
-    const existing = await readStorageJson<string[]>(pendingHabitsKey(userId), []);
-    if (!existing.includes(habitId)) {
-      await writeStorageJson(pendingHabitsKey(userId), [...existing, habitId]).catch(() => { });
-    }
-  }, []);
-
-  const clearHabitPending = useCallback(async (userId: string, habitId: string) => {
-    const existing = await readStorageJson<string[]>(pendingHabitsKey(userId), []);
-    if (existing.includes(habitId)) {
-      const next = existing.filter(id => id !== habitId);
-      await writeStorageJson(pendingHabitsKey(userId), next).catch(() => { });
-      setHasPendingSync(next.length > 0);
-    } else {
-      setHasPendingSync(false);
-    }
-  }, []);
-
-  const syncHabitToCloud = useCallback(async (habit: Habit): Promise<boolean> => {
-    const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
-    if (!cloudAuth) {
-      if (userRef.current?.id && !userRef.current.isGuest) {
-        await markHabitPending(userRef.current.id, habit.id);
-      }
-      return false;
-    }
-
-    const activeUserId = cloudAuth.userId;
-    const updatedAt = new Date().toISOString();
-    const extendedRow = {
-      id: habit.id,
-      user_id: activeUserId,
-      name: habit.name,
-      description: habit.description ?? '',
-      category: habit.category,
-      color: habit.color,
-      icon: habit.icon,
-      habit_kind: habit.habitKind ?? 'positive',
-      tracking_method: habit.trackingMethod ?? 'yes_no',
-      target_value: habit.targetValue ?? 1,
-      unit: habit.unit ?? null,
-      schedule: habit.schedule ?? { frequency: 'daily' },
-      target_frequency: habit.targetFrequency,
-      start_date: habit.startDate ?? todayStr,
-      end_date: habit.endDate ?? null,
-      archived_at: habit.archivedAt ?? null,
-      paused_periods: habit.pausedPeriods ?? [],
-      configuration_history: habit.configurationHistory ?? [],
-      reminders: habit.reminders ?? [],
-      configuration_effective_from: habit.configurationEffectiveFrom ?? habit.startDate ?? todayStr,
-      sort_order: habit.sortOrder ?? 0,
-      streak: calculateStreakStats(habit, todayReferenceDate).currentStreak,
-      completed_dates: habit.completedDates,
-      updated_at: updatedAt,
-    };
-    let { error } = await supabase.from('habits').upsert(extendedRow);
-    if (error) {
-      const isMissingCol = error.code === '42703' || error.code === 'PGRST204' || String(error.message).includes('column');
-      if (isMissingCol) {
-        // Keep existing cloud deployments usable until the additive schema migration is applied.
-        const legacyResult = await supabase.from('habits').upsert({
-          id: habit.id,
-          user_id: activeUserId,
-          name: habit.name,
-          category: habit.category,
-          color: habit.color,
-          icon: habit.icon,
-          streak: calculateStreakStats(habit, todayReferenceDate).currentStreak,
-          completed_dates: habit.completedDates,
-          target_frequency: habit.targetFrequency,
-          updated_at: updatedAt,
-        });
-        error = legacyResult.error;
-      }
-      if (error) {
-        console.warn('Habit saved locally; cloud sync queued for retry:', error.message);
-        syncedHabitIdsRef.current.delete(habit.id);
-        await markHabitPending(activeUserId, habit.id);
-        return false;
-      }
-    }
-
-    const { error: clearLogsError } = await supabase.from('habit_logs').delete().eq('habit_id', habit.id).eq('user_id', activeUserId);
-    if (clearLogsError) console.warn('Could not replace habit log history in cloud:', clearLogsError.message);
-    if (habit.logs?.length) {
-      const logRows = habit.logs.map(log => ({
-        user_id: activeUserId,
-        habit_id: habit.id,
-        log_date: log.date,
-        value: log.value ?? null,
-        outcome: log.outcome ?? 'completed',
-        note: log.note ?? '',
-        updated_at: log.updatedAt ?? updatedAt,
-      }));
-      const { error: logError } = await supabase.from('habit_logs').upsert(logRows, { onConflict: 'habit_id,log_date' });
-      if (logError) console.warn('Habit logs remain on device; apply the habit log migration to sync them:', logError.message);
-    }
-    if (habit.configurationHistory?.length) {
-      const historyRows = habit.configurationHistory.map(configuration => ({
-        user_id: activeUserId,
-        habit_id: habit.id,
-        effective_from: configuration.effectiveFrom,
-        configuration,
-      }));
-      const { error: historyError } = await supabase.from('habit_configuration_history').upsert(historyRows, { onConflict: 'habit_id,effective_from' });
-      if (historyError) console.warn('Habit configuration history is saved in the habit row; apply the history migration to normalize it:', historyError.message);
-    }
-    const { error: clearRemindersError } = await supabase.from('habit_reminders').delete().eq('habit_id', habit.id).eq('user_id', activeUserId);
-    if (clearRemindersError) console.warn('Could not replace cloud reminder rows:', clearRemindersError.message);
-    if (habit.reminders?.length) {
-      const reminderRows = habit.reminders.map(reminder => ({
-        id: reminder.id,
-        user_id: activeUserId,
-        habit_id: habit.id,
-        hour: reminder.hour,
-        minute: reminder.minute,
-        weekdays: reminder.weekdays,
-        enabled: reminder.enabled,
-        notification_ids: reminder.notificationIds ?? [],
-      }));
-      const { error: remindersError } = await supabase.from('habit_reminders').upsert(reminderRows, { onConflict: 'id' });
-      if (remindersError) console.warn('Habit reminders are saved on the habit row; apply the reminders migration to sync them separately:', remindersError.message);
-    }
-
-    syncedHabitIdsRef.current.add(habit.id);
-    await clearHabitPending(activeUserId, habit.id);
-    return true;
-  }, [clearHabitPending, markHabitPending, todayReferenceDate, todayStr]);
-
-  useEffect(() => {
-    syncHabitToCloudRef.current = syncHabitToCloud;
-  }, [syncHabitToCloud]);
-
-  const ensureHabitsSynced = useCallback(async (habitIds: string[]): Promise<string[]> => {
-    const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
-    if (!cloudAuth || !habitIds.length) return [];
-    const synced: string[] = [];
-    for (const id of habitIds) {
-      if (syncedHabitIdsRef.current.has(id)) {
-        synced.push(id);
-        continue;
-      }
-      const target = habitsRef.current.find(h => h.id === id);
-      if (target) {
-        const ok = await syncHabitToCloudRef.current(target);
-        if (ok) synced.push(id);
-      }
-    }
-    return synced;
-  }, []);
-
-  const syncAllHabitsNow = useCallback(async () => {
-    const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
-    if (!cloudAuth) return;
-    const pendingIds = await readStorageJson<string[]>(pendingHabitsKey(cloudAuth.userId), []);
-    for (const habit of habitsRef.current) {
-      if (pendingIds.includes(habit.id) || !syncedHabitIdsRef.current.has(habit.id)) {
-        await syncHabitToCloudRef.current(habit);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', state => {
-      if (state === 'active') {
-        void syncAllHabitsNow();
-      }
-    });
-    return () => sub.remove();
-  }, [syncAllHabitsNow]);
-
-  useEffect(() => {
-    if (!hasPendingSync) return;
-    const timer = setInterval(() => {
-      void syncAllHabitsNow();
-    }, 15000);
-    return () => clearInterval(timer);
-  }, [hasPendingSync, syncAllHabitsNow]);
-
   const refreshReminderSchedule = async (habit: Habit, fallbackHabits: Habit[], previous?: Habit) => {
     try {
-      const reminders = await replaceLocalHabitReminders({ ...habit, notificationsEnabled: preferences.notifications.daily, soundEnabled: preferences.soundEnabled }, previous?.reminders);
+      const reminders = await replaceLocalHabitReminders(
+        { ...habit, notificationsEnabled: preferences.notifications.daily, soundEnabled: preferences.soundEnabled },
+        previous?.reminders,
+      );
       const saved = await AsyncStorage.getItem(STORAGE_KEYS.HABITS);
       let latest: Habit[] = fallbackHabits;
       if (saved) {
@@ -606,16 +190,14 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       const changed = { ...current, reminders };
       const updated = latest.map(item => item.id === habit.id ? changed : item);
       await saveHabits(updated);
-      await syncHabitToCloud(changed);
     } catch (error) {
       console.warn('Habit reminders remain saved but could not be scheduled:', error);
     }
   };
 
-  const saveAndSync = (updated: Habit[], changed: Habit) => {
+  const saveAndUpdateReminders = (updated: Habit[], changed: Habit) => {
     const previous = habits.find(item => item.id === changed.id);
     void saveHabits(updated);
-    void syncHabitToCloud(changed);
     if (!previous || JSON.stringify(previous.reminders) !== JSON.stringify(changed.reminders)
       || JSON.stringify(previous.schedule) !== JSON.stringify(changed.schedule)
       || JSON.stringify(previous.pausedPeriods) !== JSON.stringify(changed.pausedPeriods)
@@ -642,36 +224,19 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
         timezone: preferences.timezone,
       });
     }
-    // refreshReminderSchedule uses the current preference values and latest habit snapshot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferences.notifications.daily, preferences.soundEnabled, isLoadingData]);
 
-  const pendingToggleSyncIdsRef = useRef<Set<string>>(new Set());
   const toggleSideEffectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const scheduleDeferredToggleEffects = useCallback((changedHabitId: string, shouldReschedulePendingReminder: boolean) => {
-    pendingToggleSyncIdsRef.current.add(changedHabitId);
+  const scheduleDeferredToggleEffects = useCallback((shouldReschedulePendingReminder: boolean) => {
     if (toggleSideEffectTimerRef.current) {
       clearTimeout(toggleSideEffectTimerRef.current);
     }
     toggleSideEffectTimerRef.current = setTimeout(() => {
       toggleSideEffectTimerRef.current = null;
       const latestHabits = habitsRef.current;
-      const idsToSync = Array.from(pendingToggleSyncIdsRef.current);
-      pendingToggleSyncIdsRef.current.clear();
-
       void AsyncStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(latestHabits)).catch(() => { });
-      const uid = userRef.current?.id && !userRef.current.isGuest
-        ? userRef.current.id
-        : sessionRef.current?.user?.id;
-      if (uid) {
-        void AsyncStorage.setItem(userHabitsStorageKey(uid), JSON.stringify(latestHabits)).catch(() => { });
-      }
-
-      for (const id of idsToSync) {
-        const item = latestHabits.find(h => h.id === id);
-        if (item) void syncHabitToCloud(item);
-      }
 
       if (shouldReschedulePendingReminder) {
         void schedulePendingHabitsReminderAsync(latestHabits, {
@@ -682,7 +247,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
         });
       }
     }, 260);
-  }, [preferences.notifications.daily, preferences.soundEnabled, preferences.timezone, syncHabitToCloud, todayStr]);
+  }, [preferences.notifications.daily, preferences.soundEnabled, preferences.timezone, todayStr]);
 
   const toggleHabit = (id: string, dateStr: string = todayStr) => {
     const target = habitsRef.current.find(habit => habit.id === id);
@@ -706,7 +271,6 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       logs: completed ? logs : [...logs, { date: dateStr, outcome: 'completed', value: targetVal, createdAt: new Date().toISOString() }],
     };
     const next = habitsRef.current.map(habit => habit.id === id ? updatedHabit : habit);
-    // Update UI state immediately; defer storage, cloud, and OS notification rescheduling off the tap frame.
     habitsRef.current = next;
     setHabits(next);
     if (dateStr === todayStr && !completed) {
@@ -715,16 +279,15 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
         setIsCelebrationVisible(true);
       }
     }
-    scheduleDeferredToggleEffects(updatedHabit.id, dateStr === todayStr);
+    scheduleDeferredToggleEffects(dateStr === todayStr);
   };
 
   const addHabit = (newHabit: Omit<Habit, 'id' | 'streak' | 'completedDates'>) => {
     const activeHabitsList = habitsRef.current;
     const activeCount = activeHabitsList.filter(habit => !habit.archivedAt).length;
-    if (!canCreateHabit(activeCount, isPro)) return { error: 'Free accounts can have up to 5 active habits. Archive one or upgrade to Pro.' };
+    if (!canCreateHabit(activeCount, isPro)) return { error: 'Free plans can have up to 5 active habits. Archive one or upgrade to Pro.' };
     const createdAt = todayStr;
-    const activeUid = (userRef.current && !userRef.current.isGuest ? userRef.current.id : sessionRef.current?.user?.id) ?? 'local';
-    const habitId = `${activeUid}_h_${Date.now()}`;
+    const habitId = `${deviceOwnerIdRef.current}_h_${Date.now()}`;
     const created: Habit = {
       ...newHabit,
       id: habitId,
@@ -746,7 +309,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       completedDates: [],
     };
     const updated = [created, ...activeHabitsList];
-    saveAndSync(updated, created);
+    saveAndUpdateReminders(updated, created);
     void schedulePendingHabitsReminderAsync(updated, {
       notificationsEnabled: preferences.notifications.daily,
       soundEnabled: preferences.soundEnabled,
@@ -762,8 +325,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     const allowedCount = isPro ? newHabits.length : Math.max(0, 5 - activeCount);
     const habitsToCreate = newHabits.slice(0, allowedCount);
     if (!habitsToCreate.length) return;
-    const activeUid = (userRef.current && !userRef.current.isGuest ? userRef.current.id : sessionRef.current?.user?.id) ?? 'local';
-    const prefix = `${activeUid}_onboard_${Date.now()}`;
+    const prefix = `${deviceOwnerIdRef.current}_onboard_${Date.now()}`;
     const createdList = habitsToCreate.map((habit, index): Habit => ({
       ...habit,
       id: `${prefix}_${index}`,
@@ -786,7 +348,6 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     }));
     const updated = [...createdList, ...activeHabitsList];
     void saveHabits(updated);
-    createdList.forEach(habit => void syncHabitToCloud(habit));
     void schedulePendingHabitsReminderAsync(updated, {
       notificationsEnabled: preferences.notifications.daily,
       soundEnabled: preferences.soundEnabled,
@@ -827,7 +388,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       configurationEffectiveFrom: scheduleChanged ? todayStr : oldHabit.configurationEffectiveFrom,
     };
     const updated = habits.map(habit => habit.id === id ? nextHabit : habit);
-    saveAndSync(updated, nextHabit);
+    saveAndUpdateReminders(updated, nextHabit);
     return {};
   };
 
@@ -846,15 +407,13 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
           : habit,
     );
     void saveHabits(updated);
-    void syncHabitToCloud({ ...current, sortOrder: adjacentOrder });
-    void syncHabitToCloud({ ...adjacent, sortOrder: currentOrder });
   };
 
   const archiveHabit = (id: string) => {
     const habit = habits.find(item => item.id === id);
     if (!habit) return;
     const archived = { ...habit, archivedAt: new Date().toISOString() };
-    saveAndSync(habits.map(item => item.id === id ? archived : item), archived);
+    saveAndUpdateReminders(habits.map(item => item.id === id ? archived : item), archived);
   };
 
   const restoreHabit = (id: string) => {
@@ -863,7 +422,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     const activeCount = habits.filter(item => !item.archivedAt).length;
     if (!canCreateHabit(activeCount, isPro)) return;
     const restored = { ...habit, archivedAt: null };
-    saveAndSync(habits.map(item => item.id === id ? restored : item), restored);
+    saveAndUpdateReminders(habits.map(item => item.id === id ? restored : item), restored);
   };
 
   const pauseHabit = (id: string, startDate: string, endDate: string | null) => {
@@ -876,7 +435,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       return false;
     });
     const paused: Habit = { ...habit, pausedPeriods: [...cleanPeriods, { startDate, endDate }] };
-    saveAndSync(habits.map(item => item.id === id ? paused : item), paused);
+    saveAndUpdateReminders(habits.map(item => item.id === id ? paused : item), paused);
     return {};
   };
 
@@ -891,7 +450,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
         return [{ ...period, endDate: addLocalDays(date, -1) }];
       }),
     };
-    saveAndSync(habits.map(item => item.id === id ? paused : item), paused);
+    saveAndUpdateReminders(habits.map(item => item.id === id ? paused : item), paused);
   };
 
   const recordHabitLog = (id: string, log: HabitLog) => {
@@ -924,7 +483,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       const scheduled = updated.filter(item => !item.archivedAt && isScheduledOnDate(item, todayStr));
       if (scheduled.length && scheduled.every(item => getHabitDayStatus(item, todayStr, todayReferenceDate) === 'completed')) setIsCelebrationVisible(true);
     }
-    saveAndSync(updated, changed);
+    saveAndUpdateReminders(updated, changed);
     return {};
   };
 
@@ -932,15 +491,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     const target = habitsRef.current.find(habit => habit.id === id);
     if (target?.reminders?.length) void refreshReminderSchedule({ ...target, archivedAt: new Date().toISOString() }, habitsRef.current, target);
 
-    const activeUid = userRef.current?.id && !userRef.current.isGuest ? userRef.current.id : undefined;
-    const userPrefix = activeUid ? `${activeUid}_` : '';
-    const idVariants = [id, `${userPrefix}${id}`.replace(`${userPrefix}${userPrefix}`, userPrefix)];
-    const updatedDeleted = Array.from(new Set([...deletedHabitIdsRef.current, ...idVariants]));
-    deletedHabitIdsRef.current = updatedDeleted;
-    syncedHabitIdsRef.current.delete(id);
-    void AsyncStorage.setItem(deletedHabitsKey(activeUid), JSON.stringify(updatedDeleted)).catch(() => { });
-
-    const updated = habitsRef.current.filter(habit => !idVariants.includes(habit.id));
+    const updated = habitsRef.current.filter(habit => habit.id !== id);
     void saveHabits(updated);
     void cleanupDuplicateNotificationsAsync(updated);
     void schedulePendingHabitsReminderAsync(updated, {
@@ -949,43 +500,16 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
       todayDateStr: todayStr,
       timezone: preferences.timezone,
     });
-    void (async () => {
-      const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
-      if (!cloudAuth) return;
-      const { error } = await supabase.from('habits').delete()
-        .in('id', idVariants)
-        .eq('user_id', cloudAuth.userId);
-      if (!error) {
-        const remaining = deletedHabitIdsRef.current.filter(val => !idVariants.includes(val));
-        deletedHabitIdsRef.current = remaining;
-        await AsyncStorage.setItem(deletedHabitsKey(cloudAuth.userId), JSON.stringify(remaining)).catch(() => { });
-      } else {
-        console.warn('Supabase deleteHabit sync warning:', error.message);
-      }
-    })();
   };
 
   const completeOnboarding = () => {
     setHasCompletedOnboarding(true);
     AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => { });
-    if (user?.id) {
-      AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'true').catch(() => { });
-      if (isSupabaseConfigured && !user.isGuest) {
-        supabase.auth
-          .updateUser({
-            data: { onboarding_completed: true },
-          })
-          .catch(() => { });
-      }
-    }
   };
 
   const restartOnboarding = () => {
     setHasCompletedOnboarding(false);
     AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'false').catch(() => { });
-    if (user?.id) {
-      AsyncStorage.setItem(`@daymark_onboarding_v2_${user.id}`, 'false').catch(() => { });
-    }
   };
 
   const exportDataJson = () => {
@@ -1047,9 +571,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
         dateLabel: new Date(`${todayStr}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
       });
     }, 350);
-    return () => {
-      clearTimeout(timer);
-    };
+    return () => { clearTimeout(timer); };
   }, [isLoadingData, completedToday, totalToday, scheduledTodayHabits, todayStr, todayReferenceDate]);
 
   return (
@@ -1078,8 +600,6 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
         isCelebrationVisible,
         triggerCelebration,
         dismissCelebration,
-        ensureHabitsSynced,
-        syncAllHabitsNow,
         stats: {
           completedToday,
           totalToday,

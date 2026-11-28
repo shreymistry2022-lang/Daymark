@@ -1,10 +1,9 @@
+// src/services/SubscriptionProvider.tsx
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import Constants from 'expo-constants';
 import Purchases, { CustomerInfo, PurchasesEntitlementInfo, PurchasesPackage } from 'react-native-purchases';
-import { useAuth } from './AuthProvider';
 import { PRO_ENTITLEMENT_ID, SUBSCRIPTIONS_ENABLED, isWhitelistedProEmail } from './subscriptionEntitlements';
-import { supabase, isSupabaseConfigured } from './supabase';
 
 type SubscriptionContextValue = {
   isPro: boolean;
@@ -30,7 +29,6 @@ const hasProEntitlement = (info: CustomerInfo) => Boolean(info.entitlements.acti
 const getProEntitlement = (info: CustomerInfo) => info.entitlements.active[PRO_ENTITLEMENT_ID] ?? null;
 
 export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
-  const { user, session, isLoading: isAuthLoading } = useAuth();
   const [isPro, setIsPro] = useState(false);
   const [entitlement, setEntitlement] = useState<PurchasesEntitlementInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,31 +36,20 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
   const [isConfigured, setIsConfigured] = useState(false);
   const [configured, setConfigured] = useState(false);
 
-  const checkCloudOrWhitelistedPro = useCallback(async (): Promise<boolean> => {
-    if (isWhitelistedProEmail(user?.email)) {
-      return true;
-    }
-    if (isSupabaseConfigured && user?.id && !user.isGuest) {
-      try {
-        const { data: profile } = await supabase
-          .from('subscription_profiles')
-          .select('entitlement_status, expires_at')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (profile?.entitlement_status === 'active') {
-          const notExpired = !profile.expires_at || new Date(profile.expires_at) > new Date();
-          if (notExpired) return true;
-        }
-      } catch (err) {
-        console.warn('Could not check Supabase subscription profile:', err);
-      }
+  const checkWhitelistedPro = useCallback(async (): Promise<boolean> => {
+    // Check if dev/whitelisted email is stored locally
+    try {
+      const { default: AsyncStorage } = await import('@react-native-async-storage/async-storage');
+      const storedEmail = await AsyncStorage.getItem('@daymark_dev_email_v1');
+      if (isWhitelistedProEmail(storedEmail ?? undefined)) return true;
+    } catch {
+      // ignore
     }
     return false;
-  }, [user]);
+  }, []);
 
   const loadStoreData = useCallback(async () => {
-    const isSpecialPro = !SUBSCRIPTIONS_ENABLED || (await checkCloudOrWhitelistedPro());
+    const isSpecialPro = !SUBSCRIPTIONS_ENABLED || (await checkWhitelistedPro());
     if (isSpecialPro) {
       setIsPro(true);
       setIsLoading(false);
@@ -89,14 +76,12 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [checkCloudOrWhitelistedPro]);
+  }, [checkWhitelistedPro]);
 
   useEffect(() => {
     let active = true;
     const initialize = async () => {
-      if (isAuthLoading) return;
-
-      const isSpecialPro = !SUBSCRIPTIONS_ENABLED || (await checkCloudOrWhitelistedPro());
+      const isSpecialPro = !SUBSCRIPTIONS_ENABLED || (await checkWhitelistedPro());
       if (isSpecialPro) {
         if (active) {
           setIsPro(true);
@@ -117,18 +102,26 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
       try {
         if (!configured) {
           Purchases.setLogLevel(__DEV__ ? Purchases.LOG_LEVEL.DEBUG : Purchases.LOG_LEVEL.ERROR);
-          await Purchases.configure({ apiKey, appUserID: user?.isGuest ? undefined : user?.id });
-          if (active) setConfigured(true);
-        } else if (user?.id && !user.isGuest) {
-          await Purchases.logIn(user.id);
-        } else {
-          await Purchases.logOut().catch(() => undefined);
+          // Use anonymous ID always — no account required
+          await Purchases.configure({ apiKey });
+          if (active) {
+            setIsConfigured(true);
+            setConfigured(true);
+          }
         }
-        if (!active) return;
-        setIsConfigured(true);
-        await loadStoreData();
+
+        const [customerInfo, offerings] = await Promise.all([
+          Purchases.getCustomerInfo(),
+          Purchases.getOfferings(),
+        ]);
+
+        if (active) {
+          setIsPro(hasProEntitlement(customerInfo));
+          setEntitlement(getProEntitlement(customerInfo));
+          setPackages(offerings.current?.availablePackages ?? []);
+        }
       } catch (error) {
-        console.warn('RevenueCat is not available:', error);
+        console.warn('RevenueCat initialization error:', error);
         if (active) setIsConfigured(false);
       } finally {
         if (active) setIsLoading(false);
@@ -136,14 +129,15 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     };
     void initialize();
     return () => { active = false; };
-  }, [configured, isAuthLoading, user, loadStoreData, checkCloudOrWhitelistedPro]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
-    if (!isConfigured || Platform.OS === 'web') return;
-    const subscription = AppState.addEventListener('change', state => {
+    if (!isConfigured) return;
+    const sub = AppState.addEventListener('change', state => {
       if (state === 'active') void loadStoreData();
     });
-    return () => subscription.remove();
+    return () => sub.remove();
   }, [isConfigured, loadStoreData]);
 
   const purchase = useCallback(async (item: PurchasesPackage) => {
@@ -152,11 +146,11 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
       const { customerInfo } = await Purchases.purchasePackage(item);
       setIsPro(hasProEntitlement(customerInfo));
       setEntitlement(getProEntitlement(customerInfo));
-      return hasProEntitlement(customerInfo) ? {} : { error: 'The store purchase completed, but Pro is not active yet. Try Restore Purchases.' };
+      return hasProEntitlement(customerInfo) ? {} : { error: 'Purchase completed but Pro entitlement was not found.' };
     } catch (error: unknown) {
-      const purchaseError = error as { userCancelled?: boolean; message?: string };
-      if (purchaseError.userCancelled) return { cancelled: true };
-      return { error: purchaseError.message || 'Purchase could not be completed. Please try again.' };
+      const rcError = error as { userCancelled?: boolean; message?: string };
+      if (rcError?.userCancelled) return { cancelled: true };
+      return { error: rcError?.message || 'Purchase failed. Please try again.' };
     }
   }, [isConfigured]);
 
@@ -172,7 +166,8 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [isConfigured]);
 
-  const canPurchase = Boolean(session && isConfigured && !isExpoGo);
+  // No session required — canPurchase is true whenever RevenueCat is configured
+  const canPurchase = Boolean(isConfigured && !isExpoGo);
   const value = useMemo(() => ({ isPro, entitlement, isConfigured, canPurchase, isLoading, packages, refresh: loadStoreData, purchase, restore }), [isPro, entitlement, isConfigured, canPurchase, isLoading, packages, loadStoreData, purchase, restore]);
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;
 };
