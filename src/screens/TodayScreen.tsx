@@ -43,6 +43,7 @@ interface MinimalHabitCardProps {
   dateReference: Date;
   colors: any;
   isDark: boolean;
+  isScheduledToday: boolean;
   showReorder: boolean;
   onOpenDetails: (habitId: string) => void;
   onToggle: (habitId: string, dateStr: string) => void;
@@ -60,6 +61,7 @@ const MinimalHabitCard = React.memo(({
   dateReference,
   colors,
   isDark,
+  isScheduledToday,
   showReorder,
   onOpenDetails,
   onToggle,
@@ -110,8 +112,12 @@ const MinimalHabitCard = React.memo(({
           </Text>
           <View style={styles.metaRow}>
             <Text style={[styles.metaText, { color: colors.secondaryText }]} numberOfLines={1}>
-              {habit.streak > 0 ? `🔥 ${habit.streak}d` : habit.category}
-              {reminderSummary ? `  ·  🔔 ${reminderSummary}` : ''}
+              {!isScheduledToday
+                ? `Rest day · ${habit.targetFrequency}`
+                : habit.streak > 0
+                  ? `🔥 ${habit.streak}d`
+                  : habit.category}
+              {isScheduledToday && reminderSummary ? `  ·  🔔 ${reminderSummary}` : ''}
             </Text>
           </View>
         </View>
@@ -145,10 +151,11 @@ const MinimalHabitCard = React.memo(({
             onSave={onRecordLog}
           />
         ) : (
-          <Animated.View style={{ transform: [{ scale: checkScale }] }}>
+          <Animated.View style={{ transform: [{ scale: checkScale }], opacity: isScheduledToday ? 1 : 0.4 }}>
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel={`${isCompleted ? 'Undo' : 'Complete'} ${habit.name} for ${selectedDate}`}
+              disabled={!isScheduledToday}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               style={[
                 styles.checkSquircle,
@@ -246,7 +253,7 @@ export const TodayScreen = () => {
   };
 
   const availableCategories = ['All', ...Array.from(new Set(habits.map(h => h.category)))];
-  const baseList = viewMode === 'cards' ? todaysHabits : habits;
+  const baseList = habits;
   const filteredHabits = baseList.filter(h => selectedCategory === 'All' || h.category === selectedCategory);
 
   const handleOpenDetails = useCallback((habitId: string) => {
@@ -512,6 +519,7 @@ export const TodayScreen = () => {
                 dateReference={dateReference}
                 colors={colors}
                 isDark={isDark}
+                isScheduledToday={isTrackableOnDate(habit, selectedDate, dateReference)}
                 showReorder={preferences.dashboardSort === 'custom' && selectedCategory === 'All'}
                 onOpenDetails={handleOpenDetails}
                 onToggle={handleToggleHabit}
