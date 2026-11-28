@@ -29,7 +29,7 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
   const { colors } = useTheme();
   const { isPro } = useSubscription();
   const { habits, todayDateStr } = useHabits();
-  const { routines, isLoadingRoutines, routineError, createRoutine, updateRoutine, deleteRoutine, reorderRoutine, toggleRoutineLog } = useRoutines();
+  const { routines, isLoadingRoutines, routineError, createRoutine, updateRoutine, deleteRoutine, reorderRoutine, toggleRoutineLog, retryRoutineSync } = useRoutines();
   const [editorVisible, setEditorVisible] = useState(false);
   const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
   const [paywallVisible, setPaywallVisible] = useState(false);
@@ -119,7 +119,17 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]} keyboardShouldPersistTaps="handled">
 
         {!allowed && <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border }]}><Ionicons name="lock-closed-outline" size={18} color={colors.accent} /><Text style={[styles.noticeText, { color: colors.secondaryText }]}>Routines are included with Daymark Pro. Existing routines are still visible.</Text><TouchableOpacity onPress={() => setPaywallVisible(true)}><Text style={{ color: colors.accent, fontWeight: '700' }}>See Pro</Text></TouchableOpacity></View>}
-        {routineError && <Text accessibilityRole="alert" style={[styles.errorBanner, { color: colors.error }]}>{routineError}</Text>}
+        {routineError && (
+          <TouchableOpacity
+            accessibilityRole="button"
+            onPress={() => { void retryRoutineSync(); }}
+            style={[styles.notice, { backgroundColor: `${colors.error}14`, borderColor: `${colors.error}44` }]}
+          >
+            <Ionicons name="cloud-offline-outline" size={18} color={colors.error} />
+            <Text accessibilityRole="alert" style={[styles.noticeText, { color: colors.error }]}>{routineError}</Text>
+            <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 12 }}>Retry</Text>
+          </TouchableOpacity>
+        )}
 
         {isLoadingRoutines ? <View style={styles.loading}><ActivityIndicator color={colors.accent} /><Text style={{ color: colors.secondaryText, marginTop: 10 }}>Loading routines…</Text></View> : activeRoutines.length === 0 ? (
           <View style={[styles.empty, { backgroundColor: colors.card, borderColor: colors.border }]}>

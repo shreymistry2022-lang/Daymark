@@ -10,7 +10,15 @@ import { dateKeyInTimezone } from '../domain/preferencesEngine';
 import { replaceLocalReminders } from './localReminders';
 import { useHabits } from './HabitContext';
 import { usePreferences } from './PreferencesContext';
-import { readStorageJson, resolveCloudAuth, writeStorageJson } from './cloudSyncHelpers';
+import {
+  createUuid,
+  isOwnershipOrConflictError,
+  isTransientCloudError,
+  isValidUuid,
+  readStorageJson,
+  resolveCloudAuth,
+  writeStorageJson,
+} from './cloudSyncHelpers';
 
 const LEGACY_STORAGE_KEY = '@daymark_routines_v1';
 const LEGACY_DELETE_KEY = '@daymark_routine_delete_queue_v1';
@@ -32,11 +40,6 @@ interface RoutineContextValue {
 }
 
 const RoutineContext = createContext<RoutineContextValue | null>(null);
-
-const createUuid = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, character => {
-  const random = Math.floor(Math.random() * 16);
-  return (character === 'x' ? random : (random & 0x3) | 0x8).toString(16);
-});
 
 const sortRoutines = (values: Routine[]) => [...values].sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt));
 
@@ -94,43 +97,69 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
     const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
     if (!cloudAuth) return;
 
-    const validHabitIds = routine.habitIds.filter(id => allHabitsRef.current.some(h => h.id === id));
-    if (validHabitIds.length > 0) {
-      await ensureHabitsSynced(validHabitIds);
+    let activeRoutine = routine;
+    if (!isValidUuid(activeRoutine.id)) {
+      const healedId = createUuid();
+      const updated = routinesRef.current.map(r => (r.id === activeRoutine.id ? { ...activeRoutine, id: healedId } : r));
+      activeRoutine = { ...activeRoutine, id: healedId };
+      await saveLocal(updated, cloudAuth.userId);
     }
 
-    const { error } = await supabase.from('routines').upsert({
-      id: routine.id,
-      user_id: cloudAuth.userId,
-      name: routine.name,
-      description: routine.description,
-      schedule: routine.schedule,
-      reminders: routine.reminders,
-      sort_order: routine.sortOrder,
-      archived_at: routine.archivedAt,
-      created_at: routine.createdAt,
-      updated_at: routine.updatedAt,
-    }, { onConflict: 'id' });
-    if (error) throw error;
+    const validHabitIds = activeRoutine.habitIds.filter(id => allHabitsRef.current.some(h => h.id === id));
+    const syncedHabitIds = validHabitIds.length > 0 ? await ensureHabitsSynced(validHabitIds) : [];
 
-    const { error: clearLinksError } = await supabase.from('routine_habits').delete().eq('routine_id', routine.id);
+    const buildRow = (target: Routine) => ({
+      id: target.id,
+      user_id: cloudAuth.userId,
+      name: target.name,
+      description: target.description,
+      schedule: target.schedule,
+      reminders: target.reminders,
+      sort_order: target.sortOrder,
+      archived_at: target.archivedAt,
+      created_at: target.createdAt,
+      updated_at: target.updatedAt,
+    });
+
+    const { error } = await supabase.from('routines').upsert(buildRow(activeRoutine), { onConflict: 'id' });
+    if (error) {
+      if (isOwnershipOrConflictError(error)) {
+        const oldId = activeRoutine.id;
+        const healedId = createUuid();
+        const cloned = { ...activeRoutine, id: healedId };
+        const updated = routinesRef.current.map(r => (r.id === oldId ? cloned : r));
+        await saveLocal(updated, cloudAuth.userId);
+        await clearRoutinePending(cloudAuth.userId, oldId);
+        activeRoutine = cloned;
+        const retryResult = await supabase.from('routines').upsert(buildRow(activeRoutine), { onConflict: 'id' });
+        if (retryResult.error) throw retryResult.error;
+      } else {
+        throw error;
+      }
+    }
+
+    const { error: clearLinksError } = await supabase.from('routine_habits').delete().eq('routine_id', activeRoutine.id);
     if (clearLinksError) throw clearLinksError;
-    if (validHabitIds.length) {
-      const links = validHabitIds.map((habitId, index) => ({ routine_id: routine.id, habit_id: habitId, sort_order: index }));
+    if (syncedHabitIds.length) {
+      const links = syncedHabitIds.map((habitId, index) => ({ routine_id: activeRoutine.id, habit_id: habitId, sort_order: index }));
       const { error: linksError } = await supabase.from('routine_habits').insert(links);
       if (linksError) throw linksError;
     }
 
-    const { error: clearLogsError } = await supabase.from('routine_logs').delete().eq('routine_id', routine.id).eq('user_id', cloudAuth.userId);
+    const { error: clearLogsError } = await supabase.from('routine_logs').delete().eq('routine_id', activeRoutine.id).eq('user_id', cloudAuth.userId);
     if (clearLogsError) throw clearLogsError;
-    if (routine.logs.length) {
-      const logs = routine.logs.map(log => ({ user_id: cloudAuth.userId, routine_id: routine.id, log_date: log.date, completed_at: log.completedAt, updated_at: log.updatedAt }));
+    if (activeRoutine.logs.length) {
+      const logs = activeRoutine.logs.map(log => ({ user_id: cloudAuth.userId, routine_id: activeRoutine.id, log_date: log.date, completed_at: log.completedAt, updated_at: log.updatedAt }));
       const { error: logsError } = await supabase.from('routine_logs').upsert(logs, { onConflict: 'routine_id,log_date' });
       if (logsError) throw logsError;
     }
 
-    await clearRoutinePending(cloudAuth.userId, routine.id);
-  }, [clearRoutinePending, ensureHabitsSynced]);
+    if (syncedHabitIds.length < validHabitIds.length) {
+      await markRoutinePending(cloudAuth.userId, activeRoutine.id);
+    } else {
+      await clearRoutinePending(cloudAuth.userId, activeRoutine.id);
+    }
+  }, [clearRoutinePending, ensureHabitsSynced, markRoutinePending, saveLocal]);
 
   const retryRoutineSync = useCallback(async () => {
     const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
@@ -192,8 +221,10 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
           setRoutineError(null);
         } catch (syncErr) {
           await markRoutinePending(cloudAuth.userId, changed.id);
-          console.warn('Routine saved locally; cloud sync failed:', syncErr);
-          setRoutineError('Routine saved on this device, but cloud sync failed. It will retry automatically.');
+          console.warn('Routine saved locally; cloud sync deferred:', syncErr);
+          if (!isTransientCloudError(syncErr)) {
+            setRoutineError('Routine saved on this device, but cloud sync failed. Tap to retry.');
+          }
         }
       }
     } catch (error) {
@@ -317,7 +348,9 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
           setRoutineError(null);
         } catch (error) {
           console.warn('Cloud routines remain available locally:', error);
-          if (mounted) setRoutineError('Cloud sync is unavailable. Routine changes are stored on this device and will retry automatically.');
+          if (mounted && !isTransientCloudError(error)) {
+            setRoutineError('Cloud sync could not complete. Routine changes are stored on this device.');
+          }
         }
       }
       if (mounted) setIsLoadingRoutines(false);
@@ -344,9 +377,11 @@ export const RoutinesProvider = ({ children }: { children: ReactNode }) => {
             await syncRoutine(changed);
             setRoutineError(null);
           } catch (error) {
-            console.warn('Routine saved locally; cloud sync failed:', error);
+            console.warn('Routine saved locally; cloud sync deferred:', error);
             await markRoutinePending(cloudAuth.userId, changed.id);
-            setRoutineError('Routine saved on this device, but could not sync to your account. It will retry automatically.');
+            if (!isTransientCloudError(error)) {
+              setRoutineError('Routine saved on this device, but could not sync to your account. Tap to retry.');
+            }
           }
         })();
       }

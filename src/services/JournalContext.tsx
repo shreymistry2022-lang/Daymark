@@ -5,7 +5,15 @@ import { supabase } from './supabase';
 import { useAuth } from './AuthProvider';
 import { useHabits } from './HabitContext';
 import { validateJournalEntry } from '../domain/journalEngine';
-import { readStorageJson, resolveCloudAuth, writeStorageJson } from './cloudSyncHelpers';
+import {
+  createUuid,
+  isOwnershipOrConflictError,
+  isTransientCloudError,
+  isValidUuid,
+  readStorageJson,
+  resolveCloudAuth,
+  writeStorageJson,
+} from './cloudSyncHelpers';
 
 export interface JournalEntry { id: string; habitId: string | null; date: string; text: string; createdAt: string; updatedAt: string }
 interface JournalValue { entries: JournalEntry[]; isLoading: boolean; error: string | null; saveEntry: (value: Pick<JournalEntry, 'id' | 'habitId' | 'date' | 'text'>) => { error?: string }; deleteEntry: (id: string) => void; retryJournalSync: () => Promise<void> }
@@ -65,22 +73,55 @@ export const JournalProvider = ({ children }: { children: ReactNode }) => {
     const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
     if (!cloudAuth) return;
 
-    let safeHabitId = entry.habitId;
+    let activeEntry = entry;
+    if (!isValidUuid(activeEntry.id)) {
+      const healedId = createUuid();
+      const updated = entriesRef.current.map(e => (e.id === activeEntry.id ? { ...activeEntry, id: healedId } : e));
+      activeEntry = { ...activeEntry, id: healedId };
+      await persist(updated, cloudAuth.userId);
+    }
+
+    let safeHabitId = activeEntry.habitId;
+    let habitStillPending = false;
     if (safeHabitId) {
       if (allHabitsRef.current.some(h => h.id === safeHabitId)) {
-        await ensureHabitsSynced([safeHabitId]);
+        const synced = await ensureHabitsSynced([safeHabitId]);
+        if (!synced.includes(safeHabitId)) {
+          safeHabitId = null;
+          habitStillPending = true;
+        }
       } else {
         safeHabitId = null;
       }
     }
 
-    const { error: syncError } = await supabase.from('journal_entries').upsert({
-      id: entry.id, user_id: cloudAuth.userId, habit_id: safeHabitId,
-      entry_date: entry.date, text: entry.text, created_at: entry.createdAt, updated_at: entry.updatedAt,
+    const buildRow = (target: JournalEntry) => ({
+      id: target.id, user_id: cloudAuth.userId, habit_id: safeHabitId,
+      entry_date: target.date, text: target.text, created_at: target.createdAt, updated_at: target.updatedAt,
     });
-    if (syncError) throw syncError;
-    await clearPending(cloudAuth.userId, entry.id);
-  }, [clearPending, ensureHabitsSynced]);
+
+    const { error: syncError } = await supabase.from('journal_entries').upsert(buildRow(activeEntry));
+    if (syncError) {
+      if (isOwnershipOrConflictError(syncError)) {
+        const oldId = activeEntry.id;
+        const healedId = createUuid();
+        const cloned = { ...activeEntry, id: healedId };
+        const updated = entriesRef.current.map(e => (e.id === oldId ? cloned : e));
+        await persist(updated, cloudAuth.userId);
+        await clearPending(cloudAuth.userId, oldId);
+        activeEntry = cloned;
+        const retryResult = await supabase.from('journal_entries').upsert(buildRow(activeEntry));
+        if (retryResult.error) throw retryResult.error;
+      } else {
+        throw syncError;
+      }
+    }
+    if (habitStillPending) {
+      await markPending(cloudAuth.userId, activeEntry.id);
+    } else {
+      await clearPending(cloudAuth.userId, activeEntry.id);
+    }
+  }, [clearPending, ensureHabitsSynced, markPending, persist]);
 
   const retryJournalSync = useCallback(async () => {
     const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
@@ -183,8 +224,10 @@ export const JournalProvider = ({ children }: { children: ReactNode }) => {
           }
           setError(null);
         } catch (syncError) {
-          console.warn('Journal cloud sync failed:', syncError);
-          if (mounted) setError('Cloud sync is unavailable. Entries remain saved locally and will retry automatically.');
+          console.warn('Journal cloud sync deferred:', syncError);
+          if (mounted && !isTransientCloudError(syncError)) {
+            setError('Journal entries remain saved locally and will retry syncing.');
+          }
         }
       }
       if (mounted) setIsLoading(false);
@@ -209,9 +252,11 @@ export const JournalProvider = ({ children }: { children: ReactNode }) => {
         await syncEntry(entry);
         setError(null);
       } catch (syncError) {
-        console.warn('Journal entry saved locally; cloud sync failed:', syncError);
+        console.warn('Journal entry saved locally; cloud sync deferred:', syncError);
         await markPending(cloudAuth.userId, entry.id);
-        setError('Entry saved locally, but cloud sync failed. It will retry automatically.');
+        if (!isTransientCloudError(syncError)) {
+          setError('Entry saved locally, but cloud sync failed. It will retry automatically.');
+        }
       }
     })();
     return {};

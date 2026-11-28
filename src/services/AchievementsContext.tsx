@@ -7,7 +7,7 @@ import { AchievementKey, AchievementProgress, calculateAchievementProgress } fro
 import { usePreferences } from './PreferencesContext';
 import { dateKeyInTimezone } from '../domain/preferencesEngine';
 import { parseLocalDate } from '../domain/habitEngine';
-import { resolveCloudAuth } from './cloudSyncHelpers';
+import { isTransientCloudError, resolveCloudAuth } from './cloudSyncHelpers';
 
 interface AchievementsValue { achievements: AchievementProgress[]; isLoading: boolean; error: string | null }
 const AchievementContext = createContext<AchievementsValue | null>(null);
@@ -47,7 +47,7 @@ export const AchievementsProvider = ({ children }: { children: ReactNode }) => {
             if (uploadError) throw uploadError;
           }
           if (mounted) setError(null);
-        } catch (syncError) { console.warn('Achievement cloud sync failed:', syncError); if (mounted) setError('Achievement sync is unavailable. Your local history remains available.'); }
+        } catch (syncError) { console.warn('Achievement cloud sync deferred:', syncError); if (mounted && !isTransientCloudError(syncError)) setError('Achievement sync is unavailable. Your local history remains available.'); }
       } else if (mounted) setUnlocked(local);
       if (mounted) setIsLoading(false);
     };
@@ -69,7 +69,7 @@ export const AchievementsProvider = ({ children }: { children: ReactNode }) => {
       const cloudAuth = await resolveCloudAuth(user, session);
       if (!cloudAuth) return;
       const { error: syncError } = await supabase.from('achievements').upsert(awardsToSave.map(achievement_key => ({ user_id: cloudAuth.userId, achievement_key, unlocked_at: next[achievement_key] })), { onConflict: 'user_id,achievement_key', ignoreDuplicates: true });
-      if (syncError) { console.warn('Achievements saved locally; cloud sync failed:', syncError); setError('New achievements are saved locally, but cloud sync failed.'); }
+      if (syncError) { console.warn('Achievements saved locally; cloud sync deferred:', syncError); if (!isTransientCloudError(syncError)) setError('New achievements are saved locally, but cloud sync failed.'); }
     })();
   }, [allHabits, isLoading, unlocked, persist, session, user, preferences.timezone]);
 

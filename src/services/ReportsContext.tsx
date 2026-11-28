@@ -7,7 +7,7 @@ import { buildPerformanceReport, PerformanceReport, recentReportStarts } from '.
 import { addLocalDays, parseLocalDate, toLocalDateString } from '../domain/habitEngine';
 import { usePreferences } from './PreferencesContext';
 import { dateKeyInTimezone } from '../domain/preferencesEngine';
-import { resolveCloudAuth } from './cloudSyncHelpers';
+import { isTransientCloudError, resolveCloudAuth } from './cloudSyncHelpers';
 
 interface ReportsValue { reports: PerformanceReport[]; isLoading: boolean; error: string | null }
 const ReportsContext = createContext<ReportsValue | null>(null);
@@ -46,7 +46,7 @@ export const ReportsProvider = ({ children }: { children: ReactNode }) => {
           }
           if (!mounted) return;
           await persist([...byId.values()]); setError(null);
-        } catch (syncError) { console.warn('Report history cloud sync failed:', syncError); if (mounted) setError('Report sync is unavailable. Saved reports remain available on this device.'); }
+        } catch (syncError) { console.warn('Report history cloud sync deferred:', syncError); if (mounted && !isTransientCloudError(syncError)) setError('Report sync is unavailable. Saved reports remain available on this device.'); }
       }
       if (mounted) setIsLoading(false);
     };
@@ -72,7 +72,7 @@ export const ReportsProvider = ({ children }: { children: ReactNode }) => {
       if (!cloudAuth) return;
       const rows = generated.map(report => ({ user_id: cloudAuth.userId, period_type: report.periodType, period_start: report.periodStart, period_end: report.periodEnd, report_data: report, generated_at: report.generatedAt }));
       const { error: syncError } = await supabase.from('performance_reports').upsert(rows, { onConflict: 'user_id,period_type,period_start' });
-      if (syncError) { console.warn('Reports saved locally; cloud sync failed:', syncError); setError('Reports are saved locally, but cloud sync failed.'); }
+      if (syncError) { console.warn('Reports saved locally; cloud sync deferred:', syncError); if (!isTransientCloudError(syncError)) setError('Reports are saved locally, but cloud sync failed.'); }
     })();
   // allHabits is the single source for report refreshes; reports is intentionally omitted to avoid a save loop.
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -8,7 +8,15 @@ import { calculateGoalProgress, Goal, GoalMilestone } from '../domain/goalEngine
 import { parseLocalDate } from '../domain/habitEngine';
 import { usePreferences } from './PreferencesContext';
 import { dateKeyInTimezone } from '../domain/preferencesEngine';
-import { readStorageJson, resolveCloudAuth, writeStorageJson } from './cloudSyncHelpers';
+import {
+  createUuid,
+  isOwnershipOrConflictError,
+  isTransientCloudError,
+  isValidUuid,
+  readStorageJson,
+  resolveCloudAuth,
+  writeStorageJson,
+} from './cloudSyncHelpers';
 
 const LEGACY_STORAGE_KEY = '@daymark_goals_v1';
 const LEGACY_DELETE_KEY = '@daymark_goal_delete_queue_v1';
@@ -95,40 +103,66 @@ export const GoalsProvider = ({ children }: { children: ReactNode }) => {
     const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
     if (!cloudAuth) return;
 
-    const validHabitIds = goal.habitIds.filter(id => allHabitsRef.current.some(h => h.id === id));
-    if (validHabitIds.length > 0) {
-      await ensureHabitsSynced(validHabitIds);
+    let activeGoal = goal;
+    if (!isValidUuid(activeGoal.id)) {
+      const healedId = createUuid();
+      const updated = goalsRef.current.map(g => (g.id === activeGoal.id ? { ...activeGoal, id: healedId } : g));
+      activeGoal = { ...activeGoal, id: healedId };
+      await saveLocal(updated, cloudAuth.userId);
     }
 
-    const { error } = await supabase.from('goals').upsert({
-      id: goal.id, user_id: cloudAuth.userId, name: goal.name, description: goal.description,
-      category: goal.category, start_date: goal.startDate, target_date: goal.targetDate,
-      target_value: goal.targetValue, unit: goal.unit, archived_at: goal.archivedAt,
-      completed_at: goal.completedAt, created_at: goal.createdAt, updated_at: goal.updatedAt,
-    }, { onConflict: 'id' });
-    if (error) throw error;
+    const validHabitIds = activeGoal.habitIds.filter(id => allHabitsRef.current.some(h => h.id === id));
+    const syncedHabitIds = validHabitIds.length > 0 ? await ensureHabitsSynced(validHabitIds) : [];
 
-    const { error: clearLinksError } = await supabase.from('goal_habits').delete().eq('goal_id', goal.id);
+    const buildRow = (target: Goal) => ({
+      id: target.id, user_id: cloudAuth.userId, name: target.name, description: target.description,
+      category: target.category, start_date: target.startDate, target_date: target.targetDate,
+      target_value: target.targetValue, unit: target.unit, archived_at: target.archivedAt,
+      completed_at: target.completedAt, created_at: target.createdAt, updated_at: target.updatedAt,
+    });
+
+    const { error } = await supabase.from('goals').upsert(buildRow(activeGoal), { onConflict: 'id' });
+    if (error) {
+      if (isOwnershipOrConflictError(error)) {
+        const oldId = activeGoal.id;
+        const healedId = createUuid();
+        const cloned = { ...activeGoal, id: healedId };
+        const updated = goalsRef.current.map(g => (g.id === oldId ? cloned : g));
+        await saveLocal(updated, cloudAuth.userId);
+        await clearGoalPending(cloudAuth.userId, oldId);
+        activeGoal = cloned;
+        const retryResult = await supabase.from('goals').upsert(buildRow(activeGoal), { onConflict: 'id' });
+        if (retryResult.error) throw retryResult.error;
+      } else {
+        throw error;
+      }
+    }
+
+    const { error: clearLinksError } = await supabase.from('goal_habits').delete().eq('goal_id', activeGoal.id);
     if (clearLinksError) throw clearLinksError;
-    if (validHabitIds.length) {
-      const links = validHabitIds.map(habitId => ({ goal_id: goal.id, habit_id: habitId }));
+    if (syncedHabitIds.length) {
+      const links = syncedHabitIds.map(habitId => ({ goal_id: activeGoal.id, habit_id: habitId }));
       const { error: linkError } = await supabase.from('goal_habits').insert(links);
       if (linkError) throw linkError;
     }
 
-    const { error: clearMilestonesError } = await supabase.from('goal_milestones').delete().eq('goal_id', goal.id);
+    const { error: clearMilestonesError } = await supabase.from('goal_milestones').delete().eq('goal_id', activeGoal.id);
     if (clearMilestonesError) throw clearMilestonesError;
-    if (goal.milestones.length) {
-      const milestones = goal.milestones.map(milestone => ({
-        id: milestone.id, goal_id: goal.id, title: milestone.title,
+    if (activeGoal.milestones.length) {
+      const milestones = activeGoal.milestones.map(milestone => ({
+        id: isValidUuid(milestone.id) ? milestone.id : createUuid(), goal_id: activeGoal.id, title: milestone.title,
         target_value: milestone.targetValue, reached_at: milestone.reachedAt,
       }));
       const { error: milestonesError } = await supabase.from('goal_milestones').insert(milestones);
       if (milestonesError) throw milestonesError;
     }
 
-    await clearGoalPending(cloudAuth.userId, goal.id);
-  }, [clearGoalPending, ensureHabitsSynced]);
+    if (syncedHabitIds.length < validHabitIds.length) {
+      await markGoalPending(cloudAuth.userId, activeGoal.id);
+    } else {
+      await clearGoalPending(cloudAuth.userId, activeGoal.id);
+    }
+  }, [clearGoalPending, ensureHabitsSynced, markGoalPending, saveLocal]);
 
   const retryGoalSync = useCallback(async () => {
     const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
@@ -267,7 +301,9 @@ export const GoalsProvider = ({ children }: { children: ReactNode }) => {
           setGoalError(null);
         } catch (error) {
           console.warn('Cloud goals remain available locally:', error);
-          if (mounted) setGoalError('Cloud sync is unavailable. Goal changes are stored on this device and will retry automatically.');
+          if (mounted && !isTransientCloudError(error)) {
+            setGoalError('Cloud sync could not complete. Goal changes are stored on this device.');
+          }
         }
       }
       if (mounted) setIsLoadingGoals(false);
@@ -287,9 +323,11 @@ export const GoalsProvider = ({ children }: { children: ReactNode }) => {
           await syncGoal(changed);
           setGoalError(null);
         } catch (error) {
-          console.warn('Goal saved locally; cloud sync failed:', error);
+          console.warn('Goal saved locally; cloud sync deferred:', error);
           await markGoalPending(cloudAuth.userId, changed.id);
-          setGoalError('Goal saved on this device, but cloud sync failed. It will retry automatically.');
+          if (!isTransientCloudError(error)) {
+            setGoalError('Goal saved on this device, but cloud sync failed. Tap to retry.');
+          }
         }
       })();
     }

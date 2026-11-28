@@ -65,7 +65,7 @@ interface HabitContextType {
   isCelebrationVisible: boolean;
   triggerCelebration: () => void;
   dismissCelebration: () => void;
-  ensureHabitsSynced: (habitIds: string[]) => Promise<void>;
+  ensureHabitsSynced: (habitIds: string[]) => Promise<string[]>;
   syncAllHabitsNow: () => Promise<void>;
   stats: {
     completedToday: number;
@@ -547,16 +547,22 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     syncHabitToCloudRef.current = syncHabitToCloud;
   }, [syncHabitToCloud]);
 
-  const ensureHabitsSynced = useCallback(async (habitIds: string[]) => {
+  const ensureHabitsSynced = useCallback(async (habitIds: string[]): Promise<string[]> => {
     const cloudAuth = await resolveCloudAuth(userRef.current, sessionRef.current);
-    if (!cloudAuth || !habitIds.length) return;
+    if (!cloudAuth || !habitIds.length) return [];
+    const synced: string[] = [];
     for (const id of habitIds) {
-      if (syncedHabitIdsRef.current.has(id)) continue;
+      if (syncedHabitIdsRef.current.has(id)) {
+        synced.push(id);
+        continue;
+      }
       const target = habitsRef.current.find(h => h.id === id);
       if (target) {
-        await syncHabitToCloudRef.current(target);
+        const ok = await syncHabitToCloudRef.current(target);
+        if (ok) synced.push(id);
       }
     }
+    return synced;
   }, []);
 
   const syncAllHabitsNow = useCallback(async () => {
