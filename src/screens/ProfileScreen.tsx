@@ -23,6 +23,7 @@ import { useSubscription } from '../services/SubscriptionProvider';
 import { canAccessFeature, SUBSCRIPTIONS_ENABLED } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
 import { FeedbackModal } from '../components/FeedbackModal';
+import { MinimalModalHeader } from '../components/MinimalModalHeader';
 import { checkForAppUpdates, getUpdateInfo } from '../services/updateService';
 import { RoutinesScreen } from './RoutinesScreen';
 import { GoalsScreen } from './GoalsScreen';
@@ -419,13 +420,15 @@ export const ProfileScreen = () => {
         <PreferencesScreen onClose={closePreferences} />
       </Modal>
       <Modal visible={insightsVisible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setInsightsVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: colors.background }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: insets.top + 8, paddingBottom: 8 }}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: colors.primaryText }}>Insights</Text>
-            <TouchableOpacity onPress={() => setInsightsVisible(false)} style={{ padding: 4 }}>
-              <Ionicons name="close" size={24} color={colors.primaryText} />
-            </TouchableOpacity>
-          </View>
+        <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
+          <MinimalModalHeader
+            title="Insights"
+            colors={colors}
+            onClose={() => setInsightsVisible(false)}
+            closeIcon="close"
+            closeAccessibilityLabel="Close insights"
+            showHandle
+          />
           <InsightsScreen />
         </View>
       </Modal>

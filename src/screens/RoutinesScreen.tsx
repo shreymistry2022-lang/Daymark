@@ -12,6 +12,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canAccessFeature } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
+import { MinimalModalHeader } from '../components/MinimalModalHeader';
 import { spacing, radii } from '../theme/tokens';
 
 const SCHEDULES: { label: string; value: HabitSchedule['frequency'] }[] = [
@@ -96,19 +97,26 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]} keyboardShouldPersistTaps="handled">
-        <View style={styles.header}>
-          <View style={styles.headingGroup}>
-            {onClose && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close routines" onPress={onClose} style={styles.backButton}><Ionicons name="arrow-back" size={21} color={colors.primaryText} /></TouchableOpacity>}
-            <View>
-              <Text style={[styles.eyebrow, { color: colors.accent }]}>STRUCTURE YOUR DAY</Text>
-              <Text style={[styles.title, { color: colors.primaryText }]}>Routines</Text>
-            </View>
-          </View>
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Create routine" style={[styles.addButton, { backgroundColor: colors.accent }]} onPress={() => openEditor()}>
-            <Ionicons name="add" size={20} color="#000" /><Text style={styles.addText}>New</Text>
+      <MinimalModalHeader
+        title="Routines"
+        colors={colors}
+        onClose={onClose}
+        closeIcon="chevron-back"
+        closeAccessibilityLabel="Close routines"
+        showHandle
+        rightElement={
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Create routine"
+            style={[styles.addButton, { backgroundColor: colors.accent }]}
+            onPress={() => openEditor()}
+          >
+            <Ionicons name="add" size={18} color="#FFF" />
+            <Text style={styles.addText}>New</Text>
           </TouchableOpacity>
-        </View>
+        }
+      />
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]} keyboardShouldPersistTaps="handled">
 
         {!allowed && <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border }]}><Ionicons name="lock-closed-outline" size={18} color={colors.accent} /><Text style={[styles.noticeText, { color: colors.secondaryText }]}>Routines are included with Daymark Pro. Existing routines are still visible.</Text><TouchableOpacity onPress={() => setPaywallVisible(true)}><Text style={{ color: colors.accent, fontWeight: '700' }}>See Pro</Text></TouchableOpacity></View>}
         {routineError && <Text accessibilityRole="alert" style={[styles.errorBanner, { color: colors.error }]}>{routineError}</Text>}
@@ -169,7 +177,20 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
       <Modal visible={editorVisible} animationType="slide" transparent onRequestClose={() => setEditorVisible(false)}>
         <View style={styles.modalBackdrop}>
           <View style={[styles.editor, { backgroundColor: colors.card, borderColor: colors.border, paddingBottom: insets.bottom + spacing.md }]}>
-            <View style={styles.editorHeader}><View><Text style={[styles.eyebrow, { color: colors.accent }]}>ROUTINE BUILDER</Text><Text style={[styles.editorTitle, { color: colors.primaryText }]}>{editingRoutine ? 'Edit routine' : 'New routine'}</Text></View><TouchableOpacity accessibilityLabel="Close editor" onPress={() => setEditorVisible(false)}><Ionicons name="close" size={22} color={colors.secondaryText} /></TouchableOpacity></View>
+            <View style={styles.sheetHandleRow}>
+              <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+            </View>
+            <View style={styles.editorHeader}>
+              <TouchableOpacity
+                accessibilityLabel="Close editor"
+                onPress={() => setEditorVisible(false)}
+                style={[styles.circleCloseBtn, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
+              >
+                <Ionicons name="close" size={18} color={colors.primaryText} />
+              </TouchableOpacity>
+              <Text style={[styles.editorTitle, { color: colors.primaryText }]}>{editingRoutine ? 'Edit Routine' : 'New Routine'}</Text>
+              <View style={styles.headerSpacer} />
+            </View>
             <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={[styles.fieldLabel, { color: colors.secondaryText }]}>NAME</Text>
               <TextInput accessibilityLabel="Routine name" value={name} onChangeText={setName} placeholder="Morning routine" placeholderTextColor={colors.mutedText} maxLength={70} style={[styles.input, { color: colors.primaryText, backgroundColor: colors.secondaryBackground, borderColor: colors.border }]} />
@@ -251,26 +272,23 @@ export const RoutinesScreen = ({ onClose, initialRoutineId, onInitialRoutineHand
 
 const styles = StyleSheet.create({
   screen: { flex: 1 }, content: { paddingHorizontal: spacing.lg },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.md, marginBottom: spacing.lg },
-  headingGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, backButton: { padding: 6 },
-  eyebrow: { fontSize: 11, letterSpacing: 1.4, fontWeight: '800' }, title: { fontSize: 30, fontWeight: '800', marginTop: 2 },
-  addButton: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radii.full, paddingHorizontal: 14, paddingVertical: 9 }, addText: { color: '#000', fontWeight: '800' },
-  notice: { borderWidth: 1, borderRadius: radii.md, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: spacing.md }, noticeText: { flex: 1, fontSize: 12, lineHeight: 17 },
+  addButton: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radii.full, paddingHorizontal: 14, paddingVertical: 8 }, addText: { color: '#FFF', fontSize: 13, fontWeight: '700' },
+  notice: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: spacing.md }, noticeText: { flex: 1, fontSize: 12, lineHeight: 17 },
   errorBanner: { fontSize: 12, marginBottom: spacing.md }, loading: { alignItems: 'center', paddingVertical: 70 },
-  empty: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.xl, alignItems: 'center', marginTop: spacing.xl }, emptyIcon: { width: 54, height: 54, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md }, emptyTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' }, emptyText: { fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 8, marginBottom: spacing.lg },
+  empty: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.xl, alignItems: 'center', marginTop: spacing.xl }, emptyIcon: { width: 54, height: 54, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md }, emptyTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' }, emptyText: { fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 8, marginBottom: spacing.lg },
   routineCard: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, marginBottom: spacing.md }, routineTop: { flexDirection: 'row', alignItems: 'center' }, routineName: { fontSize: 17, fontWeight: '800' }, routineSchedule: { fontSize: 11, marginTop: 4, textTransform: 'capitalize' }, routineDescription: { fontSize: 12, lineHeight: 18, marginTop: 8 }, orderButtons: { flexDirection: 'row', gap: 8 },
   habitChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.md }, habitChip: { flexDirection: 'row', alignItems: 'center', borderRadius: radii.full, paddingHorizontal: 9, paddingVertical: 6, maxWidth: '100%' }, habitDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 }, habitChipText: { fontSize: 11, maxWidth: 170 },
   progressLine: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: spacing.md }, progressTrack: { flex: 1, height: 6, borderRadius: radii.full, overflow: 'hidden' }, progressFill: { height: '100%', borderRadius: radii.full }, progressLabel: { fontSize: 11, fontWeight: '700' },
-  historyRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }, historyDay: { width: 30, height: 30, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, historyDayText: { fontSize: 11, fontWeight: '700' },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.md }, completeButton: { flex: 1, minHeight: 42, borderRadius: radii.md, borderWidth: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 7 }, completeText: { fontSize: 12, fontWeight: '700' }, iconAction: { minWidth: 40, minHeight: 42, alignItems: 'center', justifyContent: 'center' },
-  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.65)' }, editor: { maxHeight: '92%', borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, borderWidth: 1, padding: spacing.lg }, editorHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }, editorTitle: { fontSize: 23, fontWeight: '800', marginTop: 3 }, fieldLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1, marginTop: spacing.md, marginBottom: 6 }, input: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: 12, fontSize: 14 }, descriptionInput: { minHeight: 70, textAlignVertical: 'top' }, scheduleOptions: { flexDirection: 'row', gap: 8 }, option: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 12, paddingVertical: 9 }, optionText: { fontSize: 12, fontWeight: '700' },
+  historyRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }, historyDay: { width: 32, height: 32, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, historyDayText: { fontSize: 11, fontWeight: '700' },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.md }, completeButton: { flex: 1, minHeight: 42, borderRadius: radii.full, borderWidth: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 7 }, completeText: { fontSize: 12, fontWeight: '700' }, iconAction: { minWidth: 40, minHeight: 42, alignItems: 'center', justifyContent: 'center' },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.65)' }, editor: { maxHeight: '92%', borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, borderWidth: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.sm }, sheetHandleRow: { alignItems: 'center', paddingBottom: spacing.sm }, sheetHandle: { width: 36, height: 4, borderRadius: 2 }, editorHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }, circleCloseBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, headerSpacer: { width: 36, height: 36 }, editorTitle: { fontSize: 18, fontWeight: '700' }, fieldLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginTop: spacing.md, marginBottom: 6 }, input: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: 12, fontSize: 14 }, descriptionInput: { minHeight: 70, textAlignVertical: 'top' }, scheduleOptions: { flexDirection: 'row', gap: 8 }, option: { borderWidth: 1, borderRadius: radii.full, paddingHorizontal: 14, paddingVertical: 9 }, optionText: { fontSize: 12, fontWeight: '700' },
   habitOption: { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 10, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', marginBottom: 7 }, habitOptionText: { flex: 1, fontSize: 13 }, reminderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 }, reminderLabel: { flex: 1, fontSize: 12, fontWeight: '600' },
   reminderEntry: { flexDirection: 'row', gap: 6, alignItems: 'center', width: '100%', marginTop: 6, flexWrap: 'nowrap' },
   reminderInput: { width: 72, height: 40, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: 6, textAlign: 'center', fontSize: 14, fontWeight: '600', flexShrink: 0 },
   ampmToggle: { height: 40, flexDirection: 'row', borderWidth: 1, borderRadius: radii.md, overflow: 'hidden', flexShrink: 0 },
   ampmBtn: { height: '100%', paddingHorizontal: 8, justifyContent: 'center', alignItems: 'center', minWidth: 34 },
   ampmBtnText: { fontSize: 12, fontWeight: '700' },
-  addReminderButton: { flex: 1, minWidth: 64, height: 40, borderWidth: 1, borderRadius: radii.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 8 },
+  addReminderButton: { flex: 1, minWidth: 64, height: 40, borderWidth: 1, borderRadius: radii.full, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 10 },
   addReminderButtonText: { fontSize: 13, fontWeight: '700' },
-  formError: { fontSize: 12, marginTop: 10 }, primaryButton: { borderRadius: radii.md, paddingVertical: 13, alignItems: 'center', marginTop: spacing.md }, primaryText: { color: '#000', fontSize: 14, fontWeight: '800' },
+  formError: { fontSize: 12, marginTop: 10 }, primaryButton: { borderRadius: radii.full, paddingVertical: 14, paddingHorizontal: 22, alignItems: 'center', marginTop: spacing.md }, primaryText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 });
