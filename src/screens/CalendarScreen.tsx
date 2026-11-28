@@ -376,7 +376,7 @@ export const CalendarScreen = () => {
             </Text>
             <View style={[styles.logPill, { backgroundColor: `${activeTheme.primary}1A` }]}>
               <Text style={[styles.logPillText, { color: activeTheme.primary }]}>
-              {getDayActivity(selectedDateStr).completed} of {getDayActivity(selectedDateStr).eligible.length} Done
+                {getDayActivity(selectedDateStr).completed} of {getDayActivity(selectedDateStr).eligible.length} Done
               </Text>
             </View>
           </View>
@@ -403,7 +403,7 @@ export const CalendarScreen = () => {
                     {h.name}
                   </Text>
                   <Text style={[styles.detailHabitName, { color: isDone ? h.color : colors.secondaryText, textAlign: 'right' }]}>{status === 'completed' ? 'Done' : status === 'missed' ? 'Missed' : status === 'lapse' ? 'Lapse' : status === 'paused' ? 'Paused' : status === 'unscheduled' ? 'Unscheduled' : status === 'future' ? 'Future' : status === 'ended' ? 'Ended' : status === 'not_started' ? 'Not started' : 'Pending'}</Text>
-                  {canLogHabitOnDate(h, selectedDateStr, today) ? h.habitKind === 'quit' ? <HabitTrackingControl key={`${h.id}-${selectedDateStr}-${status}`} habit={h} date={selectedDateStr} onSave={recordHabitLog} /> : <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${isDone ? 'Undo' : 'Complete'} ${h.name} for ${selectedDateStr}`} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.6} onPress={() => { if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}); toggleHabit(h.id, selectedDateStr); }}><Ionicons name={isDone ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={isDone ? h.color : colors.mutedText} /></TouchableOpacity> : null}
+                  {canLogHabitOnDate(h, selectedDateStr, today) ? h.habitKind === 'quit' ? <HabitTrackingControl key={`${h.id}-${selectedDateStr}-${status}`} habit={h} date={selectedDateStr} onSave={recordHabitLog} /> : <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${isDone ? 'Undo' : 'Complete'} ${h.name} for ${selectedDateStr}`} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.6} onPress={() => { if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { }); toggleHabit(h.id, selectedDateStr); }}><Ionicons name={isDone ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={isDone ? h.color : colors.mutedText} /></TouchableOpacity> : null}
                 </View>
               );
             })}
