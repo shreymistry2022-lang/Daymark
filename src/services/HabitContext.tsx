@@ -59,6 +59,7 @@ interface HabitContextType {
   restartOnboarding: () => void;
   isLoadingData: boolean;
   exportDataJson: () => string;
+  importHabitsJson: (rawJson: string) => { error?: string; count?: number };
   isCelebrationVisible: boolean;
   triggerCelebration: () => void;
   dismissCelebration: () => void;
@@ -524,6 +525,28 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
     );
   };
 
+  const importHabitsJson = (rawJson: string): { error?: string; count?: number } => {
+    try {
+      const parsed = JSON.parse(rawJson);
+      const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.habits) ? parsed.habits : null;
+      if (!list) return { error: 'Invalid backup format. Expected a Daymark JSON export.' };
+      const valid: Habit[] = list.filter(
+        (item: unknown): item is Habit =>
+          Boolean(item && typeof item === 'object' && 'id' in item && 'name' in item && Array.isArray((item as Habit).completedDates))
+      );
+      if (valid.length === 0) return { error: 'No valid habits found in this backup.' };
+      const byId = new Map(habitsRef.current.map(h => [h.id, h]));
+      for (const item of valid) byId.set(item.id, item);
+      const merged = Array.from(byId.values());
+      void saveHabits(merged);
+      setHasCompletedOnboarding(true);
+      AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING, 'true').catch(() => {});
+      return { count: valid.length };
+    } catch {
+      return { error: 'Could not parse JSON. Make sure you pasted the full backup file.' };
+    }
+  };
+
   const archivedHabits = useMemo(() => habits.filter(habit => Boolean(habit.archivedAt)), [habits]);
   const activeHabits = useMemo(() => habits.filter(habit => !habit.archivedAt), [habits]);
   const streakStatsMap = useMemo(() => {
@@ -597,6 +620,7 @@ export const HabitProvider = ({ children }: { children: ReactNode }) => {
         restartOnboarding,
         isLoadingData,
         exportDataJson,
+        importHabitsJson,
         isCelebrationVisible,
         triggerCelebration,
         dismissCelebration,

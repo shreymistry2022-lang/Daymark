@@ -322,10 +322,6 @@ export const PaywallModal = ({ visible, onClose }: Props) => {
             <Text style={[styles.statusNotice, { color: colors.mutedText }]}>
               Plans connect directly through Google Play once store billing is linked.
             </Text>
-          ) : isConfigured && !canPurchase ? (
-            <Text style={[styles.statusNotice, { color: colors.mutedText }]}>
-              Sign in with an account to purchase and sync Pro across devices.
-            </Text>
           ) : null}
 
           {/* Feature List Section (Reference Image Cards) */}

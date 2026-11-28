@@ -22,6 +22,7 @@ import { useSubscription } from '../services/SubscriptionProvider';
 import { canAccessFeature, SUBSCRIPTIONS_ENABLED } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
 import { FeedbackModal } from '../components/FeedbackModal';
+import { BackupRestoreModal } from '../components/BackupRestoreModal';
 import { MinimalModalHeader } from '../components/MinimalModalHeader';
 import { checkForAppUpdates, getUpdateInfo } from '../services/updateService';
 import { RoutinesScreen } from './RoutinesScreen';
@@ -94,6 +95,7 @@ export const ProfileScreen = () => {
   const [preferencesVisible, setPreferencesVisible] = useState(false);
   const [insightsVisible, setInsightsVisible] = useState(false);
   const [feedbackVisible, setFeedbackVisible] = useState(false);
+  const [backupVisible, setBackupVisible] = useState(false);
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [initialRoutineId, setInitialRoutineId] = useState<string | null>(null);
   const [initialGoalId, setInitialGoalId] = useState<string | null>(null);
@@ -238,6 +240,13 @@ export const ProfileScreen = () => {
         <Text style={[styles.groupTitle, { color: colors.secondaryText }]}>BACKUP & EXPORT</Text>
         <View style={[styles.groupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <SettingsRow
+            icon="cloud-upload-outline"
+            iconColor="#7C83FF"
+            label="Backup & Restore"
+            onPress={() => setBackupVisible(true)}
+            colors={colors}
+          />
+          <SettingsRow
             icon="download-outline"
             iconColor="#10B981"
             label="Export Progress (CSV)"
@@ -246,7 +255,7 @@ export const ProfileScreen = () => {
           />
           <SettingsRow
             icon="code-download-outline"
-            iconColor="#7C83FF"
+            iconColor="#38BDF8"
             label="Export Backup (JSON)"
             onPress={() => void handleExportData('json')}
             isLast
@@ -284,6 +293,12 @@ export const ProfileScreen = () => {
 
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
       <FeedbackModal visible={feedbackVisible} onClose={() => setFeedbackVisible(false)} />
+      <BackupRestoreModal
+        visible={backupVisible}
+        onClose={() => setBackupVisible(false)}
+        onExportJson={() => handleExportData('json')}
+        onExportCsv={() => handleExportData('csv')}
+      />
       <Modal visible={routinesVisible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setRoutinesVisible(false)}>
         <RoutinesScreen initialRoutineId={initialRoutineId} onInitialRoutineHandled={() => setInitialRoutineId(null)} onClose={() => { setRoutinesVisible(false); setInitialRoutineId(null); }} />
       </Modal>
