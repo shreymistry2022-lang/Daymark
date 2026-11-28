@@ -6,12 +6,11 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  PanResponder,
+  LayoutAnimation,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import * as Haptics from 'expo-haptics';
 import { spacing, radii } from '../theme/tokens';
 import { useHabits } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
@@ -21,6 +20,7 @@ import { PaywallModal } from '../components/PaywallModal';
 import { HabitDotGrid } from '../components/HabitDotGrid';
 import { HabitTrackingControl } from '../components/HabitTrackingControl';
 import { MonthYearPickerModal } from '../components/MonthYearPickerModal';
+import { AnimatedMonthContainer, AnimatedPopTouchable } from '../components/AnimatedMonthGrid';
 import {
   addLocalDays,
   calculateCompletionStats,
@@ -145,45 +145,15 @@ export const CalendarScreen = () => {
     setSelectedDay(parsed.getDate());
   };
 
-  const handlePrevMonth = () => {
-    if (currentMonthIndex === 0) {
-      setCurrentMonthIndex(11);
-      setCurrentYear(prev => prev - 1);
-    } else {
-      setCurrentMonthIndex(prev => prev - 1);
-    }
+  const handleShiftMonth = (delta: number) => {
+    const next = new Date(currentYear, currentMonthIndex + delta, 1);
+    setCurrentYear(next.getFullYear());
+    setCurrentMonthIndex(next.getMonth());
   };
 
-  const handleNextMonth = () => {
-    if (currentMonthIndex === 11) {
-      setCurrentMonthIndex(0);
-      setCurrentYear(prev => prev + 1);
-    } else {
-      setCurrentMonthIndex(prev => prev + 1);
-    }
-  };
+  const handlePrevMonth = () => handleShiftMonth(-1);
 
-  const monthPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 18 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.3,
-        onPanResponderRelease: (_, gs) => {
-          const delta = gs.dx < -45 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.2
-            ? 1
-            : gs.dx > 45 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.2
-              ? -1
-              : 0;
-          if (!delta) return;
-          if (preferences.hapticsEnabled) {
-            void Haptics.selectionAsync().catch(() => {});
-          }
-          const next = new Date(currentYear, currentMonthIndex + delta, 1);
-          setCurrentYear(next.getFullYear());
-          setCurrentMonthIndex(next.getMonth());
-        },
-      }),
-    [currentYear, currentMonthIndex, preferences.hapticsEnabled],
-  );
+  const handleNextMonth = () => handleShiftMonth(1);
 
   const handleJumpToToday = () => {
     goToDate(todayDateStr);
@@ -225,7 +195,10 @@ export const CalendarScreen = () => {
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel="Choose heatmap color theme"
-              onPress={() => setShowThemePicker(v => !v)}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setShowThemePicker(v => !v);
+              }}
               style={[
                 styles.circleBtn,
                 {
@@ -241,7 +214,10 @@ export const CalendarScreen = () => {
               accessibilityLabel={`Toggle ${currentYear} yearly heatmap`}
               onPress={() => {
                 if (!canAccessFeature('yearly_heatmap', isPro)) setPaywallVisible(true);
-                else setShowYearOverview(value => !value);
+                else {
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  setShowYearOverview(value => !value);
+                }
               }}
               style={[
                 styles.yearPillBtn,
@@ -374,7 +350,10 @@ export const CalendarScreen = () => {
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityState={{ selected: !showWeekView }}
-            onPress={() => setShowWeekView(false)}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setShowWeekView(false);
+            }}
             style={[styles.viewToggleButton, !showWeekView && { backgroundColor: colors.accent }]}
           >
             <Text style={[styles.viewToggleText, { color: !showWeekView ? '#FFFFFF' : colors.secondaryText }]}>
@@ -384,7 +363,10 @@ export const CalendarScreen = () => {
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityState={{ selected: showWeekView }}
-            onPress={() => setShowWeekView(true)}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setShowWeekView(true);
+            }}
             style={[styles.viewToggleButton, showWeekView && { backgroundColor: colors.accent }]}
           >
             <Text style={[styles.viewToggleText, { color: showWeekView ? '#FFFFFF' : colors.secondaryText }]}>
@@ -605,7 +587,12 @@ export const CalendarScreen = () => {
             </View>
 
             {/* Swipeable Strict 7-Column Month Grid */}
-            <View style={styles.monthGridRows} {...monthPanResponder.panHandlers}>
+            <AnimatedMonthContainer
+              year={currentYear}
+              month={currentMonthIndex}
+              onShiftMonth={handleShiftMonth}
+              style={styles.monthGridRows}
+            >
               {monthRows.map((row, rIdx) => (
                 <View key={rIdx} style={styles.monthGridRow}>
                   {row.map((day, cIdx) => {
@@ -619,15 +606,16 @@ export const CalendarScreen = () => {
                     const isToday = dateStr === todayDateStr;
 
                     return (
-                      <TouchableOpacity
+                      <AnimatedPopTouchable
                         key={day}
+                        pressScale={0.86}
                         style={[
                           styles.dayCell,
                           { backgroundColor: activity.lapses ? '#F43F5E' : getIntensityColor(intensity) },
                           isToday && !isSelected && { borderColor: colors.accent, borderWidth: 1 },
                           isSelected && { borderColor: selectedFilterColor, borderWidth: 2 },
                         ]}
-                        activeOpacity={0.75}
+                        activeOpacity={0.78}
                         onPress={() => setSelectedDay(day)}
                       >
                         <Text
@@ -641,12 +629,12 @@ export const CalendarScreen = () => {
                         >
                           {day}
                         </Text>
-                      </TouchableOpacity>
+                      </AnimatedPopTouchable>
                     );
                   })}
                 </View>
               ))}
-            </View>
+            </AnimatedMonthContainer>
 
             {/* Heatmap Intensity Legend */}
             <View style={styles.legendRow}>
@@ -720,11 +708,12 @@ export const CalendarScreen = () => {
                     h.habitKind === 'quit' ? (
                       <HabitTrackingControl key={`${h.id}-${selectedDateStr}-${status}`} habit={h} date={selectedDateStr} onSave={recordHabitLog} />
                     ) : (
-                      <TouchableOpacity
+                      <AnimatedPopTouchable
+                        pressScale={0.86}
                         accessibilityRole="button"
                         accessibilityLabel={`${isDone ? 'Undo' : 'Complete'} ${h.name} for ${selectedDateStr}`}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        activeOpacity={0.65}
+                        activeOpacity={0.7}
                         onPress={() => {
                           toggleHabit(h.id, selectedDateStr);
                         }}
@@ -737,7 +726,7 @@ export const CalendarScreen = () => {
                         ]}
                       >
                         <Ionicons name="checkmark" size={16} color={isDone ? '#FFFFFF' : colors.mutedText} />
-                      </TouchableOpacity>
+                      </AnimatedPopTouchable>
                     )
                   ) : null}
                 </View>

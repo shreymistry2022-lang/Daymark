@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
-  PanResponder,
   ScrollView,
   StyleSheet,
   Text,
@@ -31,6 +30,7 @@ import { radii, spacing } from '../theme/tokens';
 import { HabitDotGrid } from './HabitDotGrid';
 import { HabitTrackingControl } from './HabitTrackingControl';
 import { MonthYearPickerModal } from './MonthYearPickerModal';
+import { AnimatedMonthContainer, AnimatedPopTouchable } from './AnimatedMonthGrid';
 
 interface HabitDetailModalProps {
   habit: Habit | null;
@@ -97,28 +97,6 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
   const [noteDate, setNoteDate] = useState(todayDateStr);
   const [noteText, setNoteText] = useState('');
   const [noteError, setNoteError] = useState('');
-
-  const monthPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 18 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.3,
-        onPanResponderRelease: (_, gs) => {
-          const delta = gs.dx < -45 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.2
-            ? 1
-            : gs.dx > 45 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.2
-              ? -1
-              : 0;
-          if (!delta) return;
-          if (preferences.hapticsEnabled) {
-            void Haptics.selectionAsync().catch(() => {});
-          }
-          const next = new Date(viewYear, viewMonth + delta, 1);
-          setViewYear(next.getFullYear());
-          setViewMonth(next.getMonth());
-        },
-      }),
-    [viewYear, viewMonth, preferences.hapticsEnabled],
-  );
 
   useEffect(() => {
     if (!habit) return;
@@ -343,7 +321,12 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
               ))}
             </View>
 
-            <View style={styles.monthGrid} {...monthPanResponder.panHandlers}>
+            <AnimatedMonthContainer
+              year={viewYear}
+              month={viewMonth}
+              onShiftMonth={shiftMonth}
+              style={styles.monthGrid}
+            >
               {monthRows.map((row, rIdx) => (
                 <View key={rIdx} style={styles.monthRow}>
                   {row.map(cell => {
@@ -361,10 +344,11 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
                     const hasNote = cell.inCurrentMonth && notesByDate.has(cell.dateStr);
 
                     return (
-                      <TouchableOpacity
+                      <AnimatedPopTouchable
                         key={cell.dateStr}
+                        pressScale={0.86}
                         disabled={!cell.inCurrentMonth || isFuture}
-                        activeOpacity={0.7}
+                        activeOpacity={0.75}
                         onPress={() => handleTapDay(cell)}
                         onLongPress={() => handleLongPressDay(cell)}
                         accessibilityRole="button"
@@ -403,12 +387,12 @@ export const HabitDetailModal: React.FC<HabitDetailModalProps> = ({
                           {done && <View style={[styles.completedDot, { backgroundColor: habit.color }]} />}
                           {hasNote && <View style={[styles.noteDot, { backgroundColor: colors.accent }]} />}
                         </View>
-                      </TouchableOpacity>
+                      </AnimatedPopTouchable>
                     );
                   })}
                 </View>
               ))}
-            </View>
+            </AnimatedMonthContainer>
 
             {/* Month Footer Controls */}
             <View style={styles.calendarFooter}>

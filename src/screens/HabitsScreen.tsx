@@ -25,11 +25,10 @@ import { PaywallModal } from '../components/PaywallModal';
 import { getHabitDayStatus, parseLocalDate } from '../domain/habitEngine';
 import { formatGapLabel, formatReminderTime } from '../services/localReminders';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { usePreferences } from '../services/PreferencesContext';
+import { AnimatedPopTouchable } from '../components/AnimatedMonthGrid';
 
 export const HabitsScreen = () => {
   const { habits, archivedHabits, allHabits, toggleHabit, recordHabitLog, addHabit, updateHabit, archiveHabit, restoreHabit, pauseHabit, resumeHabit, deleteHabit, todayDateStr } = useHabits();
-  const { preferences } = usePreferences();
   const { colors } = useTheme();
   const { isPro } = useSubscription();
   const insets = useSafeAreaInsets();
@@ -225,7 +224,8 @@ export const HabitsScreen = () => {
                   )}
                 </View>
 
-                <TouchableOpacity
+                <AnimatedPopTouchable
+                  pressScale={0.86}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   style={[
                     styles.checkButton,
@@ -234,13 +234,13 @@ export const HabitsScreen = () => {
                       backgroundColor: isCompleted ? habit.color : colors.secondaryBackground,
                     },
                   ]}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                   onPress={() => {
                     toggleHabit(habit.id);
                   }}
                 >
                   <Ionicons name="checkmark" size={18} color={isCompleted ? '#FFFFFF' : colors.mutedText} />
-                </TouchableOpacity>
+                </AnimatedPopTouchable>
               </TouchableOpacity>
             );
           })}

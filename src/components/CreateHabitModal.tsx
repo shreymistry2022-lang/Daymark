@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  LayoutAnimation,
   Platform,
   useWindowDimensions,
 } from 'react-native';
@@ -240,7 +241,10 @@ export const CreateHabitModal = ({
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel="Quick habit ideas"
-              onPress={() => setShowPresets(p => !p)}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setShowPresets(p => !p);
+              }}
               style={[styles.ideasPill, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
             >
               <Ionicons name="sparkles-outline" size={14} color={selectedColor} />
@@ -270,7 +274,10 @@ export const CreateHabitModal = ({
             <View style={styles.heroIconSection}>
               <TouchableOpacity
                 activeOpacity={0.8}
-                onPress={() => setShowIconPicker(p => !p)}
+                onPress={() => {
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  setShowIconPicker(p => !p);
+                }}
                 style={styles.heroIconWrap}
               >
                 <View style={[styles.heroIconCircle, { backgroundColor: `${selectedColor}24` }]}>
@@ -280,7 +287,12 @@ export const CreateHabitModal = ({
                   <Ionicons name="pencil" size={12} color="#FFFFFF" />
                 </View>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setShowIconPicker(p => !p)}>
+              <TouchableOpacity
+                onPress={() => {
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  setShowIconPicker(p => !p);
+                }}
+              >
                 <Text style={[styles.changeIconText, { color: selectedColor }]}>
                   {showIconPicker ? 'Hide icons' : 'Change icon'}
                 </Text>
@@ -427,7 +439,10 @@ export const CreateHabitModal = ({
             <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>REPEAT</Text>
             <TouchableOpacity
               activeOpacity={0.75}
-              onPress={() => setShowRepeatSection(p => !p)}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setShowRepeatSection(p => !p);
+              }}
               style={[styles.navRowCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
             >
               <Text style={[styles.navRowTitle, { color: colors.primaryText }]}>{frequency}</Text>
@@ -525,7 +540,10 @@ export const CreateHabitModal = ({
             <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>CATEGORIES</Text>
             <TouchableOpacity
               activeOpacity={0.75}
-              onPress={() => setShowCategorySection(p => !p)}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setShowCategorySection(p => !p);
+              }}
               style={[styles.navRowCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
             >
               <View style={styles.catRowLeft}>

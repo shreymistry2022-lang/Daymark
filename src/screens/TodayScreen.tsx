@@ -7,6 +7,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Animated,
+  LayoutAnimation,
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -282,7 +283,10 @@ export const TodayScreen = () => {
             </TouchableOpacity>
             <TouchableOpacity
               activeOpacity={0.7}
-              onPress={() => setShowWeekStrip(prev => !prev)}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setShowWeekStrip(prev => !prev);
+              }}
               style={[styles.summaryPill, { backgroundColor: colors.card, borderColor: selectedCompletionRate === 100 ? colors.accent : colors.border }]}
             >
               <Text style={[styles.summaryText, { color: colors.primaryText }]}>
@@ -317,7 +321,10 @@ export const TodayScreen = () => {
                   borderColor: showFilters ? colors.accent : colors.border,
                 },
               ]}
-              onPress={() => setShowFilters(prev => !prev)}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setShowFilters(prev => !prev);
+              }}
               activeOpacity={0.7}
             >
               <Ionicons name="filter" size={18} color={showFilters ? colors.accent : colors.primaryText} />
