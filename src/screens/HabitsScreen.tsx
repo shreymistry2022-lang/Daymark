@@ -7,7 +7,6 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Modal,
   Alert,
   Platform,
 } from 'react-native';
@@ -18,14 +17,13 @@ import { useHabits, Habit } from '../services/HabitContext';
 import { useTheme } from '../theme/ThemeProvider';
 import { CreateHabitModal } from '../components/CreateHabitModal';
 import { PauseHabitModal } from '../components/PauseHabitModal';
+import { HabitDetailModal } from '../components/HabitDetailModal';
 import { HABIT_CATEGORIES } from '../constants/categories';
 import { useSubscription } from '../services/SubscriptionProvider';
 import { canCreateHabit } from '../services/subscriptionEntitlements';
 import { PaywallModal } from '../components/PaywallModal';
-import { HabitDotGrid } from '../components/HabitDotGrid';
-import { addLocalDays, calculateCompletionStats, calculateStreakStats, getHabitDayStatus, isPausedOnDate, isTrackableOnDate, parseLocalDate } from '../domain/habitEngine';
+import { getHabitDayStatus, parseLocalDate } from '../domain/habitEngine';
 import { formatGapLabel, formatReminderTime } from '../services/localReminders';
-import { HabitTrackingControl } from '../components/HabitTrackingControl';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { usePreferences } from '../services/PreferencesContext';
@@ -33,7 +31,7 @@ import { usePreferences } from '../services/PreferencesContext';
 export const HabitsScreen = () => {
   const { habits, archivedHabits, allHabits, toggleHabit, recordHabitLog, addHabit, updateHabit, archiveHabit, restoreHabit, pauseHabit, resumeHabit, deleteHabit, todayDateStr } = useHabits();
   const { preferences } = usePreferences();
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const { isPro } = useSubscription();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
@@ -73,8 +71,6 @@ export const HabitsScreen = () => {
     const matchesCat = selectedCategory === 'All' || h.category === selectedCategory;
     return matchesSearch && matchesCat;
   });
-  const selectedHabitStats = selectedHabit ? calculateStreakStats(selectedHabit) : null;
-  const selectedHabitRecentRate = selectedHabit ? calculateCompletionStats(selectedHabit, addLocalDays(todayDateStr, -29), todayDateStr).percentage : 0;
 
   const handleDelete = (id: string, name: string) => {
     if (Platform.OS === 'web') {
@@ -266,186 +262,33 @@ export const HabitsScreen = () => {
         </View>
       </ScrollView>
 
-      {/* Habit Detail Modal (Reference Image 5 Minimalist Style) */}
-      {selectedHabit && (
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={!!selectedHabit}
-          onRequestClose={() => setSelectedHabitId(null)}
-        >
-          <View style={styles.modalBackdrop}>
-            <View style={[styles.modalBody, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailScroll}>
-                {/* Minimalist Circle Header */}
-                <View style={styles.modalHeader}>
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel="Close habit detail"
-                    onPress={() => setSelectedHabitId(null)}
-                    style={[styles.modalCircleBtn, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
-                  >
-                    <Ionicons name="chevron-back" size={20} color={colors.primaryText} />
-                  </TouchableOpacity>
-                  <View style={styles.modalHeaderActions}>
-                    {!showArchived ? (
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel="Edit habit"
-                        onPress={() => { setEditingHabit(selectedHabit); setCreateModalVisible(true); }}
-                        style={[styles.modalCircleBtn, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
-                      >
-                        <Ionicons name="create-outline" size={18} color={colors.primaryText} />
-                      </TouchableOpacity>
-                    ) : null}
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel="Delete habit"
-                      onPress={() => handleDelete(selectedHabit.id, selectedHabit.name)}
-                      style={[styles.modalCircleBtn, { backgroundColor: `${colors.error}18`, borderColor: `${colors.error}40` }]}
-                    >
-                      <Ionicons name="trash-outline" size={18} color={colors.error} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                {/* Habit Identity */}
-                <View style={styles.detailHeroRow}>
-                  <View style={[styles.modalIcon, { backgroundColor: `${selectedHabit.color}22` }]}>
-                    <Ionicons name={selectedHabit.icon} size={26} color={selectedHabit.color} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.modalHabitName, { color: colors.primaryText }]}>{selectedHabit.name}</Text>
-                    <Text style={[styles.modalCategoryText, { color: colors.secondaryText }]}>
-                      {selectedHabit.description?.trim() || selectedHabit.category}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Activity Heatmap Card (Reference Image 5) */}
-                <View style={[styles.detailHeatmapCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                  <HabitDotGrid
-                    habit={selectedHabit}
-                    todayDateStr={todayDateStr}
-                    isDark={isDark}
-                    mutedTextColor={colors.mutedText}
-                    weeks={18}
-                    dotSize={10}
-                    dotGap={3}
-                    showMonthLabels
-                  />
-                </View>
-
-                {/* Quick Metric Pills */}
-                <View style={styles.detailBadgesRow}>
-                  <View style={[styles.statPill, { backgroundColor: `${selectedHabit.color}1C` }]}>
-                    <Ionicons name="flame" size={14} color={selectedHabit.color} />
-                    <Text style={[styles.statPillText, { color: selectedHabit.color }]}>{selectedHabit.streak}d streak</Text>
-                  </View>
-                  <View style={[styles.statPill, { backgroundColor: colors.secondaryBackground }]}>
-                    <Ionicons name="repeat" size={14} color={colors.secondaryText} />
-                    <Text style={[styles.statPillText, { color: colors.secondaryText }]}>{selectedHabit.targetFrequency}</Text>
-                  </View>
-                  <View style={[styles.statPill, { backgroundColor: colors.secondaryBackground }]}>
-                    <Text style={[styles.statPillText, { color: colors.secondaryText }]}>{selectedHabitRecentRate}% · 30d</Text>
-                  </View>
-                </View>
-
-                {/* Stats Summary Card */}
-                <View style={styles.modalStatsRow}>
-                  <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                    <Text style={[styles.statNumber, { color: selectedHabit.color }]}>{selectedHabitStats?.bestStreak ?? 0}</Text>
-                    <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Best streak</Text>
-                  </View>
-                  <View style={[styles.modalStatCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                    <Text style={[styles.statNumber, { color: selectedHabit.color }]}>{selectedHabitStats?.totalSuccessfulScheduledDays ?? 0}</Text>
-                    <Text style={[styles.statLabel, { color: colors.secondaryText }]}>Days done</Text>
-                  </View>
-                </View>
-
-                {isPausedOnDate(selectedHabit, todayDateStr) && (
-                  <Text style={{ color: colors.accent, fontSize: 12, marginBottom: 10 }}>
-                    Paused today · streaks are protected
-                  </Text>
-                )}
-
-                {!!selectedHabit.reminders?.length && (
-                  <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>
-                    🔔 Reminders: {selectedHabit.reminders.filter(reminder => reminder.enabled).map(reminder => formatReminderTime(reminder.hour, reminder.minute)).join(', ') || 'All disabled'}
-                  </Text>
-                )}
-
-                {/* Complete Today Pill CTA */}
-                {isTrackableOnDate(selectedHabit, todayDateStr) ? selectedHabit.habitKind === 'quit' ? (
-                  <HabitTrackingControl habit={selectedHabit} date={todayDateStr} onSave={recordHabitLog} />
-                ) : (
-                  (() => {
-                    const isSelectedDone = getHabitDayStatus(selectedHabit, todayDateStr, todayReferenceDate) === 'completed';
-                    return (
-                      <TouchableOpacity
-                        style={[
-                          styles.toggleActionBtn,
-                          {
-                            backgroundColor: isSelectedDone ? selectedHabit.color : colors.secondaryBackground,
-                            borderColor: isSelectedDone ? selectedHabit.color : colors.border,
-                            borderWidth: 1,
-                          },
-                        ]}
-                        activeOpacity={0.8}
-                        onPress={() => {
-                          if (preferences.hapticsEnabled) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
-                          toggleHabit(selectedHabit.id);
-                        }}
-                      >
-                        <Ionicons
-                          name={isSelectedDone ? 'checkmark-circle' : 'ellipse-outline'}
-                          size={20}
-                          color={isSelectedDone ? '#FFFFFF' : colors.primaryText}
-                        />
-                        <Text style={[styles.toggleActionText, { color: isSelectedDone ? '#FFFFFF' : colors.primaryText }]}>
-                          {isSelectedDone ? 'Completed Today' : 'Complete Today'}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })()
-                ) : (
-                  <Text style={[styles.detailMetadata, { color: colors.secondaryText }]}>
-                    {selectedHabit.archivedAt ? 'Archived habits are read-only.' : isPausedOnDate(selectedHabit, todayDateStr) ? 'Paused today.' : 'Not scheduled today.'}
-                  </Text>
-                )}
-
-                {/* Grouped Quick Management Actions */}
-                <View style={[styles.detailActionsRow, { borderColor: colors.border }]}>
-                  {showArchived ? (
-                    <TouchableOpacity style={[styles.detailActionPill, { backgroundColor: colors.secondaryBackground }]} onPress={() => { restoreHabit(selectedHabit.id); setSelectedHabitId(null); }}>
-                      <Ionicons name="refresh-outline" size={16} color={colors.accent} />
-                      <Text style={[styles.detailActionText, { color: colors.accent }]}>Restore</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <>
-                      {isPausedOnDate(selectedHabit, todayDateStr) ? (
-                        <TouchableOpacity style={[styles.detailActionPill, { backgroundColor: colors.secondaryBackground }]} onPress={() => { resumeHabit(selectedHabit.id); setSelectedHabitId(null); }}>
-                          <Ionicons name="play-outline" size={16} color={colors.accent} />
-                          <Text style={[styles.detailActionText, { color: colors.accent }]}>Resume</Text>
-                        </TouchableOpacity>
-                      ) : (
-                        <TouchableOpacity style={[styles.detailActionPill, { backgroundColor: colors.secondaryBackground }]} onPress={() => setPauseModalHabit(selectedHabit)}>
-                          <Ionicons name="pause-outline" size={16} color={colors.secondaryText} />
-                          <Text style={[styles.detailActionText, { color: colors.secondaryText }]}>Pause</Text>
-                        </TouchableOpacity>
-                      )}
-                      <TouchableOpacity style={[styles.detailActionPill, { backgroundColor: colors.secondaryBackground }]} onPress={() => { archiveHabit(selectedHabit.id); setSelectedHabitId(null); }}>
-                        <Ionicons name="archive-outline" size={16} color={colors.secondaryText} />
-                        <Text style={[styles.detailActionText, { color: colors.secondaryText }]}>Archive</Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-                </View>
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-      )}
+      {/* Interactive Habit Detail Modal (Heatmap + Full-Month Calendar + Notes) */}
+      <HabitDetailModal
+        habit={selectedHabit}
+        todayDateStr={todayDateStr}
+        showArchived={showArchived}
+        onClose={() => setSelectedHabitId(null)}
+        onEdit={habit => {
+          setEditingHabit(habit);
+          setCreateModalVisible(true);
+        }}
+        onDelete={handleDelete}
+        onToggleDate={(habitId, dateStr) => toggleHabit(habitId, dateStr)}
+        onRecordLog={recordHabitLog}
+        onPause={habit => setPauseModalHabit(habit)}
+        onResume={id => {
+          resumeHabit(id);
+          setSelectedHabitId(null);
+        }}
+        onArchive={id => {
+          archiveHabit(id);
+          setSelectedHabitId(null);
+        }}
+        onRestore={id => {
+          restoreHabit(id);
+          setSelectedHabitId(null);
+        }}
+      />
 
       {/* Pause Habit Modal */}
       <PauseHabitModal

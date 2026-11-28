@@ -8,7 +8,6 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Switch,
   Alert,
   Platform,
   useWindowDimensions,
@@ -21,13 +20,11 @@ import { useTheme } from '../theme/ThemeProvider';
 import { HabitKind, HabitReminder, HabitSchedule, TrackingMethod } from '../domain/habitTypes';
 import { addLocalDays, isPausedOnDate, parseLocalDate } from '../domain/habitEngine';
 import {
-  buildRepeatedDailyReminders,
   ensureLocalReminderPermission,
   formatGapLabel,
   formatReminderTime,
-  inferRepeatConfigFromReminders,
-  parseTimeString,
 } from '../services/localReminders';
+import { HabitReminderModal } from './HabitReminderModal';
 import { usePreferences } from '../services/PreferencesContext';
 import { dateKeyInTimezone } from '../domain/preferencesEngine';
 
@@ -99,35 +96,14 @@ export const CreateHabitModal = ({
   const [startDate, setStartDate] = useState(initialHabit?.startDate ?? dateKeyInTimezone(new Date(), preferences.timezone));
   const [endDate, setEndDate] = useState(initialHabit?.endDate ?? '');
 
-  const firstExistingReminder = initialHabit?.reminders?.[0];
-  const initialTimeStr = firstExistingReminder
-    ? `${firstExistingReminder.hour % 12 === 0 ? 12 : firstExistingReminder.hour % 12}:${String(firstExistingReminder.minute).padStart(2, '0')}`
-    : '8:00';
-  const initialAmPm: 'AM' | 'PM' = firstExistingReminder
-    ? (firstExistingReminder.hour >= 12 ? 'PM' : 'AM')
-    : 'AM';
-
-  const [reminderTime, setReminderTime] = useState(initialTimeStr);
-  const [reminderAmPm, setReminderAmPm] = useState<'AM' | 'PM'>(initialAmPm);
-  const inferredRepeat = inferRepeatConfigFromReminders(initialHabit?.reminders);
-  const [repeatCount, setRepeatCount] = useState<number>(inferredRepeat.repeatCount);
-  const [gapUnit, setGapUnit] = useState<'min' | 'hr'>(
-    inferredRepeat.intervalMinutes >= 60 && inferredRepeat.intervalMinutes % 60 === 0 ? 'hr' : 'min'
-  );
-  const [gapValueInput, setGapValueInput] = useState<string>(
-    inferredRepeat.intervalMinutes >= 60 && inferredRepeat.intervalMinutes % 60 === 0
-      ? String(inferredRepeat.intervalMinutes / 60)
-      : String(inferredRepeat.intervalMinutes)
-  );
-  const [remindersEnabled, setRemindersEnabled] = useState(firstExistingReminder ? firstExistingReminder.enabled : true);
-  const [reminders, setReminders] = useState<Habit['reminders']>(initialHabit?.reminders ?? []);
+  const [reminders, setReminders] = useState<HabitReminder[]>(initialHabit?.reminders ?? []);
+  const [reminderModalVisible, setReminderModalVisible] = useState(false);
   const [error, setError] = useState('');
 
   // Minimalist collapsible sections
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [showPresets, setShowPresets] = useState(false);
   const [showRepeatSection, setShowRepeatSection] = useState(false);
-  const [showReminderSection, setShowReminderSection] = useState(false);
   const [showCategorySection, setShowCategorySection] = useState(false);
 
   const getReminderWeekdays = useCallback(() => (
@@ -136,44 +112,6 @@ export const CreateHabitModal = ({
         : frequency === 'Weekends' ? [6, 7]
           : selectedWeekdays
   ), [frequency, selectedWeekdays]);
-
-  const computeGapMinutes = useCallback((valStr: string, unitType: 'min' | 'hr'): number | null => {
-    const raw = Number(valStr.trim());
-    if (!Number.isFinite(raw) || raw <= 0) return null;
-    const mins = Math.round(unitType === 'hr' ? raw * 60 : raw);
-    if (mins < 5 || mins > 720) return null;
-    return mins;
-  }, []);
-
-  const syncReminderConfig = useCallback((
-    time: string,
-    ampm: 'AM' | 'PM',
-    nextCount = repeatCount,
-    nextGapStr = gapValueInput,
-    nextGapUnit = gapUnit,
-  ) => {
-    setReminderTime(time);
-    setReminderAmPm(ampm);
-    setRepeatCount(nextCount);
-    setGapValueInput(nextGapStr);
-    setGapUnit(nextGapUnit);
-    setError('');
-    const parsed = parseTimeString(time, ampm);
-    if (parsed) {
-      const gapMins = computeGapMinutes(nextGapStr, nextGapUnit) ?? 60;
-      const built = buildRepeatedDailyReminders({
-        startHour: parsed.hour,
-        startMinute: parsed.minute,
-        repeatCount: nextCount,
-        intervalMinutes: gapMins,
-        weekdays: getReminderWeekdays(),
-        enabled: true,
-        baseId: (reminders ?? [])[0]?.id,
-      });
-      setReminders(built.reminders);
-      setRemindersEnabled(true);
-    }
-  }, [computeGapMinutes, gapUnit, gapValueInput, getReminderWeekdays, reminders, repeatCount]);
 
   const todayKey = dateKeyInTimezone(new Date(), preferences.timezone);
   const isCurrentlyPaused = Boolean(initialHabit && isPausedOnDate(initialHabit, todayKey));
@@ -229,32 +167,7 @@ export const CreateHabitModal = ({
     if (endDate && endDate < startDate) { setError('End date must be on or after the start date.'); return; }
     if (frequency === 'Selected days' && selectedWeekdays.length === 0) { setError('Choose at least one weekday.'); return; }
 
-    let finalReminders: HabitReminder[] = [];
-    if (remindersEnabled) {
-      const parsed = parseTimeString(reminderTime, reminderAmPm);
-      const reminderWeekdays = getReminderWeekdays();
-      const gapMins = computeGapMinutes(gapValueInput, gapUnit);
-      if (repeatCount > 1 && gapMins === null) {
-        setError('Enter a valid time gap between 5 minutes and 12 hours.');
-        return;
-      }
-      if (parsed) {
-        const built = buildRepeatedDailyReminders({
-          startHour: parsed.hour,
-          startMinute: parsed.minute,
-          repeatCount,
-          intervalMinutes: gapMins ?? 120,
-          weekdays: reminderWeekdays,
-          enabled: true,
-          baseId: (reminders ?? [])[0]?.id,
-        });
-        finalReminders = built.reminders;
-      } else if ((reminders ?? []).length > 0) {
-        finalReminders = (reminders ?? []).map(r => ({ ...r, enabled: true }));
-      }
-    } else {
-      finalReminders = (reminders ?? []).map(r => ({ ...r, enabled: false }));
-    }
+    const finalReminders: HabitReminder[] = reminders ?? [];
 
     if (finalReminders.some(reminder => reminder.enabled)) {
       const permGranted = await ensureLocalReminderPermission();
@@ -298,15 +211,14 @@ export const CreateHabitModal = ({
   };
 
   const activeWeekdaysCount = frequency === 'Daily' ? 7 : frequency === 'Weekdays' ? 5 : frequency === 'Weekends' ? 2 : selectedWeekdays.length;
-  const reminderSummaryLabel = !remindersEnabled
+  const enabledReminders = (reminders ?? []).filter(r => r.enabled);
+  const reminderSummaryLabel = enabledReminders.length === 0
     ? 'No Reminders'
-    : (() => {
-      const parsed = parseTimeString(reminderTime, reminderAmPm);
-      const startLabel = parsed ? formatReminderTime(parsed.hour, parsed.minute) : 'Daily';
-      if (repeatCount <= 1) return startLabel;
-      const gapMins = computeGapMinutes(gapValueInput, gapUnit) ?? 120;
-      return `${repeatCount}x/day · every ${formatGapLabel(gapMins)} from ${startLabel}`;
-    })();
+    : enabledReminders.length === 1
+      ? formatReminderTime(enabledReminders[0].hour, enabledReminders[0].minute)
+      : enabledReminders[0]?.intervalMinutes
+        ? `${enabledReminders.length}x/day · every ${formatGapLabel(enabledReminders[0].intervalMinutes)}`
+        : `${enabledReminders.length} reminders · ${enabledReminders.slice(0, 2).map(r => formatReminderTime(r.hour, r.minute)).join(', ')}${enabledReminders.length > 2 ? '…' : ''}`;
 
   return (
     <Modal animationType="slide" transparent={true} visible={visible} onRequestClose={onClose}>
@@ -594,251 +506,20 @@ export const CreateHabitModal = ({
               </View>
             ) : null}
 
-            {/* REMINDER Row (Image 3 style) */}
+            {/* REMINDER Row — Opens Dedicated Reminder Modal */}
             <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>REMINDER</Text>
             <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Configure habit reminders"
               activeOpacity={0.75}
-              onPress={() => setShowReminderSection(p => !p)}
+              onPress={() => setReminderModalVisible(true)}
               style={[styles.navRowCard, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
             >
-              <Text style={[styles.navRowTitle, { color: remindersEnabled ? colors.primaryText : colors.secondaryText }]} numberOfLines={1}>
+              <Text style={[styles.navRowTitle, { color: enabledReminders.length > 0 ? colors.primaryText : colors.secondaryText }]} numberOfLines={1}>
                 {reminderSummaryLabel}
               </Text>
-              <Ionicons name={showReminderSection ? 'chevron-down' : 'chevron-forward'} size={17} color={colors.secondaryText} />
+              <Ionicons name="chevron-forward" size={17} color={colors.secondaryText} />
             </TouchableOpacity>
-
-            {showReminderSection ? (
-              <View style={[styles.expandedPanel, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
-                <View style={styles.reminderSwitchRow}>
-                  <Text style={[styles.navRowTitle, { color: colors.primaryText }]}>Enable Daily Reminders</Text>
-                  <Switch
-                    accessibilityLabel="Enable daily reminder"
-                    value={remindersEnabled}
-                    onValueChange={enabled => {
-                      setRemindersEnabled(enabled);
-                      setReminders(current => (current ?? []).map(r => ({ ...r, enabled })));
-                    }}
-                    trackColor={{ true: selectedColor }}
-                  />
-                </View>
-
-                {remindersEnabled ? (
-                  <View style={styles.reminderContainer}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reminderPresetRow}>
-                      {(['8:00 AM', '12:00 PM', '6:00 PM', '9:00 PM'] as const).map(preset => {
-                        const [pTime, pPeriod] = preset.split(' ');
-                        const parsedPreset = parseTimeString(pTime, pPeriod as 'AM' | 'PM');
-                        const currentParsed = parseTimeString(reminderTime, reminderAmPm);
-                        const isActive = Boolean(parsedPreset && currentParsed && parsedPreset.hour === currentParsed.hour && parsedPreset.minute === currentParsed.minute);
-                        return (
-                          <TouchableOpacity
-                            key={preset}
-                            style={[
-                              styles.reminderPresetChip,
-                              {
-                                backgroundColor: isActive ? `${selectedColor}24` : colors.card,
-                                borderColor: isActive ? selectedColor : colors.border,
-                              },
-                            ]}
-                            onPress={() => syncReminderConfig(pTime, pPeriod as 'AM' | 'PM')}
-                          >
-                            <Text style={[styles.reminderPresetText, { color: isActive ? selectedColor : colors.secondaryText, fontWeight: isActive ? '700' : '500' }]}>
-                              {preset}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-
-                    <View style={styles.addReminderRow}>
-                      <TextInput
-                        style={[styles.reminderInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.primaryText }]}
-                        value={reminderTime}
-                        onChangeText={val => syncReminderConfig(val, reminderAmPm)}
-                        keyboardType="numbers-and-punctuation"
-                        placeholder="8:00"
-                        placeholderTextColor={colors.mutedText}
-                      />
-                      <View style={[styles.ampmToggle, { borderColor: colors.border }]}>
-                        {(['AM', 'PM'] as const).map(p => {
-                          const isSelected = reminderAmPm.toUpperCase() === p;
-                          return (
-                            <TouchableOpacity
-                              key={p}
-                              onPress={() => syncReminderConfig(reminderTime, p)}
-                              style={[styles.ampmBtn, { backgroundColor: isSelected ? selectedColor : colors.card }]}
-                            >
-                              <Text style={[styles.ampmBtnText, { color: isSelected ? '#FFFFFF' : colors.secondaryText }]}>{p}</Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                      <View style={[styles.activeReminderBadge, { backgroundColor: `${selectedColor}1A`, borderColor: `${selectedColor}40` }]}>
-                        <Ionicons name="notifications" size={13} color={selectedColor} />
-                        <Text style={[styles.activeReminderBadgeText, { color: selectedColor }]}>
-                          {(() => {
-                            const parsed = parseTimeString(reminderTime, reminderAmPm);
-                            return parsed ? formatReminderTime(parsed.hour, parsed.minute) : 'Set Time';
-                          })()}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Times Per Day */}
-                    <Text style={[styles.fieldLabel, { color: colors.secondaryText, marginTop: 4, marginBottom: 4 }]}>
-                      TIMES PER DAY
-                    </Text>
-                    <View style={styles.repeatRow}>
-                      <View style={styles.repeatPresetGroup}>
-                        {[1, 2, 3, 4, 6].map(count => {
-                          const isSelected = repeatCount === count;
-                          return (
-                            <TouchableOpacity
-                              key={count}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Remind ${count} times per day`}
-                              style={[
-                                styles.reminderPresetChip,
-                                {
-                                  backgroundColor: isSelected ? `${selectedColor}24` : colors.card,
-                                  borderColor: isSelected ? selectedColor : colors.border,
-                                },
-                              ]}
-                              onPress={() => syncReminderConfig(reminderTime, reminderAmPm, count)}
-                            >
-                              <Text style={[styles.reminderPresetText, { color: isSelected ? selectedColor : colors.secondaryText, fontWeight: isSelected ? '700' : '500' }]}>
-                                {count}x
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                      <View style={[styles.stepperBox, { borderColor: colors.border, backgroundColor: colors.card }]}>
-                        <TouchableOpacity
-                          accessibilityRole="button"
-                          accessibilityLabel="Decrease daily reminder count"
-                          style={styles.stepperBtn}
-                          onPress={() => syncReminderConfig(reminderTime, reminderAmPm, Math.max(1, repeatCount - 1))}
-                        >
-                          <Ionicons name="remove" size={16} color={colors.primaryText} />
-                        </TouchableOpacity>
-                        <Text style={[styles.stepperValue, { color: colors.primaryText }]}>{repeatCount}x</Text>
-                        <TouchableOpacity
-                          accessibilityRole="button"
-                          accessibilityLabel="Increase daily reminder count"
-                          style={styles.stepperBtn}
-                          onPress={() => syncReminderConfig(reminderTime, reminderAmPm, Math.min(12, repeatCount + 1))}
-                        >
-                          <Ionicons name="add" size={16} color={colors.primaryText} />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-
-                    {/* Time Gap */}
-                    {repeatCount > 1 ? (
-                      <View style={styles.gapContainer}>
-                        <Text style={[styles.fieldLabel, { color: colors.secondaryText, marginTop: 4, marginBottom: 4 }]}>
-                          TIME GAP BETWEEN REMINDERS
-                        </Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reminderPresetRow}>
-                          {[
-                            { label: '30m', val: '30', unit: 'min' as const },
-                            { label: '1h', val: '1', unit: 'hr' as const },
-                            { label: '2h', val: '2', unit: 'hr' as const },
-                            { label: '3h', val: '3', unit: 'hr' as const },
-                            { label: '4h', val: '4', unit: 'hr' as const },
-                          ].map(preset => {
-                            const currentGap = computeGapMinutes(gapValueInput, gapUnit);
-                            const presetGap = preset.unit === 'hr' ? Number(preset.val) * 60 : Number(preset.val);
-                            const isActive = currentGap === presetGap;
-                            return (
-                              <TouchableOpacity
-                                key={preset.label}
-                                style={[
-                                  styles.reminderPresetChip,
-                                  {
-                                    backgroundColor: isActive ? `${selectedColor}24` : colors.card,
-                                    borderColor: isActive ? selectedColor : colors.border,
-                                  },
-                                ]}
-                                onPress={() => syncReminderConfig(reminderTime, reminderAmPm, repeatCount, preset.val, preset.unit)}
-                              >
-                                <Text style={[styles.reminderPresetText, { color: isActive ? selectedColor : colors.secondaryText, fontWeight: isActive ? '700' : '500' }]}>
-                                  {preset.label}
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </ScrollView>
-
-                        <View style={styles.addReminderRow}>
-                          <Text style={[styles.gapPrefixText, { color: colors.secondaryText }]}>Every</Text>
-                          <TextInput
-                            accessibilityLabel="Reminder time gap"
-                            style={[styles.reminderInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.primaryText }]}
-                            value={gapValueInput}
-                            onChangeText={val => syncReminderConfig(reminderTime, reminderAmPm, repeatCount, val, gapUnit)}
-                            keyboardType="numeric"
-                            placeholder="2"
-                            placeholderTextColor={colors.mutedText}
-                          />
-                          <View style={[styles.ampmToggle, { borderColor: colors.border }]}>
-                            {(['min', 'hr'] as const).map(unitOpt => {
-                              const isSelected = gapUnit === unitOpt;
-                              return (
-                                <TouchableOpacity
-                                  key={unitOpt}
-                                  onPress={() => syncReminderConfig(reminderTime, reminderAmPm, repeatCount, gapValueInput, unitOpt)}
-                                  style={[styles.ampmBtn, { backgroundColor: isSelected ? selectedColor : colors.card }]}
-                                >
-                                  <Text style={[styles.ampmBtnText, { color: isSelected ? '#FFFFFF' : colors.secondaryText }]}>
-                                    {unitOpt}
-                                  </Text>
-                                </TouchableOpacity>
-                              );
-                            })}
-                          </View>
-                        </View>
-                      </View>
-                    ) : null}
-
-                    {(() => {
-                      const parsed = parseTimeString(reminderTime, reminderAmPm);
-                      if (!parsed) {
-                        return <Text style={[styles.reminderSubtext, { color: colors.error }]}>Enter time like 9:50, 9.50, or 21:50</Text>;
-                      }
-                      const gapMins = computeGapMinutes(gapValueInput, gapUnit);
-                      if (repeatCount > 1 && gapMins === null) {
-                        return <Text style={[styles.reminderSubtext, { color: colors.error }]}>Enter a gap between 5 min and 12 hr</Text>;
-                      }
-                      const preview = buildRepeatedDailyReminders({
-                        startHour: parsed.hour,
-                        startMinute: parsed.minute,
-                        repeatCount,
-                        intervalMinutes: gapMins ?? 120,
-                        weekdays: getReminderWeekdays(),
-                        enabled: true,
-                      });
-                      const timeList = preview.reminders.map(r => formatReminderTime(r.hour, r.minute)).join(', ');
-                      return (
-                        <View>
-                          <Text style={[styles.reminderSubtext, { color: colors.secondaryText }]}>
-                            {repeatCount > 1 && gapMins
-                              ? `🔔 Reminds ${preview.reminders.length}x/day (every ${formatGapLabel(gapMins)}): ${timeList}`
-                              : `🔔 Will remind daily at ${timeList}`}
-                          </Text>
-                          {preview.truncatedBeforeMidnight ? (
-                            <Text style={[styles.reminderSubtext, { color: colors.error }]}>
-                              Only {preview.reminders.length} of {repeatCount} reminders fit before midnight. Choose an earlier start time or shorter gap.
-                            </Text>
-                          ) : null}
-                        </View>
-                      );
-                    })()}
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
 
             {/* CATEGORIES Row (Image 3 style) */}
             <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>CATEGORIES</Text>
@@ -951,6 +632,17 @@ export const CreateHabitModal = ({
           </View>
         </View>
       </View>
+
+      <HabitReminderModal
+        visible={reminderModalVisible}
+        reminders={reminders}
+        defaultWeekdays={getReminderWeekdays()}
+        accentColor={selectedColor}
+        onClose={updated => {
+          setReminders(updated);
+          setReminderModalVisible(false);
+        }}
+      />
     </Modal>
   );
 };

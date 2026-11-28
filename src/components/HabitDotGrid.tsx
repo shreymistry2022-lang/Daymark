@@ -12,6 +12,7 @@ interface HabitDotGridProps {
   dotSize?: number;
   dotGap?: number;
   showMonthLabels?: boolean;
+  showWeekdayLabels?: boolean;
   mode?: 'heatmap' | 'month';
 }
 
@@ -26,6 +27,7 @@ export const HabitDotGrid = React.memo(({
   dotSize = 9,
   dotGap = 3,
   showMonthLabels = false,
+  showWeekdayLabels = false,
   mode = 'heatmap',
 }: HabitDotGridProps) => {
   const todayRef = useMemo(() => parseLocalDate(todayDateStr) ?? new Date(), [todayDateStr]);
@@ -109,7 +111,7 @@ export const HabitDotGrid = React.memo(({
   return (
     <View>
       {showMonthLabels ? (
-        <View style={{ flexDirection: 'row', gap: dotGap, marginBottom: 4 }}>
+        <View style={{ flexDirection: 'row', gap: dotGap, marginBottom: 4, paddingLeft: showWeekdayLabels ? 28 : 0 }}>
           {weekColumns.map((col, idx) => (
             <View key={idx} style={{ width: dotSize, overflow: 'visible' }}>
               {col.monthLabel ? (
@@ -121,27 +123,40 @@ export const HabitDotGrid = React.memo(({
           ))}
         </View>
       ) : null}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: dotGap }}>
-        {weekColumns.map((col, wIdx) => (
-          <View key={wIdx} style={{ gap: dotGap }}>
-            {col.dates.map(dateStr => {
-              const isFuture = dateStr > todayDateStr;
-              const done = !isFuture && getHabitDayStatus(habit, dateStr, todayRef) === 'completed';
-              return (
-                <View
-                  key={dateStr}
-                  style={{
-                    width: dotSize,
-                    height: dotSize,
-                    borderRadius: Math.max(2, Math.round(dotSize * 0.32)),
-                    backgroundColor: done ? habit.color : emptyDotColor,
-                    opacity: isFuture ? 0.35 : 1,
-                  }}
-                />
-              );
-            })}
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+        {showWeekdayLabels ? (
+          <View style={{ width: 24, marginRight: 4, gap: dotGap }}>
+            {['', 'Tue', '', 'Thu', '', 'Sat', ''].map((dayLabel, idx) => (
+              <View key={idx} style={{ height: dotSize, justifyContent: 'center' }}>
+                {dayLabel ? (
+                  <Text style={{ fontSize: 9, fontWeight: '600', color: mutedTextColor }}>{dayLabel}</Text>
+                ) : null}
+              </View>
+            ))}
           </View>
-        ))}
+        ) : null}
+        <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', gap: dotGap }}>
+          {weekColumns.map((col, wIdx) => (
+            <View key={wIdx} style={{ gap: dotGap }}>
+              {col.dates.map(dateStr => {
+                const isFuture = dateStr > todayDateStr;
+                const done = !isFuture && getHabitDayStatus(habit, dateStr, todayRef) === 'completed';
+                return (
+                  <View
+                    key={dateStr}
+                    style={{
+                      width: dotSize,
+                      height: dotSize,
+                      borderRadius: Math.max(2, Math.round(dotSize * 0.32)),
+                      backgroundColor: done ? habit.color : emptyDotColor,
+                      opacity: isFuture ? 0.35 : 1,
+                    }}
+                  />
+                );
+              })}
+            </View>
+          ))}
+        </View>
       </View>
     </View>
   );
