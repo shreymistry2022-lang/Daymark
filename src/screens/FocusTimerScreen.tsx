@@ -9,6 +9,7 @@ import {
   Modal,
   Alert,
   Platform,
+  TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -187,6 +188,9 @@ export const FocusTimerScreen = () => {
   const [selectedHabitId, setSelectedHabitId] = useState<string | null>(habits[0]?.id ?? null);
   const [habitPickerVisible, setHabitPickerVisible] = useState(false);
   const [targetMinutes, setTargetMinutes] = useState<number>(30);
+  const [customModalVisible, setCustomModalVisible] = useState(false);
+  const [customMinutesInput, setCustomMinutesInput] = useState('40');
+  const [customError, setCustomError] = useState('');
 
   const [countdownRemainingMs, setCountdownRemainingMs] = useState<number>(30 * 60 * 1000);
   const [stopwatchElapsedMs, setStopwatchElapsedMs] = useState<number>(0);
@@ -357,6 +361,33 @@ export const FocusTimerScreen = () => {
     }
   };
 
+  const openCustomDurationModal = () => {
+    if (isRunning) return;
+    setCustomMinutesInput(String(targetMinutes));
+    setCustomError('');
+    setCustomModalVisible(true);
+  };
+
+  const handleConfirmCustomDuration = () => {
+    const parsed = Math.round(Number(customMinutesInput.trim()));
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > 360) {
+      setCustomError('Enter a duration between 1 and 360 minutes.');
+      return;
+    }
+    setTargetMinutes(parsed);
+    setCountdownRemainingMs(parsed * 60 * 1000);
+    setCustomError('');
+    setCustomModalVisible(false);
+  };
+
+  const adjustCustomMinutes = (delta: number) => {
+    const current = Number(customMinutesInput.trim());
+    const base = Number.isFinite(current) && current > 0 ? current : targetMinutes;
+    const next = Math.max(1, Math.min(360, Math.round(base + delta)));
+    setCustomMinutesInput(String(next));
+    setCustomError('');
+  };
+
   const activeMs = timerMode === 'Countdown' ? countdownRemainingMs : stopwatchElapsedMs;
   const totalSec = Math.floor(activeMs / 1000);
   const displayMins = Math.floor(totalSec / 60);
@@ -468,7 +499,12 @@ export const FocusTimerScreen = () => {
               <Text style={[styles.timerMicroDigits, { color: activeAccent }]}>.{microStr}</Text>
             </View>
 
-            <View style={styles.targetMetaRow}>
+            <TouchableOpacity
+              disabled={timerMode !== 'Countdown' || isRunning}
+              activeOpacity={0.7}
+              onPress={openCustomDurationModal}
+              style={styles.targetMetaRow}
+            >
               <Ionicons
                 name={timerMode === 'Countdown' ? 'stopwatch-outline' : 'infinite-outline'}
                 size={15}
@@ -477,10 +513,10 @@ export const FocusTimerScreen = () => {
               <Text style={[styles.targetMetaText, { color: colors.secondaryText }]}>
                 {timerMode === 'Countdown' ? `${targetMinutes}m goal` : 'Stopwatch'}
               </Text>
-            </View>
+            </TouchableOpacity>
           </CircularProgressRing>
 
-          {/* Preset Duration Pills inside Dial Card */}
+          {/* Preset Duration Pills + Custom Pill inside Dial Card */}
           {timerMode === 'Countdown' && !isRunning && (
             <View style={styles.presetsRow}>
               {DURATION_PRESETS.map(mins => {
@@ -505,6 +541,39 @@ export const FocusTimerScreen = () => {
                   </TouchableOpacity>
                 );
               })}
+              {(() => {
+                const isCustomSelected = !DURATION_PRESETS.includes(targetMinutes);
+                return (
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Set custom countdown timer"
+                    accessibilityState={{ selected: isCustomSelected }}
+                    onPress={openCustomDurationModal}
+                    style={[
+                      styles.presetPill,
+                      styles.customPresetPill,
+                      {
+                        backgroundColor: isCustomSelected ? activeAccent : colors.secondaryBackground,
+                        borderColor: isCustomSelected ? activeAccent : colors.border,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="options-outline"
+                      size={13}
+                      color={isCustomSelected ? '#FFFFFF' : colors.secondaryText}
+                    />
+                    <Text
+                      style={[
+                        styles.presetPillText,
+                        { color: isCustomSelected ? '#FFFFFF' : colors.secondaryText },
+                      ]}
+                    >
+                      {isCustomSelected ? `${targetMinutes}m` : 'Custom'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })()}
             </View>
           )}
         </View>
@@ -665,6 +734,125 @@ export const FocusTimerScreen = () => {
                 )}
               </View>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Minimalist Custom Duration Modal Sheet */}
+      <Modal
+        visible={customModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setCustomModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <TouchableOpacity
+            style={styles.modalDismiss}
+            activeOpacity={1}
+            onPress={() => setCustomModalVisible(false)}
+          />
+          <View
+            style={[
+              styles.modalSheet,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                paddingBottom: insets.bottom + spacing.md,
+              },
+            ]}
+          >
+            <View style={styles.sheetHandleRow}>
+              <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+            </View>
+            <View style={styles.sheetHeader}>
+              <TouchableOpacity
+                accessibilityLabel="Close custom timer"
+                onPress={() => setCustomModalVisible(false)}
+                style={[styles.circleCloseBtn, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
+              >
+                <Ionicons name="close" size={18} color={colors.primaryText} />
+              </TouchableOpacity>
+              <Text style={[styles.sheetTitle, { color: colors.primaryText }]}>Custom Timer</Text>
+              <View style={styles.sheetSpacer} />
+            </View>
+
+            <Text style={[styles.customLabel, { color: colors.mutedText }]}>MINUTES (1 – 360)</Text>
+            <View style={styles.customStepperRow}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Subtract 5 minutes"
+                onPress={() => adjustCustomMinutes(-5)}
+                style={[styles.stepBtn, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
+              >
+                <Text style={[styles.stepBtnText, { color: colors.primaryText }]}>-5</Text>
+              </TouchableOpacity>
+
+              <TextInput
+                accessibilityLabel="Custom timer minutes"
+                value={customMinutesInput}
+                onChangeText={val => {
+                  setCustomMinutesInput(val.replace(/[^\d]/g, ''));
+                  setCustomError('');
+                }}
+                keyboardType="number-pad"
+                maxLength={3}
+                placeholder="40"
+                placeholderTextColor={colors.mutedText}
+                style={[
+                  styles.customInput,
+                  {
+                    color: colors.primaryText,
+                    backgroundColor: colors.secondaryBackground,
+                    borderColor: colors.border,
+                  },
+                ]}
+              />
+
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Add 5 minutes"
+                onPress={() => adjustCustomMinutes(5)}
+                style={[styles.stepBtn, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
+              >
+                <Text style={[styles.stepBtnText, { color: colors.primaryText }]}>+5</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.customQuickRow}>
+              {[5, 10, 20, 50, 90, 120].map(mins => {
+                const active = Number(customMinutesInput) === mins;
+                return (
+                  <TouchableOpacity
+                    key={mins}
+                    onPress={() => {
+                      setCustomMinutesInput(String(mins));
+                      setCustomError('');
+                    }}
+                    style={[
+                      styles.presetPill,
+                      {
+                        backgroundColor: active ? activeAccent : colors.secondaryBackground,
+                        borderColor: active ? activeAccent : colors.border,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.presetPillText, { color: active ? '#FFFFFF' : colors.secondaryText }]}>
+                      {mins}m
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {!!customError && <Text style={[styles.customErrorText, { color: colors.error }]}>{customError}</Text>}
+
+            <TouchableOpacity
+              accessibilityRole="button"
+              onPress={handleConfirmCustomDuration}
+              style={[styles.setCustomBtn, { backgroundColor: activeAccent }]}
+            >
+              <Text style={styles.setCustomBtnText}>Set Timer</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -966,5 +1154,64 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 1.5,
+  },
+  customPresetPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  customLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  customStepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+  },
+  stepBtn: {
+    width: 56,
+    height: 52,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepBtnText: { fontSize: 15, fontWeight: '700' },
+  customInput: {
+    flex: 1,
+    height: 52,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    textAlign: 'center',
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  customQuickRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
+  customErrorText: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  setCustomBtn: {
+    height: 50,
+    borderRadius: radii.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  setCustomBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });
