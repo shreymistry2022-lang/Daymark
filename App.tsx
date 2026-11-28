@@ -1,6 +1,6 @@
 // App.tsx
 import React, { Component, ErrorInfo, ReactNode, useEffect, useState } from 'react';
-import { Alert, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, AppState, Text, TouchableOpacity, View } from 'react-native';
 import * as Updates from 'expo-updates';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
@@ -17,6 +17,7 @@ import { NotificationPermissionModal } from './src/components/NotificationPermis
 import { BrandOpeningScreen } from './src/components/BrandOpeningScreen';
 import { checkNotificationPermissionStatus, setupNotificationChannelsAsync, subscribeToReminderAlerts } from './src/services/localReminders';
 import { checkForAppUpdates } from './src/services/updateService';
+import { maybeRunDailyGoogleDriveBackup } from './src/services/googleDriveBackup';
 import { SubscriptionProvider } from './src/services/SubscriptionProvider';
 import { RoutinesProvider } from './src/services/RoutinesContext';
 import { GoalsProvider } from './src/services/GoalsContext';
@@ -81,6 +82,7 @@ function RootNavigator() {
     isLoadingData,
     isCelebrationVisible,
     dismissCelebration,
+    exportDataJson,
     stats,
   } = useHabits();
   const { isDark, colors } = useTheme();
@@ -104,6 +106,17 @@ function RootNavigator() {
     }, 2500);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (isLoadingData) return;
+    void maybeRunDailyGoogleDriveBackup(exportDataJson);
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') {
+        void maybeRunDailyGoogleDriveBackup(exportDataJson);
+      }
+    });
+    return () => sub.remove();
+  }, [isLoadingData, exportDataJson]);
 
   useEffect(() => {
     let active = true;

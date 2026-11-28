@@ -1,6 +1,7 @@
 // src/components/BackupRestoreModal.tsx
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   ScrollView,
@@ -16,6 +17,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useHabits } from '../services/HabitContext';
 import { radii, spacing } from '../theme/tokens';
+import {
+  backupNowToGoogleDrive,
+  connectAndBackupToGoogleDrive,
+  disconnectGoogleDrive,
+  getGoogleDriveState,
+  GoogleDriveBackupState,
+  restoreFromGoogleDrive,
+} from '../services/googleDriveBackup';
 
 const LOCAL_BACKUP_KEY = '@daymark_local_backup_snapshot_v1';
 
@@ -41,19 +50,23 @@ export const BackupRestoreModal = ({
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const { allHabits, exportDataJson, importHabitsJson } = useHabits();
+  const [driveState, setDriveState] = useState<GoogleDriveBackupState>({
+    enabled: false,
+    email: null,
+    lastBackupAt: null,
+  });
+  const [driveBusy, setDriveBusy] = useState(false);
   const [snapshotMeta, setSnapshotMeta] = useState<BackupSnapshotMeta | null>(null);
   const [showRestorePanel, setShowRestorePanel] = useState(false);
   const [pastedJson, setPastedJson] = useState('');
 
   useEffect(() => {
     if (!visible) return;
+    void getGoogleDriveState().then(setDriveState);
     AsyncStorage.getItem(LOCAL_BACKUP_KEY)
       .then(raw => {
-        if (raw) {
-          setSnapshotMeta(JSON.parse(raw) as BackupSnapshotMeta);
-        } else {
-          setSnapshotMeta(null);
-        }
+        if (raw) setSnapshotMeta(JSON.parse(raw) as BackupSnapshotMeta);
+        else setSnapshotMeta(null);
       })
       .catch(() => setSnapshotMeta(null));
   }, [visible]);
@@ -62,6 +75,73 @@ export const BackupRestoreModal = ({
     setShowRestorePanel(false);
     setPastedJson('');
     onClose();
+  };
+
+  const handleTurnOnDrive = async () => {
+    setDriveBusy(true);
+    const res = await connectAndBackupToGoogleDrive(exportDataJson());
+    setDriveBusy(false);
+    setDriveState(res.state);
+    if (res.cancelled) return;
+    if (res.error) {
+      Alert.alert('Google Drive Backup', res.error);
+      return;
+    }
+    Alert.alert(
+      'Google Drive Backup Enabled',
+      `Backed up ${allHabits.length} habit${allHabits.length === 1 ? '' : 's'} to ${res.state.email ?? 'Google Drive'}. Daymark will now back up once a day.`
+    );
+  };
+
+  const handleDriveBackupNow = async () => {
+    setDriveBusy(true);
+    const res = await backupNowToGoogleDrive(exportDataJson());
+    setDriveBusy(false);
+    setDriveState(res.state);
+    if (res.error) {
+      Alert.alert('Backup Failed', res.error);
+      return;
+    }
+    Alert.alert('Backup Complete', 'Your habits are backed up to Google Drive.');
+  };
+
+  const handleTurnOffDrive = () => {
+    Alert.alert(
+      'Turn off Google Drive backup?',
+      'Your existing backup file in Google Drive will stay safe, but automatic daily backups will stop.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Turn Off',
+          style: 'destructive',
+          onPress: async () => {
+            const next = await disconnectGoogleDrive();
+            setDriveState(next);
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRestoreDrive = async () => {
+    setDriveBusy(true);
+    const res = await restoreFromGoogleDrive();
+    setDriveBusy(false);
+    if (res.cancelled) return;
+    if (res.error || !res.payload) {
+      Alert.alert('Restore from Google Drive', res.error || 'No backup found.');
+      return;
+    }
+    const imported = importHabitsJson(res.payload);
+    if (imported.error) {
+      Alert.alert('Restore Failed', imported.error);
+      return;
+    }
+    Alert.alert(
+      'Backup Restored',
+      `Restored ${imported.count ?? 0} habit${imported.count === 1 ? '' : 's'} from ${res.email ?? 'Google Drive'}.`
+    );
+    setShowRestorePanel(false);
   };
 
   const handleSaveLocalBackup = async () => {
@@ -75,7 +155,7 @@ export const BackupRestoreModal = ({
       await AsyncStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify(meta));
       setSnapshotMeta(meta);
       Alert.alert(
-        'Backup Saved',
+        'Device Backup Saved',
         `Saved ${allHabits.length} habit${allHabits.length === 1 ? '' : 's'} to this device.`
       );
     } catch {
@@ -110,6 +190,15 @@ export const BackupRestoreModal = ({
     setShowRestorePanel(false);
   };
 
+  const formattedDriveDate = driveState.lastBackupAt
+    ? new Date(driveState.lastBackupAt).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : null;
+
   const formattedSnapshotDate = snapshotMeta
     ? new Date(snapshotMeta.savedAt).toLocaleString(undefined, {
         month: 'short',
@@ -142,33 +231,76 @@ export const BackupRestoreModal = ({
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Top Hero Card: Back up your habits */}
+          {/* Top Hero Card: Back up your habits (matches HabitKit screenshot) */}
           <View style={[styles.heroCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.heroTopRow}>
               <View style={[styles.heroIconBox, { backgroundColor: colors.secondaryBackground }]}>
-                <Ionicons name="cloud-upload-outline" size={22} color={colors.secondaryText} />
+                <Ionicons
+                  name={driveState.enabled ? 'cloud-done-outline' : 'cloud-upload-outline'}
+                  size={22}
+                  color={driveState.enabled ? '#10B981' : colors.secondaryText}
+                />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.heroTitle, { color: colors.primaryText }]}>Back up your habits</Text>
-                <Text style={[styles.heroSub, { color: colors.secondaryText }]}>
-                  Save a snapshot on this device or export a copy anytime, so switching phones never means starting over.
+                <Text style={[styles.heroTitle, { color: colors.primaryText }]}>
+                  {driveState.enabled ? 'Google Drive backup is on' : 'Back up your habits'}
                 </Text>
-                {formattedSnapshotDate && (
+                <Text style={[styles.heroSub, { color: colors.secondaryText }]}>
+                  {driveState.enabled
+                    ? `Backing up once a day to ${driveState.email ?? 'your Google Drive'}.`
+                    : 'Daymark backs up to Google Drive once a day, so a new device never means starting over.'}
+                </Text>
+                {formattedDriveDate && (
                   <Text style={[styles.lastBackupText, { color: colors.accent }]}>
-                    Last device backup: {formattedSnapshotDate} ({snapshotMeta?.totalHabits ?? 0} habits)
+                    Last Google Drive backup: {formattedDriveDate}
                   </Text>
                 )}
               </View>
             </View>
 
-            <TouchableOpacity
-              activeOpacity={0.85}
-              style={[styles.heroPillBtn, { backgroundColor: colors.accent }]}
-              onPress={() => void handleSaveLocalBackup()}
-            >
-              <Ionicons name="cloud-upload-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.heroPillText}>Save device backup</Text>
-            </TouchableOpacity>
+            {driveState.enabled ? (
+              <View style={styles.driveActionsRow}>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  disabled={driveBusy}
+                  style={[styles.heroPillBtn, { flex: 1, backgroundColor: colors.accent }]}
+                  onPress={() => void handleDriveBackupNow()}
+                >
+                  {driveBusy ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons name="cloud-upload-outline" size={18} color="#FFFFFF" />
+                      <Text style={styles.heroPillText}>Back up now</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  disabled={driveBusy}
+                  style={[styles.turnOffBtn, { borderColor: colors.border, backgroundColor: colors.secondaryBackground }]}
+                  onPress={handleTurnOffDrive}
+                >
+                  <Text style={[styles.turnOffText, { color: colors.secondaryText }]}>Turn off</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                disabled={driveBusy}
+                style={[styles.heroPillBtn, { backgroundColor: colors.accent }]}
+                onPress={() => void handleTurnOnDrive()}
+              >
+                {driveBusy ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="cloud-outline" size={18} color="#FFFFFF" />
+                    <Text style={styles.heroPillText}>Turn on Google Drive backup</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* RESTORE Section */}
@@ -184,7 +316,7 @@ export const BackupRestoreModal = ({
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowTitle, { color: colors.primaryText }]}>Restore a backup</Text>
               <Text style={[styles.rowSub, { color: colors.secondaryText }]}>
-                From this device or a JSON backup
+                From Google Drive, this device or a file
               </Text>
             </View>
             <Ionicons
@@ -196,28 +328,53 @@ export const BackupRestoreModal = ({
 
           {showRestorePanel && (
             <View style={[styles.restorePanel, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <TouchableOpacity
+                style={[styles.driveRestoreBtn, { backgroundColor: '#10B981' }]}
+                onPress={() => void handleRestoreDrive()}
+                disabled={driveBusy}
+                activeOpacity={0.85}
+              >
+                {driveBusy ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="logo-google" size={16} color="#FFFFFF" />
+                    <Text style={styles.driveRestoreBtnText}>Restore from Google Drive</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
               {snapshotMeta ? (
                 <View style={[styles.snapshotBox, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.snapshotTitle, { color: colors.primaryText }]}>Device Snapshot Available</Text>
+                    <Text style={[styles.snapshotTitle, { color: colors.primaryText }]}>Device Snapshot</Text>
                     <Text style={[styles.snapshotSub, { color: colors.secondaryText }]}>
                       {formattedSnapshotDate} · {snapshotMeta.totalHabits} habits
                     </Text>
                   </View>
                   <TouchableOpacity
-                    style={[styles.smallBtn, { backgroundColor: '#10B981' }]}
+                    style={[styles.smallBtn, { backgroundColor: colors.accent }]}
                     onPress={handleRestoreSnapshot}
                   >
                     <Text style={styles.smallBtnText}>Restore</Text>
                   </TouchableOpacity>
                 </View>
               ) : (
-                <Text style={[styles.emptySnapshotText, { color: colors.mutedText }]}>
-                  No device snapshot saved yet. Tap &ldquo;Save device backup&rdquo; above or paste an exported JSON below.
-                </Text>
+                <TouchableOpacity
+                  style={[styles.snapshotBox, { backgroundColor: colors.secondaryBackground, borderColor: colors.border }]}
+                  onPress={() => void handleSaveLocalBackup()}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.snapshotTitle, { color: colors.primaryText }]}>Save a Device Snapshot</Text>
+                    <Text style={[styles.snapshotSub, { color: colors.secondaryText }]}>
+                      Store a local restore point on this phone
+                    </Text>
+                  </View>
+                  <Ionicons name="save-outline" size={18} color={colors.accent} />
+                </TouchableOpacity>
               )}
 
-              <Text style={[styles.pasteLabel, { color: colors.secondaryText }]}>PASTE EXPORTED JSON</Text>
+              <Text style={[styles.pasteLabel, { color: colors.secondaryText }]}>OR PASTE EXPORTED JSON</Text>
               <TextInput
                 multiline
                 value={pastedJson}
@@ -244,7 +401,7 @@ export const BackupRestoreModal = ({
           )}
 
           <Text style={[styles.helperCaption, { color: colors.mutedText }]}>
-            New phone or tablet? Export your copy on your old device and paste or restore it here.
+            New phone or tablet? Install Daymark, tap Restore a backup and choose the Google account you backed up with.
           </Text>
 
           {/* YOUR OWN COPY Section */}
@@ -259,8 +416,8 @@ export const BackupRestoreModal = ({
                 <Ionicons name="document-text-outline" size={19} color={colors.accent} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.rowTitle, { color: colors.primaryText }]}>Export a copy (JSON)</Text>
-                <Text style={[styles.rowSub, { color: colors.secondaryText }]}>Save a file anywhere you like</Text>
+                <Text style={[styles.rowTitle, { color: colors.primaryText }]}>Export a copy</Text>
+                <Text style={[styles.rowSub, { color: colors.secondaryText }]}>Save a JSON file anywhere you like</Text>
               </View>
               <Ionicons name="share-outline" size={18} color={colors.mutedText} />
             </TouchableOpacity>
@@ -334,6 +491,20 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   heroPillText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  driveActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  turnOffBtn: {
+    height: 48,
+    paddingHorizontal: 18,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  turnOffText: { fontSize: 14, fontWeight: '700' },
   sectionLabel: {
     fontSize: 11,
     fontWeight: '700',
@@ -383,6 +554,15 @@ const styles = StyleSheet.create({
     marginTop: 8,
     gap: 12,
   },
+  driveRestoreBtn: {
+    height: 44,
+    borderRadius: radii.full,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  driveRestoreBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   snapshotBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -399,7 +579,6 @@ const styles = StyleSheet.create({
     borderRadius: radii.full,
   },
   smallBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-  emptySnapshotText: { fontSize: 12, lineHeight: 17 },
   pasteLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8 },
   jsonInput: {
     borderRadius: radii.md,
